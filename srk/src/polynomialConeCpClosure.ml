@@ -1,20 +1,6 @@
 open Polynomial
 open PolynomialUtil
 
-(**
-   Algorithm:
-   Given polynomial cone C = (Z, P) and polynomial lattice L:
-
-   - [cutting_plane_closure L C]:
-     - Check if the ideal is the whole ring.
-     - Compute basis B = { b_0 = 1, b_1, ..., b_n} for lattice L.
-     - Compute context for L and C assigning monomials to set X of dimensions.
-     - Compute transformation data containing fresh variables Y disjoint from X.
-     - Expand cone.
-     - Compute context for L, C, Y to embed polynomial cone into QQ Y.
-     - Compute cut.
- *)
-
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 
 module MonomialSet = BatSet.Make(Monomial)
@@ -53,8 +39,10 @@ let zzvector_to_qqvector vec =
     Linear.QQVector.zero
     (Linear.ZZVector.enum vec)
 
-(** Denominator, and the basis polynomials not equal to 1 (1 is implicit) *)
-type polylattice = ZZ.t * QQXs.t list
+(** Denominator, the constant polynomial, and the other basis polynomials. 
+    Note that the constant polynomial is not necessarily 1.
+*)
+type polylattice = ZZ.t * QQXs.t * QQXs.t list
 
 (** [lattice_spanned_by polys] computes Hermite Normal Form basis
     { (1/d) b_0 = (1/d) 1, (1/d) b_1, ..., (1/d) b_n } for the lattice spanned
@@ -69,21 +57,30 @@ let lattice_spanned_by polys : polylattice =
   let vectors =
     List.map (PolyVectorConversion.poly_to_vector ctxt) polys in
   let (denom, basis) = IntLattice.basis (IntLattice.lattice_of vectors) in
-  let (one, others) =
+  let (constant, others) =
     List.partition
-      (fun v -> Linear.QQVector.equal (zzvector_to_qqvector v)
-                  (Linear.const_linterm QQ.one))
+      (fun v ->
+        let r = Linear.ZZVector.coeff Linear.const_dim v in
+        Linear.QQVector.equal (zzvector_to_qqvector v)
+                  (Linear.const_linterm (QQ.of_zz r)))
       basis
   in
-  if (List.length one <> 1) then
-    invalid_arg "lattice_spanned_by: 1 is not in Hermite Normal Form basis"
+  if (List.length constant <> 1) then
+    Log.fatalf
+      "@[<v 0>lattice_spanned_by: constant polynomial is not in Hermite Normal Form basis:@;denominator = %a;@;vectors are: @[%a@]@]"
+      ZZ.pp denom
+      (Format.pp_print_list ~pp_sep:Format.pp_print_cut Linear.ZZVector.pp)
+      others
   else
     ();
+  let constant_poly = zzvector_to_qqvector (List.hd constant)
+                      |> PolyVectorConversion.vector_to_poly ctxt
+  in
   let basis_polys =
     List.map (fun v -> zzvector_to_qqvector v
                        |> PolyVectorConversion.vector_to_poly ctxt)
       others in
-  (denom, basis_polys)
+  (denom, constant_poly, basis_polys)
 
 type transformation_data =
   (* Pairs are s.t. the first component is for the polynomial 1, and the second
@@ -117,7 +114,7 @@ let pp_transformation_data pp_dim fmt transformation_data =
     and the rewrite polynomials { f_i = y_i - b_i : 0 <= i <= n }.
 *)
 let compute_transformation lattice ctxt : transformation_data =
-  let (denom, lattice) = lattice in
+  let (denom, constant, lattice) = lattice in
   let rescale poly = QQXs.scalar_mul (QQ.inverse (QQ.of_zz denom)) poly in
   let fresh_start = Option.value ~default:0 (PolyVectorContext.max_dimension ctxt) + 1 in
 
@@ -134,7 +131,12 @@ let compute_transformation lattice ctxt : transformation_data =
     (fun i -> if i = dim then rescale basis_poly else substitution i) in
 
   let codomain_one = fresh_start in
-  let rewrite_one = transformation_poly codomain_one QQXs.one in
+  let rewrite_one =
+    let constant_coeff = QQXs.coeff (Monomial.singleton Linear.const_dim 1)
+                           constant in
+    QQXs.sub (QQXs.scalar_mul constant_coeff (QQXs.of_dim codomain_one))
+      constant
+  in
   let identity_subst = fun i -> QQXs.of_dim i in
   let substitute_one = adjoin identity_subst codomain_one QQXs.one in
 
@@ -265,14 +267,14 @@ let cutting_plane_closure lattice polynomial_cone =
   if is_full_ring then
     polynomial_cone (* cutting plane closure is itself *)
   else
-    let (denom, basis) = lattice_spanned_by lattice in
+    let polylattice = lattice_spanned_by lattice in
     let (zeroes, positives) =
       ( Rewrite.generators ideal
       , PolynomialCone.get_cone_generators polynomial_cone) in
     let ctxt_x = monomials_in (List.append zeroes positives)
                  |> MonomialSet.to_list
                  |> context_of in
-    let transform = compute_transformation (denom, basis) ctxt_x in
+    let transform = compute_transformation polylattice ctxt_x in
     let expanded_cone = expand_cone polynomial_cone transform in
     let (expanded_zeroes, expanded_positives) =
       ( Rewrite.generators (PolynomialCone.get_ideal expanded_cone)

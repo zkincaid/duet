@@ -8,3 +8,28 @@
  *)
 val cutting_plane_closure :
   Polynomial.QQXs.t list -> PolynomialCone.t -> PolynomialCone.t
+
+(* Export temporarily for testing *)
+
+open Polynomial
+open PolynomialUtil
+
+(** Denominator, and the basis polynomials not equal to 1 (1 is implicit) *)
+type polylattice = ZZ.t * QQXs.t * QQXs.t list
+  
+val lattice_spanned_by : QQXs.t list -> polylattice
+
+type transformation_data
+
+val pp_transformation_data : (Format.formatter -> int -> unit)
+                             -> Format.formatter -> transformation_data -> unit
+
+val compute_transformation : polylattice -> PolyVectorContext.t -> transformation_data
+
+val compute_cut : PolyVectorContext.t -> transformation_data ->
+                  QQXs.t list -> QQXs.t list -> (QQXs.t list * QQXs.t list)
+
+                                          
+
+                                 
+                                   
