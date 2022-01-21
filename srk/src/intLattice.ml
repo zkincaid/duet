@@ -1,9 +1,16 @@
-
 open Normalizffi
+
+module L = Log.Make(struct let name = "intLattice" end)
 
 type dim_idx_bijection = { dim_to_idx : int SrkUtil.Int.Map.t
                          ; idx_to_dim : int SrkUtil.Int.Map.t
                          }
+
+let pp_bijection fmt bijection =
+  Format.fprintf fmt "@[{ dim_to_idx: @[%a@] }@]"
+    (SrkUtil.pp_print_enum
+       (fun fmt (dim, idx) -> Format.fprintf fmt "(dim=%d, idx=%d)" dim idx))
+    (SrkUtil.Int.Map.enum bijection.dim_to_idx)
 
 (** A lattice is represented as a matrix 1/d B,
     where B is in a row Hermite normal form
@@ -14,8 +21,6 @@ type t = { sparse_rep: Linear.ZZVector.t list
          ; denominator : ZZ.t
          ; dimension_indices : dim_idx_bijection
          }
-
-module L = Log.Make(struct let name = "intLattice" end)
 
 let dims_and_lcm_denoms vectors =
   let dims_and_lcm_denoms' v =
@@ -33,17 +38,17 @@ let dims_and_lcm_denoms vectors =
 (* Return a bijection between dimensions and (array) indices,
    and the cardinality of dimensions.
 *)
-let assign_indices dimensions =
-  SrkUtil.Int.Set.fold (fun dim (bij, curr) ->
+let assign_indices ordering dimensions =
+  let dims = SrkUtil.Int.Set.elements dimensions |> BatList.sort ordering in
+  List.fold_left (fun (bij, curr) dim ->
       ({ dim_to_idx = SrkUtil.Int.Map.add dim curr bij.dim_to_idx
        ; idx_to_dim = SrkUtil.Int.Map.add curr dim bij.idx_to_dim
        },
        curr + 1)
     )
-    dimensions
     ({ dim_to_idx = SrkUtil.Int.Map.empty
-     ; idx_to_dim = SrkUtil.Int.Map.empty },
-     0)
+     ; idx_to_dim = SrkUtil.Int.Map.empty }, 0)
+    dims
 
 let densify_and_zzify length dim_to_idx denom_to_clear vector =
   BatEnum.fold
@@ -81,9 +86,11 @@ let hermite_normal_form matrix =
   Flint.hermitize mat;
   Flint.zz_matrix_of_matrix mat
 
-let lattice_of vectors =
+let rev_compare x y = - Int.compare x y
+
+let lattice_of ?(ordering=rev_compare) vectors =
   let (dimensions, lcm) = dims_and_lcm_denoms vectors in
-  let (bijection, length) = assign_indices dimensions in
+  let (bijection, length) = assign_indices ordering dimensions in
   let generators = List.map (fun v ->
                        v
                        |> densify_and_zzify length bijection.dim_to_idx lcm
@@ -92,6 +99,9 @@ let lattice_of vectors =
                    |> hermite_normal_form
                    |> List.map Array.of_list
   in
+  L.logf ~level:`debug "@[lattice_of: dimensions-to-indices: %a@]"
+    pp_bijection bijection;
+
   { sparse_rep = List.map (sparsify bijection.idx_to_dim) generators
   ; dense_rep = generators
   ; denominator = lcm
