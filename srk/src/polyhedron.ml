@@ -588,6 +588,7 @@ module NormalizCone = struct
           let (new_dims, lcm_denom) =
             BatEnum.fold (fun (dims, lcm) (coeff, dim) ->
                 (S.add dim dims, ZZ.lcm lcm (QQ.denominator coeff)))
+              (* 1 >= 0 is explicitly added *)
               (dims, ZZ.one) (Linear.QQVector.enum v) in
           match kind with
           | `Zero -> ((lcm_denom, v) :: equalities, inequalities, new_dims)
