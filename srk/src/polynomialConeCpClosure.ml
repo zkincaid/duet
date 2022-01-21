@@ -5,30 +5,6 @@ open PolynomialUtil
    Algorithm:
    Given polynomial cone C = (Z, P) and polynomial lattice L:
 
-   - [lattice_spanned_by]:
-     - Compute basis B = {b_0 = 1, b_1, ..., b_n} of L in Hermite Normal Form.
-
-   - [context_of]:
-     - Compute context consisting of a bijection between the set of monomials
-       that occur in C and L and a set X of dimensions.
-
-   - [compute_transformation_data]:
-     - Compute fresh dimensions Y = y_0, ..., y_n, with y_0 corresponding to 1.
-     - Compute the substitution y_i |-> b_i.
-     - Compute the rewrite polynomial f_i = y_i - b_i.
-
-   - [expand_cone]:
-     - Adjoin the rewrite polynomials {y_i - b_i : 0 <= i <= n} to the zeros of
-       the polynomial cone, compute a Groebner basis for the new ideal,
-       and reduce the positives with respect to the basis.
-
-   - [compute_cut]:
-     - Convert to polyhedra and intersect with QQ Y.
-     - Substitute 1 for y_0 throughout.
-     - Compute integral hull.
-     - Convert back to polynomials and do the substitution y_i |-> b_i.
-     - Take the union with the original cone.
-
    - [cutting_plane_closure L C]:
      - Check if the ideal is the whole ring.
      - Compute basis B = { b_0 = 1, b_1, ..., b_n} for lattice L.
@@ -51,6 +27,10 @@ let monomials_in polys =
   List.fold_left (fun s p -> MonomialSet.union s (monomials_in p))
     MonomialSet.empty polys
 
+(**
+   [context_of monomials] computes conversion context consisting of a
+   bijection between the set of monomials and a set X of dimensions.
+ *)
 let context_of monomials =
   (* TODO: Verify that reverse lexicographic + increasing means that the
      fresh monomials y0, y1, ... introduced in the construction of the linear
@@ -76,7 +56,11 @@ let zzvector_to_qqvector vec =
 (** Denominator, and the basis polynomials not equal to 1 (1 is implicit) *)
 type polylattice = ZZ.t * QQXs.t list
 
-(** Compute basis for the lattice spanned by polys AND the polynomial 1 *)
+(** [lattice_spanned_by polys] computes Hermite Normal Form basis
+    { (1/d) b_0 = (1/d) 1, (1/d) b_1, ..., (1/d) b_n } for the lattice spanned
+    by [polys] AND the polynomial 1, and returns (d, (b_1, ..., b_n)).
+    Note that b_0 = 1 is omitted; it is implicit.
+*)
 let lattice_spanned_by polys : polylattice =
   let polys = QQXs.one :: polys in
   (* TODO: Verify that ctxt has the monomial 1 in position 0. *)
@@ -123,10 +107,14 @@ let pp_transformation_data pp_dim fmt transformation_data =
     (Format.pp_print_list ~pp_sep:Format.pp_print_space pp_dim)
     (fst transformation_data.codomain_dims :: snd transformation_data.codomain_dims)
 
-(** Given a basis for the polynomial lattice (with 1 implicit but absent in the basis)
-    and the conversion context containing all monomials of the lattice and the
-    polynomial cone, compute fresh variables y_0, y_1, ..., y_n with y_0
-    corresponding to the polynomial 1.
+(** [compute_transformation_data lattice ctxt], where 
+    [lattice] = (d, b_1, ..., b_n) is s.t. 1/d { b_0 = 1, b_1, ..., b_n } is a
+    basis for a lattice, and 
+    [ctxt] is the conversion context betweeen polynomials in the lattice 
+    (and polynomial cone) and a set of dimensions X,
+    computes fresh dimensions Y = y_0, ..., y_n, with y_0 corresponding to 1,
+    the substitution y_i |-> b_i for 0 <= i <= n,
+    and the rewrite polynomials { f_i = y_i - b_i : 0 <= i <= n }.
 *)
 let compute_transformation lattice ctxt : transformation_data =
   let (denom, lattice) = lattice in
@@ -169,6 +157,12 @@ let compute_transformation lattice ctxt : transformation_data =
     (pp_transformation_data (PrettyPrintDim.pp_numeric "x")) data;
   data
 
+(**
+   [expand_cone polynomial_cone transform] adjoins the rewrite polynomials 
+   {y_i - b_i : 0 <= i <= n} from [transform] to the zeros of
+   [polynomial_cone], computes a Groebner basis for the new ideal,
+   and reduces the positives with respect to the basis.
+ *)
 let expand_cone polynomial_cone transform =
   let elim_order =
     (* order must have original x > fresh y's and be graded on y's. *)
@@ -186,13 +180,15 @@ let expand_cone polynomial_cone transform =
   PolynomialCone.make_enclosing_cone expanded_ideal positives
 
 (**
-   [compute_cut]:
-   - Convert to polyhedra and intersect with QQ Y.
-     (Later: Use [PolynomialCone.project] directly.)
-   - Substitute 1 for y_0 throughout. (* Can we do this directly? *)
+   [compute_cut ctxt transform zeroes positives]:
+   - Sends [zeroes] and [positives] to QQ {y_0, y_1, ..., y_n} 
+     ([transform.codomain_dims]) by converting the polynomials to polyhedra 
+     using [ctxt], and projecting the polyhedron onto Y to get the intersection 
+     (which is the image of the linear map).
+     (TODO: Use [PolynomialCone.project] directly.)
+   - Substitute y_0 |-> 1 throughout.
    - Compute integral hull.
    - Convert back to polynomials and do the substitution y_i |-> b_i.
-   - Take the union with the original cone.
  *)
 let compute_cut ctxt transform zeroes positives =
   let open PolynomialUtil in
@@ -258,6 +254,7 @@ let compute_cut ctxt transform zeroes positives =
    - Expand cone.
    - Compute context for L, C, Y to embed polynomial cone into QQ Y.
    - Compute cut.
+   - Take the union with the original cone.
  *)
 let cutting_plane_closure lattice polynomial_cone =
   let ideal = PolynomialCone.get_ideal polynomial_cone in
