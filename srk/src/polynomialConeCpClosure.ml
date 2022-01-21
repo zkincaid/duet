@@ -1,521 +1,57 @@
 open Polynomial
 open PolynomialUtil
 
+(**
+   Algorithm:
+   Given polynomial cone C = (Z, P) and polynomial lattice L:
+
+   - [lattice_spanned_by]:
+     - Compute basis B = {b_0 = 1, b_1, ..., b_n} of L in Hermite Normal Form.
+
+   - [context_of]:
+     - Compute context consisting of a bijection between the set of monomials
+       that occur in C and L and a set X of dimensions.
+
+   - [compute_transformation_data]:
+     - Compute fresh dimensions Y = y_0, ..., y_n, with y_0 corresponding to 1.
+     - Compute the substitution y_i |-> b_i.
+     - Compute the rewrite polynomial f_i = y_i - b_i.
+
+   - [expand_cone]:
+     - Adjoin the rewrite polynomials {y_i - b_i : 0 <= i <= n} to the zeros of
+       the polynomial cone, compute a Groebner basis for the new ideal,
+       and reduce the positives with respect to the basis.
+
+   - [compute_cut]:
+     - Convert to polyhedra and intersect with QQ Y.
+     - Substitute 1 for y_0 throughout.
+     - Compute integral hull.
+     - Convert back to polynomials and do the substitution y_i |-> b_i.
+     - Take the union with the original cone.
+
+   - [cutting_plane_closure L C]:
+     - Check if the ideal is the whole ring.
+     - Compute basis B = { b_0 = 1, b_1, ..., b_n} for lattice L.
+     - Compute context for L and C assigning monomials to set X of dimensions.
+     - Compute transformation data containing fresh variables Y disjoint from X.
+     - Expand cone.
+     - Compute context for L, C, Y to embed polynomial cone into QQ Y.
+     - Compute cut.
+ *)
+
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
-
-let ( let* ) o f =
-  match o with
-  | Ok x -> f x
-  | Error e -> Error e
-
-let rec zeros n : Mpzf.t list =
-  assert (n >= 0);
-  if n = 0 then []
-  else Mpzf.of_int 0 :: zeros (n - 1)
-
-let one n pos : Mpzf.t list =
-  assert (n > 0);
-  List.concat [zeros pos; [Mpzf.of_int 1]; zeros (n - pos - 1)]
-
-module type PolyhedralCone = sig
-  type polycone
-  type lattice
-
-  val empty_polycone : polycone
-
-  val add_conic_gens : polycone -> Mpzf.t list list -> polycone
-
-  (** Add QQ-linear generators (two-sided generators) to the cone *)
-  val add_linear_gens : polycone -> Mpzf.t list list -> polycone
-
-  val empty_lattice : lattice
-
-  val add_lattice_gens : lattice -> Mpzf.t list list -> lattice
-
-  val get_conic_gens : polycone -> Mpzf.t list list
-
-  val get_linear_gens : polycone -> Mpzf.t list list
-
-  (** Row-hermite normal form *)
-  val get_hermitized_lattice_basis : lattice -> Mpzf.t list list
-
-  val get_lattice_dim : lattice -> int
-
-  val intersect_cones : polycone -> polycone -> polycone
-
-  (** Given
-      (1) generators C for a polyhedral cone containing some rational r in QQ, and
-      (2) a basis B consisting of vectors of the form r e_i for some r in QQ
-          and standard vector e_i (a monomial), for a lattice containing 1,
-      such that both sets reside within some R^d,
-      compute cl_{ZZ B'} (QQ C \cap QQ B),
-      where B' = {e_i : r e_i in B for some r in QQ}.
-
-      See Corollary 4.2 (or thereabouts).
-      Conditions 1 and 2 are needed for integer hull computation to coincide with
-      the CP-closure.
-  *)
-  val standard_cutting_plane: ?asserts:bool
-    -> polycone -> lattice -> polycone
-
-  (** Given polyhedral cone generators C and a lattice basis B,
-      both containing 1 in QQ, compute cl_{ZZ B}(QQ C).
-  *)
-  val cutting_plane_closure : ?asserts:bool
-    -> polycone -> lattice -> polycone
-
-  val pp_polycone : Format.formatter -> polycone -> unit
-
-  val pp_lattice : Format.formatter -> lattice -> unit
-
-end
-
-module PolyhedralCone : PolyhedralCone = struct
-  (** Cutting plane closure of polynomial cones in polyhedral form.
-
-    A polynomial cone C is represented by its set of (QQ-conic + QQ-linear)
-    generators, given in the form of vectors of type Mpz list list.
-    The components of these vectors correspond to some fixed monomial order,
-    and are such that the constant term must be in the first position.
-
-    A lattice L is likewise represented by its set of ZZ-linear generators
-    given in vector form, presented according to the same monomial order
-    as that for the cone, with constant terms appearing in the first position.
-
-    Given (C, L), [cutting_plane_closure C L] computes the cutting plane closure
-    of C with respect to L.
-  *)
-
-  open Normalizffi
-  open Normaliz
-
-  type polycone = { conic: Mpzf.t list list;
-                    linear: Mpzf.t list list ;
-                    cone_dim : int }
-
-  type lattice = { lattice_gens: Mpzf.t list list;
-                   lattice_dim : int }
-
-  let empty_polycone = { conic = []; linear = []; cone_dim = 0 }
-
-  let empty_lattice = { lattice_gens = []; lattice_dim = 0 }
-
-  let get_conic_gens polycone = polycone.conic
-  let get_linear_gens polycone = polycone.linear
-  (* let get_lattice_gens lattice = lattice.lattice_gens *)
-
-  let get_hermitized_lattice_basis lattice =
-    let lattice_gens_ptr = Flint.new_matrix lattice.lattice_gens in
-    Flint.hermitize lattice_gens_ptr;
-    Flint.zz_matrix_of_matrix lattice_gens_ptr
-
-  let get_lattice_dim lattice = lattice.lattice_dim
-
-  (* TODO: Refactor the following code; it is currently duplicated in normaliz.ml *)
-
-  let add_vector vectors vector: ('a list list * int, string) result =
-    if vectors = [] then Result.ok ([vector], List.length vector)
-    else
-      let ambient_dim = List.length (List.hd vectors) in
-      let dim = List.length vector in
-      if ambient_dim = dim then
-        Result.ok ((vector :: vectors), dim)
-      else
-        let error_str =
-          Format.sprintf "Trying to add vector of length %d to vectors of length %d"
-            dim ambient_dim in
-        Result.error error_str
-
-  let add_vector_to_cone get set cone vec =
-    let* (matrix, dim) = add_vector (get cone) vec in
-    if cone.cone_dim = 0 || cone.cone_dim = dim then
-      Result.ok { (set cone matrix) with cone_dim = dim }
-    else
-      let error_str =
-        Format.sprintf "Trying to add vector of length %d to polynomial cone with ambient dimension %d"
-          dim cone.cone_dim in
-      Result.error error_str
-
-  let add_conic_gen cone vec =
-    add_vector_to_cone
-      (fun cone -> cone.conic)
-      (fun cone matrix -> { cone with conic = matrix })
-      cone vec
-
-  let add_linear_gen cone vec =
-    add_vector_to_cone
-      (fun cone -> cone.linear)
-      (fun cone matrix -> { cone with linear = matrix })
-      cone vec
-
-  let add_lattice_gen lattice vec =
-    let* (matrix, dim) = add_vector lattice.lattice_gens vec in
-    if lattice.lattice_dim = 0 || lattice.lattice_dim = dim then
-      Result.ok { { lattice with lattice_gens = matrix } with lattice_dim = dim}
-    else
-      let error_str =
-        Format.sprintf "Trying to add vector of length %d to polynomial lattice with ambient dimension %d"
-          dim lattice.lattice_dim in
-      Result.error error_str
-
-  let add_vectors add obj vecs  =
-    List.fold_right
-      (fun vec obj_opt ->
-         let* obj' = obj_opt in
-         add obj' vec)
-      vecs (Result.ok obj)
-
-  let add_conic_gens polycone generator =
-    Result.get_ok (add_vectors add_conic_gen polycone generator)
-
-  let add_linear_gens polycone generator =
-    Result.get_ok (add_vectors add_linear_gen polycone generator)
-
-  let add_lattice_gens polycone generator =
-    Result.get_ok (add_vectors add_lattice_gen polycone generator)
-
-  (* End duplication *)
-
-  let pp_polycone fmt cone =
-    Format.fprintf fmt
-      "@[Polynomial cone:@;@[Conic generators:@; @[%a@]@]@;@[Linear generators:@;@[%a@]@]@]"
-      PrettyPrintPoly.pp_zz_list cone.conic
-      PrettyPrintPoly.pp_zz_list cone.linear
-
-  let pp_lattice fmt lattice =
-    Format.fprintf fmt "Lattice generators:@ @[%a@]"
-      PrettyPrintPoly.pp_zz_list lattice.lattice_gens
-
-  let is_scaled_monomial v =
-    let (_zeroes, nonzeroes) =
-      List.fold_left (fun (zeroes, nonzeroes) e ->
-          if e = Mpzf.of_int 0 then (zeroes + 1, nonzeroes)
-          else (zeroes, nonzeroes + 1)) (0, 0) v in
-    (nonzeroes = 1)
-
-  let is_scaled_monomial_lattice lattice =
-    List.for_all is_scaled_monomial lattice.lattice_gens
-
-  (*
-  let negate_vectors ll =
-    List.map (fun l -> List.map (fun x -> Mpzf.neg x) l) ll
-  *)
-
-  let vertical_concat_matrices (matrix_list : 'a list list list) =
-    let adjoin_row row mat_opt =
-      let* mat = mat_opt in
-      if mat = [] then
-        Result.ok [row]
-      else
-        let (row_len, matrix_dim) = (List.length row, List.length (List.hd mat)) in
-        if row_len = matrix_dim then
-          Result.ok (row :: mat)
-        else
-          let error_str =
-            Format.sprintf "Concatenation: Trying to add vector of length %d to vectors of length %d"
-              row_len matrix_dim in
-          Result.error error_str in
-    let adjoin_matrix mat mat_opt =
-      List.fold_right adjoin_row mat mat_opt in
-    List.fold_right adjoin_matrix matrix_list (Result.ok [])
-
-  let intersect_cones polycone1 polycone2 =
-    let cone1 = Result.get_ok (add_rays empty_cone polycone1.conic) in
-    let cone1 = Result.get_ok (add_subspace_generators cone1 polycone1.linear) in
-    let cone2 = Result.get_ok (add_rays empty_cone polycone2.conic) in
-    let cone2 = Result.get_ok (add_subspace_generators cone2 polycone2.linear) in
-    let cone_ptr1 = new_cone cone1 in
-    let cone_ptr2 = new_cone cone2 in
-    let projection = Result.get_ok (intersect_cone cone_ptr1 cone_ptr2) in
-    { conic = get_extreme_rays projection
-    ; linear = get_lineality_space projection
-    ; cone_dim = get_embedding_dimension projection
-    }
-
-  (** Given
-      (1) generators C for a polyhedral cone containing some rational r in QQ, and
-      (2) a basis B consisting of vectors of the form r e_i for some r in QQ
-          and standard vector e_i (a monomial), for a lattice containing 1,
-      such that both sets reside within some R^d,
-      compute cl_{ZZ B'} (QQ C \cap QQ B),
-      where B' = {e_i : r e_i in B for some r in QQ}.
-
-      See Corollary 4.2 (or thereabouts).
-      Conditions 1 and 2 are needed for integer hull computation to coincide with
-      the CP-closure.
-  *)
-  let standard_cutting_plane_
-      ?asserts:(asserts=false)
-      polycone lattice =
-    let* cone = add_rays empty_cone polycone.conic in
-    let* cone = add_equalities cone polycone.linear in
-    let* lat =
-      (* let* gens = vertical_concat_matrices [monomial_lattice_generators;
-                                            negate_vectors monomial_lattice_generators]
-         in *)
-      add_subspace_generators empty_cone lattice.lattice_gens in
-    let cone_ptr = new_cone cone in
-    let lattice_ptr = new_cone lat in
-    let* projection = intersect_cone cone_ptr lattice_ptr in
-    let* () =
-      if asserts then
-        if (not (is_scaled_monomial_lattice lattice)) then
-          Result.error "standard_cutting_plane: lattice generators must be standard vectors"
-        else if (polycone.cone_dim = 0 || lattice.lattice_dim = 0) then
-          Result.error "standard_cutting_plane: dimensions must be positive"
-        else if polycone.cone_dim <> lattice.lattice_dim then
-          Result.error "standard_cutting_plane: dimensions of cone and lattice must match"
-        else
-          let dim = get_embedding_dimension projection in
-          let one = one dim 0 in
-          let* one_in_cone = contains cone_ptr one in
-          let* one_in_lattice = contains lattice_ptr one in
-          if not (one_in_cone && one_in_lattice) then
-            Result.error "Both cone and lattice should contain 1"
-          else
-            Result.ok ()
-      else Result.ok () in
-    let transposed = generators_to_constraints projection in
-    let dehomogenized = dehomogenize transposed in
-    let () = hull dehomogenized in
-    let ineqs = get_int_hull_inequalities dehomogenized in
-    let eqns = get_int_hull_equations dehomogenized in
-    (* This is for Lemma 4.3 rather than Corollary 4.2, and we don't actually
-       need to implement the former; see proof in [cutting_plane_closure].
-
-       let* final_cone = add_rays empty_cone ineqs in
-       let* final_cone = add_rays final_cone cone_generators in
-       let* final_cone = add_subspace_generators final_cone eqns in
-       let final_cone_ptr = new_cone final_cone in
-       let rays = get_extreme_rays (cone_ptr_of_hom final_cone_ptr) in
-       let lineality = get_lineality_space (cone_ptr_of_hom final_cone_ptr) in
-       Result.ok { conic = rays;
-                linear = lineality }
-    *)
-    L.logf ~level:`trace "standard_cutting_plane: Intersection is:\n%a"
-      pp_hom projection;
-    L.logf ~level:`trace "Polyhedron to hull is:\n%a\n" pp_inhom dehomogenized;
-    Result.ok { conic = ineqs;
-                linear = eqns;
-                cone_dim = get_embedding_dimension transposed
-              }
-
-  let standard_cutting_plane
-      ?asserts:(asserts=false)
-      polycone lattice =
-    Result.get_ok (standard_cutting_plane_ ~asserts polycone lattice)
-
-  (** Given a lattice basis B \in ZZ^{m x n} in row Hermite Normal Form
-      (not necessarily full rank), return a tuple (G, F, d), where
-      - d is an integer (representing a denominator)
-      - F is a linear map from R^n containing QQ B to R^l, where l is the rank of B.
-        Moreover, F maps the rows {b_1, b_2, ...} of B to {d e_i: 1 <= i <= l}
-        (preserving order of the indices), where e_i is the standard vector with
-        1 in the i-th position and 0 everywhere else.
-      - G is linear map from R^l to R^d such that G is the inverse of 1/d F.
-
-      See Lemma 4.4 (or thereabouts).
-  *)
-
-  let get_transformation_matrices
-      (lattice_basis: Flint.rational_matrix_ptr) =
-    let extended_basis_ptr = Flint.extend_hnf_to_basis lattice_basis in
-    let extended_basis = Flint.zz_matrix_of_matrix extended_basis_ptr in
-    let transformation_ptr = Flint.matrix_inverse extended_basis_ptr in
-    let (denominator, transformation) =
-      Flint.zz_denom_matrix_of_rational_matrix transformation_ptr in
-
-    L.logf ~level:`trace "@[Extended basis: %a@]@;" PrettyPrintPoly.pp_zz_list extended_basis;
-    L.logf ~level:`trace "@[Inverse: %a@]@;" PrettyPrintPoly.pp_zz_list transformation;
-
-    (* Note the post-multiplication because basis vectors are arranged in rows *)
-    let transform mat_ptr = Flint.matrix_multiply mat_ptr transformation_ptr in
-    let inverse_transform mat_ptr = Flint.matrix_multiply mat_ptr extended_basis_ptr in
-    (inverse_transform, transform, denominator)
-
-  (** Given polyhedral cone generators C and a lattice basis B,
-      both containing 1 in QQ, compute cl_{ZZ B}(QQ C).
-  *)
-  let cutting_plane_closure_ ?asserts:(asserts=false)
-      polycone lattice =
-    L.logf ~level:`trace "Computing cutting plane closure...\n";
-    let lattice_gens_ptr = Flint.new_matrix lattice.lattice_gens in
-    let generators = Flint.zz_matrix_of_matrix lattice_gens_ptr in
-    let hermite_generators = get_hermitized_lattice_basis lattice in
-
-    L.logf ~level:`trace "@[Original lattice generators: %a@]@;"
-      PrettyPrintPoly.pp_zz_list generators;
-    L.logf ~level:`trace "@[Hermitized lattice generators: %a@]@;"
-      PrettyPrintPoly.pp_zz_list hermite_generators;
-    L.logf ~level:`trace "@[Original polycone conic generators: %a@]@;"
-      PrettyPrintPoly.pp_zz_list polycone.conic;
-    L.logf ~level:`trace "@[Original polycone linear generators: %a@]@;"
-      PrettyPrintPoly.pp_zz_list polycone.linear;
-
-    let* () =
-      if asserts then
-        if (polycone.cone_dim = 0 || lattice.lattice_dim = 0
-            || polycone.cone_dim <> lattice.lattice_dim) then
-          Result.error "cutting_plane_closure: dimensions of polynomial cone and lattice must be positive and equal"
-        else
-          let is_one v = (v = one polycone.cone_dim 0) in
-          if not (List.exists is_one polycone.conic) && not (List.exists is_one polycone.linear) then
-            Result.error "cutting_plane_closure: 1 is not in polynomial cone"
-          else if not (List.exists is_one lattice.lattice_gens) then
-            Result.error "cutting_plane_closure: 1 is not in lattice"
-          else
-            Result.ok ()
-      else
-        Result.ok ()
-    in
-
-    let (inv_transform_G, transform_dF, _denom_d) =
-      get_transformation_matrices lattice_gens_ptr in
-    (* Since we are operating in row form, changing the basis is by post-multiplying.
-       Also, we disregard the denominator in the transformation.
-
-       Proof: Let F be the transformation we should apply (taking denominator d
-       into account), so dF is the transformation (transform_dF)
-       we are applying here.
-
-       Let B and C be the basis for the lattice and generators for the cone
-       respectively.
-       We are computing:
-
-       cl_{ZZ B}(QQ C) = F^{-1}(F(cl_{ZZ B} (QQ C)))
-                       = F^{-1} cl_{ZZ F(B)} (QQ F(C))
-                       = F^{-1} QQ (QQ F(C) \cup cl_{ZZ F(B)} (QQ F(C) \cap QQ F(B)))
-                       = F^{-1} QQ (QQ F(C) \cup cl_{ZZ F(B)} (QQ dF(C) \cap QQ dF(B)))
-                       = QQ (C \cup F^{-1} (cl_{ZZ F(B)} (QQ dF(C) \cap QQ dF(B))))
-                       = QQ (C \cup d F^{-1} (cl_{ZZ F(B)} (QQ dF(C) \cap QQ dF(B)))).
-
-       dF(B) = { d e_i: 1 <= i <= l ], where l is the number of vectors in B.
-
-       So we can stick with dF and use [standard_cutting_plane] to compute
-       cl_{ZZ F(B)}(QQ dF(C) \cap QQ dF(B)).
-       Then we can apply d F^{-1} =  (the extended basis matrix) to this set and
-       add C to give us the set of generators for cl_{ZZ B}(QQ C).
-
-       See Theorem 4.5 (or thereabouts).
-    *)
-
-    let transformed_lat_gens_ptr = transform_dF lattice_gens_ptr in
-    let transformed_lattice = Flint.zz_matrix_of_matrix transformed_lat_gens_ptr in
-    let conic_gens_ptr = Flint.new_matrix polycone.conic in
-    let transformed_conic_gens_ptr = transform_dF conic_gens_ptr in
-    let transformed_conic_gens = Flint.zz_matrix_of_matrix transformed_conic_gens_ptr in
-    let linear_gens_ptr = Flint.new_matrix polycone.linear in
-    let transformed_linear_gens_ptr = transform_dF linear_gens_ptr in
-    let transformed_linear_gens = Flint.zz_matrix_of_matrix transformed_linear_gens_ptr in
-
-    let print_transformed () =
-      L.logf ~level:`trace "@[New lattice generators: %a@]@;"
-        PrettyPrintPoly.pp_zz_list transformed_lattice;
-      L.logf "@[New conic generators: %a@]@;"
-        PrettyPrintPoly.pp_zz_list transformed_conic_gens;
-      L.logf "@[New linear generators: %a@]@;"
-        PrettyPrintPoly.pp_zz_list transformed_linear_gens in
-
-    print_transformed ();
-
-    let cut_generators =
-      let dim =
-        if transformed_conic_gens <> [] then
-          List.length (List.hd transformed_conic_gens)
-        else List.length (List.hd transformed_linear_gens) in
-      standard_cutting_plane ~asserts:asserts
-        { conic = transformed_conic_gens;
-          linear = transformed_linear_gens;
-          cone_dim = dim }
-        { lattice_gens = transformed_lattice;
-          lattice_dim = List.length (List.hd transformed_lattice) }
-    in
-
-    let ineqs_matrix = Flint.new_matrix cut_generators.conic in
-    let eqns_matrix = Flint.new_matrix cut_generators.linear in
-    let target_ineqs_ptr = inv_transform_G ineqs_matrix in
-    let target_eqns_ptr = inv_transform_G eqns_matrix in
-    let target_ineqs = Flint.zz_matrix_of_matrix target_ineqs_ptr in
-    let target_eqns = Flint.zz_matrix_of_matrix target_eqns_ptr in
-
-    (*
-    if verbose then
-      (print_hull_constraints "new space" (cut_generators.conic, cut_generators.linear);
-       print_hull_constraints "original space" (target_ineqs, target_eqns))
-    else ();
-     *)
-
-    let* conic_generators =
-      vertical_concat_matrices [polycone.conic; target_ineqs] in
-
-    let* linear_generators =
-      vertical_concat_matrices [polycone.linear; target_eqns] in
-
-    L.logf "@[Final conic generators before simplifying: %a@]@;"
-      PrettyPrintPoly.pp_zz_list conic_generators;
-    L.logf "@[Final subspace generators before simplifying: %a@]@;"
-      PrettyPrintPoly.pp_zz_list linear_generators;
-
-    let* final_cone = add_rays empty_cone conic_generators in
-    let* final_cone = add_subspace_generators final_cone target_eqns in
-    let final_cone_ptr = new_cone final_cone in
-    let rays = get_extreme_rays final_cone_ptr in
-    let lineality = get_lineality_space final_cone_ptr in
-    Result.ok { conic = rays;
-                linear = lineality;
-                cone_dim = polycone.cone_dim
-              }
-
-  let cutting_plane_closure ?asserts:(asserts=false)
-      polycone lattice =
-    Result.get_ok (cutting_plane_closure_ ~asserts polycone lattice)
-
-end
-
-(** The polynomial 1 with the other basis polynomials *)
-type lattice = QQXs.t * QQXs.t list
-
-(*
-let print_polys pp_dim =
-  Format.pp_print_list
-    ~pp_sep:(fun fmt _unit -> Format.fprintf fmt ",@ ")
-    (QQXs.pp pp_dim)
-*)
-
-let pp pp_dim fmt lattice =
-  Format.fprintf fmt "@[(@[%a@], @[%a@])@]" (QQXs.pp pp_dim) (fst lattice)
-    (PrettyPrintPoly.pp_poly_list pp_dim) (snd lattice)
-
-let clear_denoms mpqf_list =
-  let lcm = List.fold_left
-              (fun curr_lcm rat ->
-                snd (Mpqf.to_mpzf2 rat) |> Mpzf.lcm curr_lcm)
-              (Mpzf.of_int 1) mpqf_list in
-  List.map (fun r -> Mpqf.mul r (Mpqf.of_mpz lcm) |> Mpqf.to_mpzf2 |> fst) mpqf_list
-
-let vectorize_and_add ctxt add_kind base polys =
-  add_kind base
-    (List.map
-       (fun p -> clear_denoms (PolyVectorConversion.rational_poly_to_scalars ctxt p))
-       polys)
-
-let vector_to_poly ctxt v =
-  PolyVectorConversion.scalars_to_rational_poly ctxt (List.map Mpqf.of_mpz v)
 
 module MonomialSet = BatSet.Make(Monomial)
 
-let monomials_in p =
-  BatEnum.fold (fun s (_scalar, monomial) -> MonomialSet.add monomial s)
-    MonomialSet.empty (QQXs.enum p)
+let monomials_in polys =
+  let monomials_in p =
+    BatEnum.fold (fun s (_scalar, monomial) -> MonomialSet.add monomial s)
+      MonomialSet.empty (QQXs.enum p)
+  in
+  List.fold_left (fun s p -> MonomialSet.union s (monomials_in p))
+    MonomialSet.empty polys
 
-let all_monomials_in ps =
-  List.fold_left (fun s p -> MonomialSet.union s (monomials_in p)) MonomialSet.empty ps
-
-let context_of_monomials monomials =
-  PolyVectorContext.context Monomial.degrevlex monomials
-
-let build_context polys =
-  let monomials = all_monomials_in polys in
+let context_of monomials =
   (* TODO: Verify that reverse lexicographic + increasing means that the
      fresh monomials y0, y1, ... introduced in the construction of the linear
      map for cut are given indices in the same order in the context.
@@ -529,278 +65,227 @@ let build_context polys =
      We don't strictly need this yet, but it will be useful if we want to
      implement the substitution y0 |-> 1 without doing polynomial-vector
      conversions.
-  *)
-  context_of_monomials (MonomialSet.to_list monomials)
+   *)
+  PolyVectorContext.context Monomial.degrevlex monomials
 
-(** Compute basis for the lattice *)
-let lattice_spanned_by polys : lattice =
+let zzvector_to_qqvector vec =
+  BatEnum.fold (fun v (scalar, dim) -> Linear.QQVector.add_term (QQ.of_zz scalar) dim v)
+    Linear.QQVector.zero
+    (Linear.ZZVector.enum vec)
+
+(** Denominator, and the basis polynomials not equal to 1 (1 is implicit) *)
+type polylattice = ZZ.t * QQXs.t list
+
+(** Compute basis for the lattice spanned by polys AND the polynomial 1 *)
+let lattice_spanned_by polys : polylattice =
   let polys = QQXs.one :: polys in
-  let monomials = MonomialSet.to_list (all_monomials_in polys) in
-  let ctxt = PolyVectorContext.context Monomial.degrevlex monomials in
   (* TODO: Verify that ctxt has the monomial 1 in position 0. *)
-  let open PolyVectorConversion in
-  let open PolyhedralCone in
-  let polyvectors = List.map (fun poly -> clear_denoms (rational_poly_to_scalars ctxt poly))
-      polys in
-  let lattice = add_lattice_gens empty_lattice polyvectors in
-  let basis = get_hermitized_lattice_basis lattice in
-  (* Is this necessary? *)
+  let ctxt = monomials_in polys |> MonomialSet.to_list |> context_of in
+  let open PolynomialUtil in
+  let vectors =
+    List.map (PolyVectorConversion.poly_to_vector ctxt) polys in
+  let (denom, basis) = IntLattice.basis (IntLattice.lattice_of vectors) in
   let (one, others) =
-    let equal_vec l1 l2 =
-      List.for_all2 (fun a b -> Mpqf.equal (Mpqf.of_mpz a) (Mpqf.of_mpz b)) l1 l2 in
     List.partition
-      (fun v -> equal_vec v (one (get_lattice_dim lattice) 0))
-      basis in
-  assert (List.length one = 1);
-  (List.hd (List.map (vector_to_poly ctxt) one), List.map (vector_to_poly ctxt) others)
-
-(*
-type transformation_data =
-  { groebner_basis: Rewrite.t
-  (* { y_i - b_i }, where each b_i is in the lattice and y_i is fresh *)
-  ; substitution: Monomial.dim -> QQXs.t
-  (* \y_dim. y_dim -> b *)
-  ; codomain_one: Monomial.dim
-  (* monomial in the codomain that corresponds to 1 in the domain *)
-  ; codomain_rest: Monomial.dim list
-  (* { y_i } except 1  *)
-  }
-*)
+      (fun v -> Linear.QQVector.equal (zzvector_to_qqvector v)
+                  (Linear.const_linterm QQ.one))
+      basis
+  in
+  if (List.length one <> 1) then
+    invalid_arg "lattice_spanned_by: 1 is not in Hermite Normal Form basis"
+  else
+    ();
+  let basis_polys =
+    List.map (fun v -> zzvector_to_qqvector v
+                       |> PolyVectorConversion.vector_to_poly ctxt)
+      others in
+  (denom, basis_polys)
 
 type transformation_data =
-  { rewrite_polys: QQXs.t list
-  (* { y_i - b_i }, where each b_i is in the lattice and y_i is fresh *)
-  ; substitution: Monomial.dim -> QQXs.t
+  (* Pairs are s.t. the first component is for the polynomial 1, and the second
+     component is for the rest.
+   *)
+  { codomain_dims: Monomial.dim * Monomial.dim list
+    (* dimension for polynomial 1 is the smallest fresh variable/dimension
+       introduced
+     *)
+  ; substitutions: (Monomial.dim -> QQXs.t) * (Monomial.dim -> QQXs.t)
   (* \y_dim. y_dim -> b *)
-  ; codomain_one: Monomial.dim
-  (* monomial in the codomain that corresponds to 1 in the domain;
-     also the smallest fresh variable/dimension introduced
-  *)
-  ; codomain_rest: Monomial.dim list
-  (* { y_i } except 1  *)
+  ; rewrite_polys: QQXs.t * QQXs.t list
+  (* { y_i - b_i }, where each b_i is in the lattice and y_i is fresh *)
   }
 
 let pp_transformation_data pp_dim fmt transformation_data =
-  Format.fprintf fmt "Transformation data:@;@[Rewrites: %a@]@;@[codomain_one: %a@]@;@[codomain_rest:%a@]@;"
-    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x")) transformation_data.rewrite_polys
-    pp_dim transformation_data.codomain_one
+  Format.fprintf fmt
+    "@[Transformation data:@;@[Rewrites: %a@]@;@[codomain_dims: %a@]@]@;"
+    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
+    (fst transformation_data.rewrite_polys :: snd transformation_data.rewrite_polys)
     (Format.pp_print_list ~pp_sep:Format.pp_print_space pp_dim)
-    transformation_data.codomain_rest
+    (fst transformation_data.codomain_dims :: snd transformation_data.codomain_dims)
 
-let monomial_to_polynomial mono = QQXs.add_term QQ.one mono QQXs.zero
-
-
-(** Given a lattice containing 1, compute a Groebner basis that essentially
-    implements a linear map sending the lattice to a standard lattice over the
-    affine space spanned by a set of fresh variables.
-    The input is the lattice itself and a set of monomials that fresh variables
-    should be distinct from.
-
-   This implements Lemma 6.4 (or thereabouts).
+(** Given a basis for the polynomial lattice (with 1 implicit but absent in the basis)
+    and the conversion context containing all monomials of the lattice and the
+    polynomial cone, compute fresh variables y_0, y_1, ..., y_n with y_0
+    corresponding to the polynomial 1.
 *)
-let compute_transformation lattice monomials : transformation_data =
-  let lattice1 = fst lattice :: snd lattice in
-  let ctxt = context_of_monomials
-      (List.concat [MonomialSet.to_list (all_monomials_in lattice1); monomials]) in
+let compute_transformation lattice ctxt : transformation_data =
+  let (denom, lattice) = lattice in
+  let rescale poly = QQXs.scalar_mul (QQ.inverse (QQ.of_zz denom)) poly in
+  let fresh_start = Option.value ~default:0 (PolyVectorContext.max_dimension ctxt) + 1 in
 
   L.logf ~level:`trace "compute_transformation: transformation context: %a\n"
     (PolyVectorContext.pp (PrettyPrintDim.pp_numeric "x"))
       ctxt;
-
-  let fresh_start = Option.value ~default:0 (PolyVectorContext.max_dimension ctxt) + 1 in
   L.logf ~level:`trace "compute_transformation: fresh variables range from %d to %d\n"
-    fresh_start (fresh_start + List.length lattice1 - 1);
+    fresh_start (fresh_start + List.length lattice);
 
-  let (ones, codomain_rest, substitution, transformation_polys) =
+  let transformation_poly dim basis_poly =
+    QQXs.sub (QQXs.of_dim dim) (rescale basis_poly) in
+
+  let adjoin substitution dim basis_poly =
+    (fun i -> if i = dim then rescale basis_poly else substitution i) in
+
+  let codomain_one = fresh_start in
+  let rewrite_one = transformation_poly codomain_one QQXs.one in
+  let identity_subst = fun i -> QQXs.of_dim i in
+  let substitute_one = adjoin identity_subst codomain_one QQXs.one in
+
+  let (codomain_rest, substitution_rest, rewrite_rest) =
     (* { y_i - b_i } *)
-    BatList.fold_lefti (fun (ones, monos, substitution, transform) dim poly ->
-        let fresh = dim + fresh_start in
-        let fresh_var = Monomial.singleton fresh 1 in
-        let transformation_poly = (QQXs.sub (monomial_to_polynomial fresh_var) poly) in
-        let is_one = if QQXs.equal poly QQXs.one then true else false in
-        ( (if is_one then SrkUtil.Int.Set.add fresh ones else ones)
-        , (if is_one then monos else fresh :: monos)
-        , (fun i -> if i = dim + fresh_start then poly else substitution i)
-        , transformation_poly :: transform))
-      (SrkUtil.Int.Set.empty, [], (fun _ -> QQXs.zero), []) lattice1 in
-  assert (SrkUtil.Int.Set.cardinal ones = 1);
-  (* let transformation_ideal' = List.fold_left Rewrite.add_saturate ideal transformation_polys in
-  let elim_order =
-    (* *)
-    Monomial.block [fun dim -> dim <= fresh_start]
-      Monomial.degrevlex in *)
+    BatList.fold_lefti (fun (codims, substitution, rewrites) dim poly ->
+        let new_dim = dim + (codomain_one + 1) in
+        ( new_dim :: codims
+        , adjoin substitution new_dim poly
+        , transformation_poly new_dim poly :: rewrites))
+      ([], identity_subst, []) lattice in
+
   let data =
-    { rewrite_polys = transformation_polys
-      (* groebner_basis = Rewrite.reduce_rewrite
-          (Rewrite.reorder_groebner elim_order transformation_ideal') *)
-    ; substitution = substitution
-    ; codomain_one = List.hd (SrkUtil.Int.Set.to_list ones)
-    (* TODO: We should be able to assume that only the first fresh variable
-       corresponds to 1, since we control where 1 is in the input lattice. *)
-    ; codomain_rest = codomain_rest
+    { codomain_dims = (codomain_one, codomain_rest)
+    ; substitutions = (substitute_one, substitution_rest)
+    ; rewrite_polys = (rewrite_one, rewrite_rest)
     }
   in
   L.logf ~level:`trace "@[compute_transformation: %a@]"
     (pp_transformation_data (PrettyPrintDim.pp_numeric "x")) data;
   data
 
-(** Apply the linear map that sends the input lattice to the standard lattice,
-    to the input polynomial cone.
-*)
-let rewrite_with_linear_map lattice polynomial_cone =
-  let ideal = PolynomialCone.get_ideal polynomial_cone in
-  let positives = PolynomialCone.get_cone_generators polynomial_cone in
-  let polycone_polys = List.concat [Rewrite.generators ideal; positives] in
-
-  (* 1. Compute linear map *)
-  let transform = compute_transformation lattice
-      (MonomialSet.to_list (all_monomials_in polycone_polys)) in
+let expand_cone polynomial_cone transform =
   let elim_order =
     (* order must have original x > fresh y's and be graded on y's. *)
-    Monomial.block [fun dim -> dim < transform.codomain_one]
-      Monomial.degrevlex in
-  let transformation_ideal = List.fold_left Rewrite.add_saturate ideal
-      transform.rewrite_polys in
-  let groebner_basis =
-    Rewrite.reduce_rewrite
-      (Rewrite.reorder_groebner elim_order transformation_ideal) in
-  let transformed_positives = List.map (Rewrite.reduce groebner_basis) positives in
-  L.logf ~level:`trace "@[rewrite_with_linear_map:@;GB:@ %a@;positives: %a@]"
-    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
-    (Rewrite.generators groebner_basis)
-    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
-    transformed_positives;
-
-  (* 2. Intersect polyhedra generated by GB and positives *)
-  let lattice1 = fst lattice :: snd lattice in
-  let intersection_ctxt =
-    (* TODO: Extend context API to have incremental extension rather than computing from scratch *)
-    (* This context does not have to respect the dimension choices for the fresh
-       (codomain) monomials made earlier; those were for polynomial operations,
-       and the one here is for polyhedral operations.
-    *)
-    build_context (List.concat
-                     [lattice1;
-                      Rewrite.generators groebner_basis;
-                      transformed_positives])
+    Monomial.block [fun dim -> dim < fst transform.codomain_dims]
+      Monomial.degrevlex (* Reverse lexicographic within each block *)
   in
-  (* Compute QQys, the linear space spanned by the fresh variables ys. *)
-  let codomain =
-    let monomials = List.map monomial_to_polynomial
-        (List.map (fun dim -> Monomial.singleton dim 1)
-           (transform.codomain_one :: transform.codomain_rest)) in
-    vectorize_and_add intersection_ctxt
-      PolyhedralCone.add_linear_gens PolyhedralCone.empty_polycone
-      monomials in
-  let polyhedral_cone =
-    let c1 =
-      vectorize_and_add intersection_ctxt
-        PolyhedralCone.add_linear_gens PolyhedralCone.empty_polycone
-        (Rewrite.generators groebner_basis) in
-    let c2 =
-      vectorize_and_add intersection_ctxt
-        PolyhedralCone.add_conic_gens c1
-        transformed_positives in
-    c2
+  let generators = PolynomialCone.get_ideal polynomial_cone |> Rewrite.generators in
+  let positives = PolynomialCone.get_cone_generators polynomial_cone in
+  let expanded_ideal =
+    let transform_polys = fst transform.rewrite_polys :: snd transform.rewrite_polys in
+    List.append generators transform_polys
+    |> Rewrite.mk_rewrite elim_order
   in
-  let projected_polycone = PolyhedralCone.intersect_cones
-      polyhedral_cone codomain in
-  let pre_substitution_linear = PolyhedralCone.get_linear_gens projected_polycone in
-  let pre_substitution_conic = PolyhedralCone.get_conic_gens projected_polycone in
-  let pre_substitution_zeros =
-    List.map (vector_to_poly intersection_ctxt) pre_substitution_linear in
+  (* Use PolynomialCone to reduce the positives *)
+  PolynomialCone.make_enclosing_cone expanded_ideal positives
 
-  let pre_substitution_positives =
-    List.map (vector_to_poly intersection_ctxt) pre_substitution_conic in
+(**
+   [compute_cut]:
+   - Convert to polyhedra and intersect with QQ Y.
+     (Later: Use [PolynomialCone.project] directly.)
+   - Substitute 1 for y_0 throughout. (* Can we do this directly? *)
+   - Compute integral hull.
+   - Convert back to polynomials and do the substitution y_i |-> b_i.
+   - Take the union with the original cone.
+ *)
+let compute_cut ctxt transform zeroes positives =
+  let open PolynomialUtil in
+  let linear_constraints =
+    List.map (fun poly ->
+        PolyVectorConversion.poly_to_vector ctxt poly
+        |> fun v -> (`Zero, v) ) zeroes in
+  let conic_constraints =
+    List.map (fun poly ->
+        PolyVectorConversion.poly_to_vector ctxt poly
+        |> fun v -> (`Nonneg, v) ) positives in
+  let expanded_polyhedron =
+    Polyhedron.of_constraints
+      (BatList.enum (List.append linear_constraints conic_constraints)) in
+  (* 1. Project out the original dimensions and substitute y0 |-> 1 *)
+  let dimension_for_one = fst transform.codomain_dims in
+  let original_dimensions =
+    BatEnum.fold (fun l (dim, _mono) -> if dim < dimension_for_one then dim :: l else l)
+      []
+      (PolyVectorContext.enum_by_dimension ctxt) in
+  (* TODO: Is the projection of constraints the same as projection of generators? *)
+  let projected = Polyhedron.project original_dimensions expanded_polyhedron in
+  let substitute_one v =
+    let entry = Linear.QQVector.coeff dimension_for_one v in
+    Linear.QQVector.of_term entry dimension_for_one
+    |> Linear.QQVector.sub v
+    |> Linear.QQVector.add (Linear.QQVector.of_term entry Linear.const_dim)
+  in
+  let substituted_constraints =
+    BatEnum.fold (fun constraints (kind, v) ->
+        let u = substitute_one v in
+        match kind with
+        | `Zero -> (`Zero, u) :: constraints
+        | `Nonneg -> (`Nonneg, u) :: constraints
+        | `Pos -> failwith "compute_cut: Image of polynomial cone should not contain open faces"
+      )
+      [] (Polyhedron.enum_constraints projected)
+  in
+  (* 2. Integer hull *)
+  let hull = Polyhedron.of_constraints (BatList.enum substituted_constraints)
+             |> Polyhedron.integer_hull in
+  (* 3. Substitute back *)
+  let (new_zeroes, new_positives) =
+    BatEnum.fold (fun (zeroes, positives) (kind, v) ->
+        let sub = snd transform.substitutions in
+        let poly = PolyVectorConversion.vector_to_poly ctxt v
+                   |> QQXs.substitute sub in
+        match kind with
+        | `Zero -> (poly :: zeroes, positives)
+        | `Nonneg -> (zeroes, poly :: positives)
+        | `Pos -> failwith "compute_cut: Image of polynomial cone should not contain open faces"
+      )
+      ([], []) (Polyhedron.enum_constraints hull)
+  in
+  (new_zeroes, new_positives)
 
-  L.logf ~level:`trace "cutting_plane_closure: @[intersection context: %a@]"
-    (PolyVectorContext.pp (PrettyPrintDim.pp_numeric "x")) intersection_ctxt;
-  L.logf ~level:`trace "cutting_plane_closure: @[codomain:@;@[%a@]@]"
-    PolyhedralCone.pp_polycone codomain;
-  L.logf ~level:`trace "cutting_plane_closure: @[zeros before intersection:@;@[%a@]@]@;"
-    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
-    (Rewrite.generators groebner_basis);
-  L.logf ~level:`trace "cutting_plane_closure: @[positive polynomials before intersection:@;@[%a@]@]@;"
-    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x")) transformed_positives;
-  L.logf ~level:`trace "cutting_plane_closure: @[polyhedral cone before intersection:@;@[%a@]@]@;"
-    PolyhedralCone.pp_polycone polyhedral_cone;
-  L.logf ~level:`trace "cutting_plane_closure: @[polyhedral cone after intersection:@ %a@]@;"
-    PolyhedralCone.pp_polycone projected_polycone;
-  L.logf ~level:`trace "cutting_plane_closure: @[zeros after intersection:@ %a@]@;"
-    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
-    pre_substitution_zeros;
-  L.logf ~level:`trace "cutting_plane_closure: @[positives after intersection:@ %a@]@;"
-    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
-    pre_substitution_positives;
-
-  (* 3. Resubstitute 1 into the monomial y0 corresponding to 1.
-        We can't apply standard cutting plane directly because these vectors
-        are in the vector space spanned by all monomials, not just the fresh ys;
-        in particular, y0 and 1 are different dimensions.
-
-        TODO: Maybe optimize this by reordering coordinates within vectors
-        so that the cut that comes later can be done immediately instead of
-        converting to polynomials and back. This may be a trade-off between
-        doing cutting plane in a higher dimensional ambient space (with lower
-        intrinsic dimension) vs. polynomial-vector conversions.
-  *)
-  let resubstitute poly =
-    (* TODO: See if there is a more efficient way to do this substitution. *)
-    let mono = Monomial.singleton transform.codomain_one 1 in
-    let coeff = QQXs.coeff mono poly in
-    let poly' = QQXs.sub poly (QQXs.add_term coeff mono QQXs.zero) in
-    QQXs.add poly' (QQXs.scalar coeff) in
-  let resubstituted_zeros = List.map resubstitute pre_substitution_zeros in
-  let resubstituted_positives = List.map resubstitute pre_substitution_positives in
-  (transform, resubstituted_zeros, resubstituted_positives)
-
-(** Lemma 6.10 (or thereabouts) *)
+(**
+   [cutting_plane_closure L C]:
+   - Check if the ideal is the whole ring.
+   - Compute basis B = { b_0 = 1, b_1, ..., b_n} for lattice L.
+   - Compute context for L and C assigning monomials to set X of dimensions.
+   - Compute transformation data containing fresh variables Y disjoint from X.
+   - Expand cone.
+   - Compute context for L, C, Y to embed polynomial cone into QQ Y.
+   - Compute cut.
+ *)
 let cutting_plane_closure lattice polynomial_cone =
-  L.logf ~level:`trace "cutting_plane_closure: @[pcone to cut:@; @[%a@]@]@;@[wrt lattice:@; @[%a@]@]"
-    (PolynomialCone.pp (PrettyPrintDim.pp_numeric "x")) polynomial_cone
-    (pp (PrettyPrintDim.pp_numeric "x")) lattice;
-
-  (* 1. Apply the linear map that sends the lattice to the standard lattice
-        to the polynomial cone.
-  *)
-  let (transform, transformed_zeros, transformed_positives) =
-    rewrite_with_linear_map lattice polynomial_cone in
-  let lattice1 = fst lattice :: snd lattice in
-
-  (* Transform back into polyhedral vectors, now in dimensions y1, y2, ...,
-     i.e., spanned by the fresh variables except for the one corresponding to 1.
-  *)
-  let cutting_plane_ctxt =
-    (* TODO: Verify that codomain_one is mapped to position 0 *)
-    let mono_of m = Monomial.singleton m 1 in
-    build_context
-      (QQXs.one
-       :: List.map (fun m -> monomial_to_polynomial (mono_of m)) transform.codomain_rest) in
-  let cone_to_cut =
-    let c1 = vectorize_and_add cutting_plane_ctxt
-        PolyhedralCone.add_linear_gens PolyhedralCone.empty_polycone transformed_zeros in
-    let c2 = vectorize_and_add cutting_plane_ctxt
-        PolyhedralCone.add_conic_gens c1 transformed_positives in
-    c2
+  let ideal = PolynomialCone.get_ideal polynomial_cone in
+  let is_full_ring =
+    Rewrite.reduce ideal QQXs.one
+    |> (fun p -> QQXs.equal p (QQXs.zero))
   in
-  let polyhedral_lattice =
-    vectorize_and_add cutting_plane_ctxt
-      PolyhedralCone.add_lattice_gens PolyhedralCone.empty_lattice
-      lattice1 in
-
-  (* 3. Do cutting plane closure in standard lattice, i.e., Corollary 4.2 (or thereabouts) *)
-  let polyhedral_closure = PolyhedralCone.standard_cutting_plane cone_to_cut polyhedral_lattice in
-
-  (* 4. Now resubstitute all ys back into the lattice vectors *)
-  let positive_polys = List.map (vector_to_poly cutting_plane_ctxt)
-      (PolyhedralCone.get_conic_gens polyhedral_closure) in
-  let ideal_polys = List.map (vector_to_poly cutting_plane_ctxt)
-      (PolyhedralCone.get_linear_gens polyhedral_closure) in
-  let cp_positives = List.map (QQXs.substitute transform.substitution) positive_polys in
-  let cp_ideal = List.map (QQXs.substitute transform.substitution) ideal_polys in
-  PolynomialCone.add_polys_to_cone
-    PolynomialCone.empty
-    (* The original ideal is unchanged *)
-    (Rewrite.generators (PolynomialCone.get_ideal polynomial_cone))
-    (* Polyhedral closure is added to the positives *)
-    (List.concat [cp_positives; cp_ideal; List.map QQXs.negate cp_ideal])
+  if is_full_ring then
+    polynomial_cone (* cutting plane closure is itself *)
+  else
+    let (denom, basis) = lattice_spanned_by lattice in
+    let (zeroes, positives) =
+      ( Rewrite.generators ideal
+      , PolynomialCone.get_cone_generators polynomial_cone) in
+    let ctxt_x = monomials_in (List.append zeroes positives)
+                 |> MonomialSet.to_list
+                 |> context_of in
+    let transform = compute_transformation (denom, basis) ctxt_x in
+    let expanded_cone = expand_cone polynomial_cone transform in
+    let (expanded_zeroes, expanded_positives) =
+      ( Rewrite.generators (PolynomialCone.get_ideal expanded_cone)
+      , PolynomialCone.get_cone_generators expanded_cone)
+    in
+    let ctxt_xy = monomials_in (List.append expanded_zeroes expanded_positives)
+                  |> MonomialSet.to_list
+                  |> context_of in
+    let (linear, conic) =
+      compute_cut ctxt_xy transform expanded_zeroes expanded_positives in
+    PolynomialCone.add_polys_to_cone PolynomialCone.empty
+      zeroes (* preserve original zeroes *)
+      (List.concat [ linear ; List.map QQXs.negate linear ; conic ])
