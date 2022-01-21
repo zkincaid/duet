@@ -240,12 +240,21 @@ and tr_bexpr bexpr =
   let alg = function
     | Core.OAnd (a, b) -> Ctx.mk_and [a; b]
     | Core.OOr (a, b) -> Ctx.mk_or [a; b]
-    | Core.OAtom (pred, x, y) ->
-      let x = tr_expr_val x in
-      let y = tr_expr_val y in
+    | Core.OAtom (pred, rx, ry) ->
+      let x = tr_expr_val rx in
+      let y = tr_expr_val ry in
       begin
         match pred with
-        | Lt -> Ctx.mk_lt x y
+        | Lt ->
+          begin
+          let t1 = (Core.resolve_type (Core.Aexpr.get_type rx)) in
+          let t2 = (Core.resolve_type (Core.Aexpr.get_type ry)) in
+          match t1, t2 with
+          | Core.Int _, Core.Int _ ->
+            Ctx.mk_leq (Ctx.mk_add [x; (Ctx.mk_int 1)]) y
+          | _, _ ->
+            Ctx.mk_lt x y
+        end
         | Le -> Ctx.mk_leq x y
         | Eq -> Ctx.mk_eq x y
         | Ne -> Ctx.mk_not (Ctx.mk_eq x y)

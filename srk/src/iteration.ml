@@ -66,12 +66,14 @@ module WeakTheoryGuard = struct
     logf "weak theory guard abstract for %a" (Formula.pp srk) (TF.formula tf);
     let post_symbols = TF.post_symbols (TF.symbols tf) in
     let pre_symbols = TF.pre_symbols (TF.symbols tf) in
+    logf "computing precondition";
     let precondition =
       let exists x =
         TF.exists tf x && not (Symbol.Set.mem x post_symbols)
       in
       WeakSolver.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
     in
+    logf "computing postcondition";
     let postcondition =
       let exists x =
         TF.exists tf x && not (Symbol.Set.mem x pre_symbols)
