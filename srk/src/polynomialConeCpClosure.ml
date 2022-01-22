@@ -113,20 +113,24 @@ type transformation_data =
 
 let pp_transformation_data pp_dim fmt transformation_data =
   Format.fprintf fmt
-    "@[Transformation data:@;@[Rewrites: %a@]@;@[codomain_dims: %a@]@]@;"
-    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
-    (fst transformation_data.rewrite_polys :: snd transformation_data.rewrite_polys)
-    (Format.pp_print_list ~pp_sep:Format.pp_print_space pp_dim)
+    "@[{ @[codomain_dims: %a@]@; @[Rewrites: %a@] }@]@;"
+    (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ") pp_dim)
     (fst transformation_data.codomain_dims :: snd transformation_data.codomain_dims)
+    (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
+       (QQXs.pp pp_dim))
+    (* (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x")) *)
+    (fst transformation_data.rewrite_polys :: snd transformation_data.rewrite_polys)
 
-(** [compute_transformation_data lattice ctxt], where 
+(** [compute_transformation_data lattice fresh_dim], where 
     [lattice] = (d, b_1, ..., b_n) is s.t. 1/d { b_0 = 1, b_1, ..., b_n } is a
-    basis for a lattice, and 
+    basis for a polynomial lattice, and 
     [ctxt] is the conversion context betweeen polynomials in the lattice 
     (and polynomial cone) and a set of dimensions X,
     computes fresh dimensions Y = y_0, ..., y_n, with y_0 corresponding to 1,
     the substitution y_i |-> b_i for 0 <= i <= n,
     and the rewrite polynomials { f_i = y_i - b_i : 0 <= i <= n }.
+
+    Need to ensure that [ctxt] contains all monomials in the lattice.
 *)
 let compute_transformation lattice ctxt : transformation_data =
   let (denom, one, lattice) = lattice in
@@ -278,10 +282,11 @@ let cutting_plane_closure lattice polynomial_cone =
     polynomial_cone (* cutting plane closure is itself *)
   else
     let polylattice = lattice_spanned_by lattice in
+    let (_denom, one, basis) = polylattice in
     let (zeroes, positives) =
       ( Rewrite.generators ideal
       , PolynomialCone.get_cone_generators polynomial_cone) in
-    let ctxt_x = monomials_in (List.append zeroes positives)
+    let ctxt_x = monomials_in (List.concat [zeroes ; positives ; [one]; basis])
                  |> MonomialSet.to_list
                  |> context_of in
     let transform = compute_transformation polylattice ctxt_x in
