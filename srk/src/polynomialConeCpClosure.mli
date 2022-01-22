@@ -9,6 +9,12 @@
 val cutting_plane_closure :
   Polynomial.QQXs.t list -> PolynomialCone.t -> PolynomialCone.t
 
+(** Raised if there is a non-integral rational in the lattice.
+    E.g., If 1/2 is in the lattice, 2 (1/2) + (-1) >= 0
+    implies 1/2 + floor(-1/2) >= 0, which implies -1/2 >= 0.
+ *)
+exception Invalid_lattice
+
 (* Export temporarily for testing *)
 
 open Polynomial

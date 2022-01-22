@@ -40,9 +40,16 @@ let zzvector_to_qqvector vec =
     (Linear.ZZVector.enum vec)
 
 (** Denominator, the constant polynomial, and the other basis polynomials. 
-    Note that the constant polynomial is not necessarily 1.
+
+    TODO: The constant polynomial should always be 1, for otherwise the cutting 
+    plane axiom can lead to inconsistency, e.g. if 1/3 is in the lattice, 
+    3(1/3) + (-1/2) >= 0 =>  1/3 - 1 >= 0.
+    We should thus be able to return only the denominator and the other basis
+    polynomials after testing is done.
 *)
 type polylattice = ZZ.t * QQXs.t * QQXs.t list
+
+exception Invalid_lattice
 
 (** [lattice_spanned_by polys] computes Hermite Normal Form basis
     { (1/d) b_0 = (1/d) 1, (1/d) b_1, ..., (1/d) b_n } for the lattice spanned
@@ -57,25 +64,33 @@ let lattice_spanned_by polys : polylattice =
   let vectors =
     List.map (PolyVectorConversion.poly_to_vector ctxt) polys in
   let (denom, basis) = IntLattice.basis (IntLattice.lattice_of vectors) in
-  let (constant, others) =
+  let (one, others) =
     List.partition
       (fun v ->
-        let r = Linear.ZZVector.coeff Linear.const_dim v in
         Linear.QQVector.equal (zzvector_to_qqvector v)
-                  (Linear.const_linterm (QQ.of_zz r)))
+          (Linear.const_linterm (QQ.of_zz denom)))
       basis
   in
-  if (List.length constant <> 1) then
-    Log.fatalf
-      "@[<v 0>lattice_spanned_by: constant polynomial is not in Hermite Normal Form basis:@;denominator = %a;@;vectors are: @[%a@]@]"
-      ZZ.pp denom
-      (Format.pp_print_list ~pp_sep:Format.pp_print_cut Linear.ZZVector.pp)
-      others
+  if (List.length one <> 1)
+  then
+  (* Lattice must contain 1. Since we add 1 above, this happens if there is 
+     a non-integral rational in the lattice, which may lead to 
+     inconsistency, e.g., if 1/2 is in the lattice, 2 (1/2) + (-1) >= 0
+     implies 1/2 + floor(-1/2) >= 0, which implies -1/2 >= 0.
+   *)
+    let pp_vectors =
+      Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", @;")
+        Linear.ZZVector.pp in
+    L.logf
+        "@[<v 0>lattice_spanned_by: 1 not in basis:@;denominator = %a;@;vectors are: @[%a@]@]"
+        ZZ.pp denom pp_vectors (List.append one others);
+    raise Invalid_lattice
   else
     ();
-  let constant_poly = zzvector_to_qqvector (List.hd constant)
+  
+  let constant_poly = zzvector_to_qqvector (List.hd one)
                       |> PolyVectorConversion.vector_to_poly ctxt
-  in
+  in  
   let basis_polys =
     List.map (fun v -> zzvector_to_qqvector v
                        |> PolyVectorConversion.vector_to_poly ctxt)
@@ -114,7 +129,7 @@ let pp_transformation_data pp_dim fmt transformation_data =
     and the rewrite polynomials { f_i = y_i - b_i : 0 <= i <= n }.
 *)
 let compute_transformation lattice ctxt : transformation_data =
-  let (denom, constant, lattice) = lattice in
+  let (denom, one, lattice) = lattice in
   let rescale poly = QQXs.scalar_mul (QQ.inverse (QQ.of_zz denom)) poly in
   let fresh_start = Option.value ~default:0 (PolyVectorContext.max_dimension ctxt) + 1 in
 
@@ -131,12 +146,7 @@ let compute_transformation lattice ctxt : transformation_data =
     (fun i -> if i = dim then rescale basis_poly else substitution i) in
 
   let codomain_one = fresh_start in
-  let rewrite_one =
-    let constant_coeff = QQXs.coeff (Monomial.singleton Linear.const_dim 1)
-                           constant in
-    QQXs.sub (QQXs.scalar_mul constant_coeff (QQXs.of_dim codomain_one))
-      constant
-  in
+  let rewrite_one = transformation_poly codomain_one one in
   let identity_subst = fun i -> QQXs.of_dim i in
   let substitute_one = adjoin identity_subst codomain_one QQXs.one in
 
