@@ -3,10 +3,13 @@ open Polynomial
 module PrettyPrintDim = struct
 
   let pp_ascii_dim formatter i =
-    Format.pp_print_string formatter (Char.escaped (Char.chr i))
+    if i <> Linear.const_dim then
+      Format.pp_print_string formatter (Char.escaped (Char.chr i))
+    else
+      Format.pp_print_string formatter "1"
 
   let pp_numeric base formatter i =
-    Format.fprintf formatter "%s%d" base i
+    Format.fprintf formatter "%s_{%d}" base i
 
 end
 
@@ -100,7 +103,7 @@ module PolyVectorContext = struct
 
   let num_dimensions ctxt = ctxt.size
 
-  let max_dimension ctxt =
+  let max_variable ctxt =
     SrkUtil.Int.Map.fold
       (fun _dim mono max_dim_opt ->
          BatEnum.fold
@@ -149,7 +152,7 @@ module PolyVectorContext = struct
 
   let pp dim_pp fmt conv_ctxt =
     let () = Format.fprintf Format.str_formatter
-        "@[[%a | %a]@]"
+        "@[dim-mono | mono-dim] = [%a | %a]@]"
         (pp_d2m_map dim_pp) conv_ctxt.dim_to_mono
         (pp_m2d_map dim_pp) conv_ctxt.mono_to_dim in
     let s = Format.flush_str_formatter () in

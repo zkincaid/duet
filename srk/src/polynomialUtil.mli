@@ -47,8 +47,8 @@ module PolyVectorContext : sig
 
   val num_dimensions : t -> int
 
-  (** Maximum dimension (variable) that appears in some monomial in the context *)
-  val max_dimension : t -> int option
+  (** Maximum variable that appears in some monomial in the context *)
+  val max_variable : t -> int option
 
   val enum_by_dimension : t -> (Monomial.dim * Monomial.t) BatEnum.t
 
