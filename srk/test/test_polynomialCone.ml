@@ -263,6 +263,36 @@ let test_intersec3 () =
   in
   assert_equal_pc q pc
 
+let test_intersec4 () =
+  let open QQXsInfix in
+  let x = dim 'x' in
+  let basis1 =
+    Rewrite.mk_rewrite Monomial.degrevlex [
+      x;
+    ]
+  in
+  let geq_polys1 =
+    [
+    ]
+  in
+  let basis2 =
+    Rewrite.mk_rewrite Monomial.degrevlex [
+      x - int 1
+    ]
+  in
+  let geq_polys2 =
+    []
+  in
+
+  let pc1 = make_enclosing_cone basis1 geq_polys1 in
+  let pc2 = make_enclosing_cone basis2 geq_polys2 in
+  let pc = intersection pc1 pc2 in
+  let q = make_enclosing_cone
+      (Rewrite.mk_rewrite Monomial.degrevlex [ x - x * x ])
+      [x;  int 1 - x ]
+  in
+  assert_equal_pc q pc
+
 let test_proper1 () =
   let open QQXsInfix in
   let x = dim 'x' in
@@ -324,6 +354,7 @@ let suite = "PolynomialCone" >::: [
     "test_intersec1" >:: test_intersec1;
     "test_intersec2" >:: test_intersec2;
     "test_intersec3" >:: test_intersec3;
+"test_intersec4" >:: test_intersec4;
     "test_proper1" >:: test_proper1;
     "test_proper2" >:: test_proper2;
     "test_mem" >:: test_mem;

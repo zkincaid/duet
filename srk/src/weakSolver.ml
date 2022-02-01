@@ -30,6 +30,7 @@ let rec get_quantifiers srk env phi =
 
 (* Get a weak theory model for a formula. Also serves as an SMT solver for weak theory. *)
 let get_model srk phi =
+Z3.set_global_param "model.completion" "true";
   let phi = eliminate_ite srk phi in
   let phi = SrkSimplify.simplify_terms srk phi in
   (* Get the quantifiers and the ground formula. The weak theory only supports existentials. *)
@@ -45,21 +46,56 @@ let get_model srk phi =
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
   in
-  logf "Uninterpreted formula: %a" (Formula.pp srk) uninterp_phi;
-  Smt.Solver.add solver [uninterp_phi];
+    logf "Uninterpreted formula: %a" (Formula.pp srk) uninterp_phi;
+let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
+  let nonlinear_defs =
+    Symbol.Map.enum nonlinear
+    /@ (fun (symbol, expr) ->
+        match Expr.refine srk expr with
+        | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi
+        | `ArrTerm _ -> assert false)
+    |> BatList.of_enum
+  in
+
+  let rec replace_defs_term term =
+    substitute_const
+      srk
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const srk x)
+      term
+  in
+  let replace_defs =
+    substitute_const
+      srk
+      (fun x ->
+         try replace_defs_term (Symbol.Map.find x nonlinear)
+         with Not_found -> mk_const srk x)
+  in
+
+  (* Smt.Solver.add solver [uninterp_phi]; *)
+  Smt.Solver.add solver (lin_phi :: nonlinear_defs);
 
   (* TODO: adding lemmas. Using preduce in Groebner basis to get a subset of atoms whose conjunction is unsat. *)
   let rec go () =
+
+    logf "solver is: %s ===" (Smt.Solver.to_string solver);
     match Smt.Solver.get_model solver with
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
     | `Sat model ->
-      match Interpretation.select_implicant model uninterp_phi with
+      logf "successfully getting model";
+      match Interpretation.select_implicant model lin_phi with
       | None -> assert false
       | Some implicant ->
-        let () = BatList.iter (fun f -> logf "Selected implicant atom: %a" (Formula.pp srk) f) implicant in
+        logf "got implicant";
+        (* let () = BatList.iter (fun f -> *)
+            (* logf "Selected implicant atom: %a" (Formula.pp srk) f) implicant in *)
         (* The implicant should be atomic, should be able to destruct to get t < c, t <= c, t = c *)
+        let implicant = List.map (fun imp -> replace_defs imp) implicant in
         let atoms = List.map (Nonlinear.interpret srk) implicant in
+
         let rec process_atoms l geqs eqs ineqs =
           match l with
           | [] -> logf "list of atoms left is empty"; (geqs, eqs, ineqs)
@@ -104,7 +140,9 @@ let get_model srk phi =
           `Sat (model, pc)
         else
           begin
-            Smt.Solver.add solver [(mk_not srk (mk_and srk implicant))]; go ()
+            let f = (mk_not srk (mk_and srk implicant)) in
+            logf "adding formula to solver: %a" (Formula.pp srk) f;
+            Smt.Solver.add solver [f]; go ()
           end
   in
   go ()
@@ -129,7 +167,8 @@ let find_consequences srk phi =
   in
   let pc = PolynomialCone.trivial in
   let rec go current_pc formula =
-    logf "current formula: %a" (Formula.pp srk) formula;
+    (* logf "current formula: %a" (Formula.pp srk) formula; *)
+    logf "getting model in find conseq";
     match get_model srk formula with
       `Sat (_, poly_cone) ->
       begin
@@ -138,12 +177,12 @@ let find_consequences srk phi =
             poly_cone
             (fun i -> let s = Syntax.symbol_of_int i in not (BatSet.mem s existential_vars))
         in
-        logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc;
+        (* logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc; *)
         let new_pc = PolynomialCone.intersection current_pc projected_pc in
-        logf "intersection of poly cones: %a" (PolynomialCone.pp (pp_dim srk)) new_pc;
+        logf "intersection: %a" (PolynomialCone.pp (pp_dim srk)) new_pc;
         let term_of_dim dim = mk_const srk (symbol_of_int dim) in
         let blocking_clause = PolynomialCone.to_formula srk term_of_dim new_pc |> mk_not srk in
-        logf "adding blocking clause: %a" (Formula.pp srk) blocking_clause;
+        (* logf "adding blocking clause: %a" (Formula.pp srk) blocking_clause; *)
         let augmented_formula = mk_and srk [formula; blocking_clause] in
         go new_pc augmented_formula
       end

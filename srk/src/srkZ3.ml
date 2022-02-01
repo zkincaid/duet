@@ -431,7 +431,10 @@ module Solver = struct
     | `TyFun (params, _) ->
       let decl = decl_of_symbol z3 srk sym in
       let finterp = match Z3.Model.get_func_interp m decl with
-        | None -> assert false
+        | None ->
+          logf "symbol: %a" (pp_symbol srk) sym;
+          assert false
+
         | Some interp -> interp
       in
       let formals =
@@ -469,6 +472,7 @@ module Solver = struct
       `Fun func
 
   let get_model ?(symbols=[]) solver =
+    logf "trying to get model";
     let srk = solver.srk in
     let z3 = solver.z3 in
     match check solver [] with
