@@ -3,7 +3,7 @@ open PolynomialUtil
 
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 
-let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace
+(* let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace *)
 
 module MonomialSet = BatSet.Make(Monomial)
 
@@ -60,7 +60,6 @@ exception Invalid_lattice
 *)
 let lattice_spanned_by polys : polylattice =
   let polys = QQXs.one :: polys in
-  (* TODO: Verify that ctxt has the monomial 1 in position 0. *)
   let ctxt = monomials_in polys |> MonomialSet.to_list |> context_of in
   let open PolynomialUtil in
   let vectors =
@@ -204,13 +203,13 @@ let expand_cone polynomial_cone transform =
 (**
    [compute_cut transform zeroes positives] computes [cl_{ZZ B}(C)], where
    C = (zeroes, positives) is an "expanded" polynomial cone and
-   B is the standard basis spanned by [codomain_dims] in [transform], 
+   B is the standard basis spanned by [codomain_dims] in [transform],
    with the first codomain dimension treated as 1.
 
    - Convert the polynomial cone defined by zeros and positives to a polyhedron,
-     and projecting that onto the dimensions Y = y0, ..., y_n corresponding to 
+     and projecting that onto the dimensions Y = y0, ..., y_n corresponding to
      [codomain_dims] in [transform] (i.e., the fresh variables).
-     This implements intersection with QQ Y, which gives the image of cone 
+     This implements intersection with QQ Y, which gives the image of cone
      under the linear map defined by [transform].
      (TODO: Use [PolynomialCone.project] directly.)
 
@@ -271,7 +270,6 @@ let compute_cut expanded_polynomial_cone =
         if SrkUtil.Int.Set.mem dim ys_set then l else (dim :: l))
       []
       (PolyVectorContext.enum_by_dimension ctxt) in
-  (* TODO: Is the projection of constraints the same as projection of generators? *)
   let projected = Polyhedron.project original_dimensions expanded_polyhedron in
   let substitute_one v =
     let entry = Linear.QQVector.coeff y0 v in
@@ -376,6 +374,14 @@ let cutting_plane_closure lattice polynomial_cone =
     |> compute_cut
     |> (fun (linear, conic) -> L.logf ~level:`trace "Cut computed@;"; (linear, conic))
     |> (fun (linear, conic) ->
+      (* This is buggy, possibly because PolynomialCone doesn't deduce
+         f >= 0 and -f >= 0 |- f = 0 and add f to zeroes.
+
       PolynomialCone.add_polys_to_cone PolynomialCone.empty
         zeroes (* preserve original zeroes *)
         (List.concat [ positives ; linear ; List.map QQXs.negate linear ; conic ]))
+       *)
+      PolynomialCone.add_polys_to_cone PolynomialCone.empty
+        (List.concat [ zeroes ; linear ])
+        (List.concat [ positives ; conic ]))
+
