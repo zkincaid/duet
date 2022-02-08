@@ -1,7 +1,10 @@
 open Polynomial
 open BatPervasives
 
-include Log.Make(struct let name = "srk.polynomialCone" end)
+module L = Log.Make(struct let name = "srk.polynomialCone" end)
+open L
+
+(* let _ = (L.my_verbosity_level := `trace) *)
 
 type t = Rewrite.t * QQXs.t BatList.t
 module V = Linear.QQVector
@@ -17,7 +20,7 @@ let pp_dim formatter i =
   in
   Format.pp_print_string formatter (to_string i)
 
-let pp formatter pc =
+let pp pp_dim formatter pc =
   let ideal, cone = pc in
   Format.pp_print_string formatter "Ideal: ";
   Rewrite.pp pp_dim formatter ideal;
@@ -132,7 +135,7 @@ let find_implied_zero_polynomials polys basis =
       polys
   in
   BatList.iter (fun v -> logf "vector: %a" V.pp v) polys_as_vectors;
-  logf "computing constraint representation of polyhedron";
+  logf "find_implied_zero_polynomials: computing constraint representation of polyhedron";
   let polyhedron = BatEnum.map
       (fun v -> (`Nonneg, v))
       (BatList.enum polys_as_vectors)
@@ -165,10 +168,14 @@ let find_implied_zero_polynomials polys basis =
 
 let rec make_enclosing_cone basis geq_zero_polys =
   let geq_zero_polys = QQXs.one :: geq_zero_polys in
+  (* NK: Bug here: positives were previous not reduced before [find_implied...] *)
+  let geq_zero_polys = BatList.map (Rewrite.reduce basis) geq_zero_polys in
+
   let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
-  if (BatList.length new_zero_polys) > 0 then
+  (* NK: Bug here, previously was [(BatList.length new_zero_polys) > 0] *)
+  if (BatList.length new_zero_polys) = 0 then
     let pc = (basis, geq_zero_polys) in
-    logf "enclosing cone: %a" pp pc;
+    logf "enclosing cone: %a" (pp pp_dim) pc;
     pc
   else
     let new_basis = BatList.fold_left
