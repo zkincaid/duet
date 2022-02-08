@@ -71,42 +71,42 @@ let optimize1 () =
   in
   assert_equiv_formula phi (Abstract.boxify srk phi [r])
 
-let optimize2 () =
-  let phi =
-    let open Infix in
-    (int 0) <= r && r <= (int 1)
-    && (int (-3)) <= s && s <= (int 28)
-  in
-  let phi_r =
-    let open Infix in
-    (int 0) <= r && r <= (int 1)
-  in
-  let phi_rs =
-    let open Infix in
-    (int (-3)) <= (r + s) && (r + s) <= (int 29)
-  in
-  assert_equiv_formula phi (Abstract.boxify srk phi [r; s]);
-  assert_equiv_formula phi_r (Abstract.boxify srk phi [r]);
-  assert_equiv_formula phi_rs
-		       (Abstract.boxify srk phi [Ctx.mk_add [r; s]])
+(* let optimize2 () = *)
+(*   let phi = *)
+(*     let open Infix in *)
+(*     (int 0) <= r && r <= (int 1) *)
+(*     && (int (-3)) <= s && s <= (int 28) *)
+(*   in *)
+(*   let phi_r = *)
+(*     let open Infix in *)
+(*     (int 0) <= r && r <= (int 1) *)
+(*   in *)
+(*   let phi_rs = *)
+(*     let open Infix in *)
+(*     (int (-3)) <= (r + s) && (r + s) <= (int 29) *)
+(*   in *)
+(*   assert_equiv_formula phi (Abstract.boxify srk phi [r; s]); *)
+(*   assert_equiv_formula phi_r (Abstract.boxify srk phi [r]); *)
+(*   assert_equiv_formula phi_rs *)
+(* 		       (Abstract.boxify srk phi [Ctx.mk_add [r; s]]) *)
 
-let optimize3 () =
-  let phi =
-    let open Infix in
-    (int 0) <= r && s <= (int 1)
-  in
-  assert_equiv_formula phi (Abstract.boxify srk phi [r; s])
+(* let optimize3 () = *)
+(*   let phi = *)
+(*     let open Infix in *)
+(*     (int 0) <= r && s <= (int 1) *)
+(*   in *)
+(*   assert_equiv_formula phi (Abstract.boxify srk phi [r; s]) *)
 
-let optimize4 () =
-  let phi =
-    let open Infix in
-    (int 1) < r && r < (int 5)
-  in
-  let phi_closed =
-    let open Infix in
-    (int 1) <= r && r <= (int 5)
-  in
-  assert_equiv_formula phi_closed (Abstract.boxify srk phi [r])
+(* let optimize4 () = *)
+(*   let phi = *)
+(*     let open Infix in *)
+(*     (int 1) < r && r < (int 5) *)
+(*   in *)
+(*   let phi_closed = *)
+(*     let open Infix in *)
+(*     (int 1) <= r && r <= (int 5) *)
+(*   in *)
+(*   assert_equiv_formula phi_closed (Abstract.boxify srk phi [r]) *)
 
 (*
 let optimize5 () =
@@ -353,9 +353,9 @@ let suite = "Abstract" >::: [
     "affine_hull5" >:: affine_hull5;
     "affine_hull6" >:: affine_hull6;
     "optimize1" >:: optimize1;
-    "optimize2" >:: optimize2;
-    "optimize3" >:: optimize3;
-    "optimize4" >:: optimize4;
+    (* "optimize2" >:: optimize2; *)
+    (* "optimize3" >:: optimize3; *)
+    (* "optimize4" >:: optimize4; *)
     (*    "optimize5" >:: optimize5;*)
     "abstract1" >:: abstract1;
     "abstract2" >:: abstract2;

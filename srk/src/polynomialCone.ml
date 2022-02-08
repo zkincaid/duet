@@ -1,12 +1,10 @@
 open Polynomial
 open BatPervasives
-
 include Log.Make(struct let name = "srk.polynomialCone" end)
 
 type t = Rewrite.t * QQXs.t BatList.t
 module V = Linear.QQVector
 
-(* User should be able to give pp_dim *)
 let pp_dim formatter i =
   let rec to_string i =
     if i = -1 then "1" else
@@ -17,18 +15,22 @@ let pp_dim formatter i =
   in
   Format.pp_print_string formatter (to_string i)
 
-let pp formatter pc =
-  let ideal, cone = pc in
-  Format.pp_print_string formatter "Ideal: ";
-  Rewrite.pp pp_dim formatter ideal;
-  Format.pp_print_string formatter "Cone: ";
-  SrkUtil.pp_print_list (QQXs.pp pp_dim) formatter cone
+(* test equality using the equal function not the pretty printing *)
+let pp pp_dim formatter pc =
+  try
+    let ideal, cone = pc in
+    Format.pp_print_string formatter "Ideal: ";
+    Rewrite.pp pp_dim formatter ideal;
+    Format.pp_print_string formatter " ";
+    Format.pp_print_string formatter "Cone: ";
+    SrkUtil.pp_print_list (QQXs.pp pp_dim) formatter cone
+  with _ -> Format.printf "error in pp_dim cannot find associated symbol of dim"
 
 let get_ideal (ideal, _) = ideal
 
-let get_cone_generators (_, cone_generators) = cone_generators
+(* let pp_dim srk = (fun formatter i -> Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i)) *)
 
-let empty = (Rewrite.mk_rewrite Monomial.degrevlex [], [])
+let get_cone_generators (_, cone_generators) = cone_generators
 
 (* Change monomial ordering of a polynomial cone. *)
 let change_monomial_ordering (ideal, cone) order =
@@ -139,7 +141,6 @@ let find_implied_zero_polynomials polys basis =
                    |> Polyhedron.of_constraints
                    |> Polyhedron.normalize_constraints
   in
-  logf "Polyhedron is: %a" (Polyhedron.pp pp_dim) polyhedron;
   let equality_constraints = Polyhedron.enum_constraints polyhedron |>
                              BatEnum.filter (fun (constraint_kind, _) ->
                                  match constraint_kind with
@@ -163,21 +164,26 @@ let find_implied_zero_polynomials polys basis =
   in
   (equality_constraints, geq_zero_constraints)
 
-let rec make_enclosing_cone basis geq_zero_polys =
-  let geq_zero_polys = QQXs.one :: geq_zero_polys in
-  let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
-  if (BatList.length new_zero_polys) > 0 then
-    let pc = (basis, geq_zero_polys) in
-    logf "enclosing cone: %a" pp pc;
-    pc
-  else
-    let new_basis = BatList.fold_left
-        (fun ideal zero_poly -> Rewrite.add_saturate ideal zero_poly)
-        basis
-        new_zero_polys
-    in
-    let reduced_geq_polys = BatList.map (Rewrite.reduce new_basis) geq_zero_polys in
-    make_enclosing_cone new_basis reduced_geq_polys
+let make_enclosing_cone basis geq_zero_polys =
+  let rec go basis geq_zero_polys =
+    let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
+    if (BatList.length new_zero_polys) = 0 then
+      begin
+        logf "not getting any new zero polys, done";
+        let reduced = BatList.map (Rewrite.reduce basis) geq_zero_polys in
+        (* logf "enclosing cone: %a" pp pc; *)
+        (basis, reduced)
+      end
+    else
+      let new_basis = BatList.fold_left
+          (fun ideal zero_poly -> Rewrite.add_saturate ideal zero_poly)
+          basis
+          new_zero_polys
+      in
+      let reduced_geq_polys = BatList.map (Rewrite.reduce new_basis) geq_zero_polys in
+      go new_basis reduced_geq_polys
+  in
+  go basis (QQXs.one :: geq_zero_polys)
 
 let add_polys_to_cone pc zero_polys nonneg_polys =
   let basis, cone_generators = pc in
@@ -188,37 +194,55 @@ let add_polys_to_cone pc zero_polys nonneg_polys =
   in
   make_enclosing_cone new_basis (BatList.concat [cone_generators; nonneg_polys])
 
+let trivial = (Rewrite.mk_rewrite Monomial.degrevlex [QQXs.one], [])
+
 let cone_of_polyhedron poly pvutil =
+  Log.errorf "cone of polyhedron";
   let dim = MonomialMap.cardinal pvutil.mono_map in
   let cone_generators = BatEnum.map (fun (typ, vec_generator) ->
       match typ with
       |  `Ray ->
+        Log.errorf "ray generator %a" V.pp vec_generator;
         BatEnum.fold (fun p (coeff, index) ->
+            Log.errorf "before add term";
             QQXs.add_term coeff (BatList.nth pvutil.ordered_mono_list index) p)
           (QQXs.zero)
           (Linear.QQVector.enum vec_generator)
       (* salient cone should have no lines, thus the projection should also have no line *)
-      | `Line -> failwith "Polyhedra of salient cones should have no line but encountered one"
+      | `Line -> Log.errorf "line generator %a" V.pp vec_generator;
+        QQXs.one
+      (* failwith "Polyhedra of salient cones should have no line but encountered one" *)
       (* should always have one vertex at 0 *)
       | `Vertex -> QQXs.zero
     )
       (Polyhedron.enum_generators dim poly)
                         |> BatList.of_enum
-  in BatList.filter (fun p -> not (QQXs.equal p (QQXs.zero))) cone_generators
+  in
+  Log.errorf "after cone generators";
+  BatList.filter (fun p -> not (QQXs.equal p (QQXs.zero))) cone_generators
 
 let project_cone cone_generators f =
+  Log.errorf "computing projection of cone part";
   let cone_generators = QQXs.one :: cone_generators in
   let pvutil = pvutil_of_polys cone_generators in
   let dim = MonomialMap.cardinal pvutil.mono_map in
   let polyhedron_rep_of_cone = polyhedron_of_cone cone_generators pvutil in
+  Log.errorf "polyhedron of cone before proj";
   let elim_dims = (0 -- (dim - 1)) |> BatEnum.filter
                     (fun i ->
                        let monomial = BatList.nth pvutil.ordered_mono_list i in
                        BatEnum.exists
-                         (fun (d, _) -> not (f d))
+                         (fun (d, _) -> (f d))
                          (Monomial.enum monomial)
                     ) |> BatList.of_enum in
-  let projected_polyhedron = Polyhedron.project elim_dims polyhedron_rep_of_cone in
+  Log.errorf "elim dims";
+  let polys_of_elim_dims = BatList.enum (BatList.map (fun dim -> (`Zero, V.add_term QQ.one dim V.zero)) elim_dims) in
+
+  Log.errorf "polys of elim dims";
+  let p = Polyhedron.of_constraints polys_of_elim_dims in
+
+  Log.errorf "polyhedron of constraints";
+  let projected_polyhedron = Polyhedron.meet polyhedron_rep_of_cone p |> Polyhedron.normalize_constraints in
   cone_of_polyhedron projected_polyhedron pvutil
 
 let monomial_over pred monomial =
@@ -228,17 +252,21 @@ let polynomial_over pred polynomial =
   BatEnum.for_all (fun (_, m) -> monomial_over pred m) (QQXs.enum polynomial)
 
 let project pc f =
+  Log.errorf "computing projection of polynomial cone";
   let elim_order = Monomial.block [not % f] Monomial.degrevlex in
   let (ideal, cone) = change_monomial_ordering pc elim_order in
+  Log.errorf "after changing mono ordering";
+  let dims_to_elim = not % f in
   let projected_ideal =
     Rewrite.generators ideal
     |> List.filter (polynomial_over f)
     |> Rewrite.mk_rewrite Monomial.degrevlex
   in
-  let projected_cone = project_cone cone f in
+  let projected_cone = project_cone cone dims_to_elim in
   (projected_ideal, projected_cone)
 
 let intersection (i1, c1) (i2, c2) =
+  Log.errorf "start intersecting";
   let i1_gen = Rewrite.generators i1 in
   let i2_gen = Rewrite.generators i2 in
   let fresh_var =
@@ -249,28 +277,59 @@ let intersection (i1, c1) (i2, c2) =
            0
            (i1_gen @ i2_gen @ c1 @ c2))
   in
+  logf "fresh var has dim: %d" fresh_var;
+  Log.errorf "fresh var is: %a" pp_dim fresh_var;
   let i1' = List.map (QQXs.mul (QQXs.of_dim fresh_var)) i1_gen in
   let c1' = List.map (QQXs.mul (QQXs.of_dim fresh_var)) c1 in
   let i2' = List.map (QQXs.mul (QQXs.sub (QQXs.scalar QQ.one) (QQXs.of_dim fresh_var))) i2_gen in
   let c2' = List.map (QQXs.mul (QQXs.sub (QQXs.scalar QQ.one) (QQXs.of_dim fresh_var))) c2 in
+  let dims_to_elim = fun x -> x = fresh_var in
   let ideal =
-    Rewrite.mk_rewrite (Monomial.block [fun x -> x = fresh_var] Monomial.degrevlex) (i1' @ i2')
+    Rewrite.mk_rewrite (Monomial.block [dims_to_elim] Monomial.degrevlex) (i1' @ i2')
     |> Rewrite.grobner_basis
   in
-  let cone =
-    project_cone
-      (List.map (Rewrite.reduce ideal) (c1' @ c2'))
-      (fun x -> x != fresh_var)
+  Log.errorf "ideal has generators";
+  List.iter (fun p -> Log.errorf "=== %a ===" (QQXs.pp pp_dim) p) (Rewrite.generators ideal);
+  let ideal2 =
+    Rewrite.generators ideal
+    |> List.filter (polynomial_over (not % dims_to_elim))
+    |> Rewrite.mk_rewrite Monomial.degrevlex
   in
-  (ideal, cone)
+Log.errorf "ideal2 has generators";
+  List.iter (fun p -> Log.errorf "=== %a ====" (QQXs.pp pp_dim) p) (Rewrite.generators ideal2);
+
+  let reduced = (List.map (Rewrite.reduce ideal) (c1' @ c2')) in
+
+Log.errorf "reduced cone has generators";
+  List.iter (fun p -> Log.errorf "=== %a ===" (QQXs.pp pp_dim) p) (reduced);
+  Log.errorf "before project";
+  let cone = project_cone reduced (fun x -> x = fresh_var) in
+Log.errorf "projected cone has generators";
+  List.iter (fun p -> Log.errorf "=== %a ===" (QQXs.pp pp_dim) p) (cone);
+
+  Log.errorf "returning";
+  (ideal2, cone)
 
 let equal (i1, c1) (i2, c2) =
   Rewrite.equal i1 i2
   && (let rewritten_c2 = List.map (Rewrite.reduce i1) c2 in
-      let pvutil = pvutil_of_polys rewritten_c2 in
+      try
+        let pvutil = pvutil_of_polys rewritten_c2 in
+        (
       Polyhedron.equal
         (polyhedron_of_cone c1 pvutil)
         (polyhedron_of_cone rewritten_c2 pvutil))
+    with Not_found -> false)
+
+let to_formula srk term_of_dim (ideal, cone_generators) =
+  let open Syntax in
+  let ideal_eq_zero = BatList.map (fun p -> mk_eq srk (mk_real srk QQ.zero) (QQXs.term_of srk term_of_dim p))
+      (Rewrite.generators ideal)
+  in
+  let gen_geq_zero = BatList.map (fun p -> mk_leq srk (mk_real srk QQ.zero) (QQXs.term_of srk term_of_dim p))
+      cone_generators
+  in
+  mk_and srk (ideal_eq_zero @ gen_geq_zero)
 
 let mem p (ideal, cone_generators) =
   let cone_generators = QQXs.one :: cone_generators in
