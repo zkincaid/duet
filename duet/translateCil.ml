@@ -696,7 +696,12 @@ let _define_args file =
 
 let tr_file_funcs =
   let rec go = function
-    | (Cil.GFun (f,_)::rest) -> (tr_func f)::(go rest)
+    | (Cil.GFun (f,_)::rest) -> begin
+        if not (List.mem f.Cil.svar.vname verifier_builtins) then
+        (tr_func f)::(go rest)
+        else
+          go rest
+        end
     | (_::rest) -> go rest
     | [] -> []
   in
