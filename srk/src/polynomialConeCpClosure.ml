@@ -20,20 +20,6 @@ let monomials_in polys =
    bijection between the set of monomials and a set X of dimensions.
  *)
 let context_of ?ordering:(ordering=Monomial.degrevlex) monomials =
-  (* TODO: Verify that reverse lexicographic + increasing means that the
-     fresh monomials y0, y1, ... introduced in the construction of the linear
-     map for cut are given indices in the same order in the context.
-     y0 should be the fresh monomial corresponding to 1.
-     Specifically: y0 < y1 < y2 < ... in terms of monomial dimension,
-     and we also want y0 < y1 < y2 < ... in terms of dimension in the
-     polynomial-vector context.
-     For lex, lower dimension wins, so in revlex, higher dimension wins,
-     so increasing means lower dimension to higher.
-
-     We don't strictly need this yet, but it will be useful if we want to
-     implement the substitution y0 |-> 1 without doing polynomial-vector
-     conversions.
-   *)
   PolyVectorContext.context ordering monomials
 
 let zzvector_to_qqvector vec =
@@ -43,7 +29,7 @@ let zzvector_to_qqvector vec =
 
 (** Denominator, the constant polynomial, and the other basis polynomials.
 
-    TODO: The constant polynomial should always be 1, for otherwise the cutting
+    TODO: Check that the constant polynomial is always 1, for otherwise the cutting
     plane axiom can lead to inconsistency, e.g. if 1/3 is in the lattice,
     3(1/3) + (-1/2) >= 0 =>  1/3 - 1 >= 0.
     We should thus be able to return only the denominator and the other basis
@@ -374,14 +360,6 @@ let cutting_plane_closure lattice polynomial_cone =
     |> compute_cut
     |> (fun (linear, conic) -> L.logf ~level:`trace "Cut computed@;"; (linear, conic))
     |> (fun (linear, conic) ->
-      (* This is buggy, possibly because PolynomialCone doesn't deduce
-         f >= 0 and -f >= 0 |- f = 0 and add f to zeroes.
-
-      PolynomialCone.add_polys_to_cone PolynomialCone.empty
-        zeroes (* preserve original zeroes *)
-        (List.concat [ positives ; linear ; List.map QQXs.negate linear ; conic ]))
-       *)
       PolynomialCone.add_polys_to_cone PolynomialCone.empty
         (List.concat [ zeroes ; linear ])
         (List.concat [ positives ; conic ]))
-
