@@ -187,6 +187,9 @@ val rewrite : 'a context -> ?down:('a rewriter) -> ?up:('a rewriter) ->
 (** Convert to negation normal form ({i down} pass). *)
 val nnf_rewriter : 'a context -> 'a rewriter
 
+(** Convert to negation normal form, but do not rewrite equalities. *)
+val nnf_rewriter_without_replacing_eq : 'a context -> 'a rewriter
+
 module Expr : sig
   val equal : ('a,'b) expr -> ('a,'b) expr -> bool
   val compare : ('a,'b) expr -> ('a,'b) expr -> int

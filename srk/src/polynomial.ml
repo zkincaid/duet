@@ -524,8 +524,9 @@ module QQXs = struct
     |> Syntax.mk_add srk
 
   let of_term srk term =
+    logf "term is %a" (Syntax.ArithTerm.pp srk) term;
     let qq_of poly =
-      if (degree poly) > 0 then failwith "Cannot convert non-const polynomial to qq"
+      if (degree poly) > 0 then failwith "Cannot convert non-const term to qq (cannot handle modulo involving variables)"
       else coeff Monomial.one poly
     in
     let nonzero_qq_of poly =
@@ -535,7 +536,7 @@ module QQXs = struct
     let alg = function
       | `Real qq -> scalar qq
       | `App (k, []) -> of_dim (Syntax.int_of_symbol k)
-      | `Var (_, _) | `App (_, _) -> failwith "Cannot convert functions to polynomials"
+      | `Var (_, _) | `App (_, _) -> failwith "Cannot convert functions term to polynomials"
       | `Add sum -> BatList.fold_left add zero sum
       | `Mul prod -> BatList.fold_left mul one prod
       | `Binop (`Div, x, y) -> scalar_mul (QQ.inverse (nonzero_qq_of y)) x
@@ -543,7 +544,7 @@ module QQXs = struct
       | `Unop (`Floor, x) -> scalar (QQ.of_zz (QQ.floor (qq_of x)))
       | `Unop (`Neg, x) -> negate x
       | `Select _ -> assert false
-      | `Ite (_, _, _) -> failwith "Cannot convert ite expression to polynomials"
+      | `Ite (_, _, _) -> failwith "Cannot convert ite term to polynomials"
     in
     Syntax.ArithTerm.eval srk alg term
 

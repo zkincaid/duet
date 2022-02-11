@@ -392,7 +392,7 @@ and tr_lval lval =
 
 let verifier_builtins =
   ["assume"; "__VERIFIER_assume"; "assert"; "__VERIFIER_assert"; "__VERIFIER_error";
-   "__assert_fail"; "malloc"; "xmalloc"; "calloc"; "realloc"; "xrealloc"; "__builtin_alloca";
+   "__assert_fail"; "reach_error"; "malloc"; "xmalloc"; "calloc"; "realloc"; "xrealloc"; "__builtin_alloca";
    "pthread_mutex_lock"; "pthread_mutex_unlock"; "spin_lock"; "spin_unlock";
    "pthread_create"; "pthread_create"; "exit"; "abort";
    "rand"; "__VERIFIER_nondet_char"; "__VERIFIER_nondet_int"; "__VERIFIER_nondet_long";
@@ -441,6 +441,8 @@ let tr_instr ctx instr =
       | ("__VERIFIER_error", None, []) ->
         mk_def (Assert (Bexpr.kfalse, "error"))
       | ("__assert_fail", None, [_;_;_;_]) ->
+        mk_def (Assert (Bexpr.kfalse, "fail"))
+      | ("reach_error", None, []) ->
         mk_def (Assert (Bexpr.kfalse, "fail"))
       | ("malloc", Some (Variable v), [x])
       | ("xmalloc", Some (Variable v), [x]) ->
@@ -694,7 +696,12 @@ let _define_args file =
 
 let tr_file_funcs =
   let rec go = function
-    | (Cil.GFun (f,_)::rest) -> (tr_func f)::(go rest)
+    | (Cil.GFun (f,_)::rest) -> begin
+        if not (List.mem f.Cil.svar.vname verifier_builtins) then
+        (tr_func f)::(go rest)
+        else
+          go rest
+        end
     | (_::rest) -> go rest
     | [] -> []
   in
