@@ -331,8 +331,6 @@ let compute_cut cone transform =
    - Compute basis B = { b_0 = 1, b_1, ..., b_n } for polynomial lattice L.
    - Compute context for L and C assigning monomials to set X of dimensions.
    - Compute transformation data containing fresh variables Y disjoint from X.
-   - Expand cone.
-   - Compute context for L, C, Y to embed polynomial cone C into QQ Y.
    - Compute cut.
    - Take the union with the original cone.
  *)
