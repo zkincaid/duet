@@ -2,16 +2,21 @@
     of arithmetic.
 *)
 
-(** [cutting_plane_closure lattice cone]
-    computes the smallest polynomial cone that contains [cone] and
+(** [regular_cutting_plane_closure lattice cone]
+    computes the smallest regular polynomial cone that contains [cone] and
     is closed under CP-INEQ with respect to the lattice L spanned by
     [lattice] AND (the polynomial) 1.
 
     A polynomial cone C is closed under CP-INEQ if for all f in L,
     integers n, m with n > 0,
     whenever nf + m is in C, f + floor(m/n) is in C.
+    It is regular if C \cap (-C) is an ideal.
+
+    Models of the theory are polynomial cones C that are consistent
+    (the ideal is proper), regular,
+    closed under CP-INEQ, and closed under CP-EQ (not done here).
  *)
-val cutting_plane_closure :
+val regular_cutting_plane_closure :
   Polynomial.QQXs.t list -> PolynomialCone.t -> PolynomialCone.t
 
 (** Raised if there is a non-integral rational in the lattice.
@@ -41,4 +46,4 @@ val pp_transformation_data : (Format.formatter -> int -> unit)
 
 val compute_transformation : polylattice -> PolyVectorContext.t -> transformation_data
 
-val compute_cut : PolynomialCone.t -> transformation_data -> (QQXs.t list * QQXs.t list)
+val compute_cut : transformation_data -> PolynomialCone.t -> (QQXs.t list * QQXs.t list)

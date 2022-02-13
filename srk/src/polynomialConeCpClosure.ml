@@ -181,7 +181,7 @@ let expand_cone polynomial_cone transform =
   PolynomialCone.make_enclosing_cone expanded_ideal positives
 
 (**
-   [compute_cut C T] computes [cl_{ZZ B}(C \cap QQ B)], where
+   [compute_cut T C] computes [cl_{ZZ B}(C \cap QQ B)], where
    B = T.substitutions(T.codomain_dims) = { b_0 = 1, b_1, ..., b_n } is the
    basis for the lattice.
 
@@ -204,7 +204,7 @@ let expand_cone polynomial_cone transform =
 
    - Convert back to polynomials and do the substitution y_i |-> b_i.
  *)
-let compute_cut cone transform =
+let compute_cut transform cone =
   (* 1. Expand the cone *)
   let expanded = expand_cone cone transform in
   let (zeroes, positives) =
@@ -324,47 +324,79 @@ let compute_cut cone transform =
 
   (new_zeroes, new_positives)
 
+
 (**
-   [cutting_plane_closure L C]:
-   - Check if the ideal is the whole ring or if L = [] (1 is implicit);
+   [cutting_plane_operator T C]: performs one round of the cutting plane
+   operation, which when iterated until fixed point is the regular cutting
+   plane closure of C with respect to the lattice defined by T
+   (i.e., the one spanned by [T.substitutions(T.codomain_dims)]).
+
+   - Check if the ideal is the whole ring;
      if so, C is already closed under CP-INEQ.
+   - Otherwise, adjoin the linear and conic generators of [compute_cut T C]
+     to C.
+ *)
+let cutting_plane_operator transformation_data polynomial_cone =
+  let ideal = PolynomialCone.get_ideal polynomial_cone in
+  let is_full_ring =
+    Rewrite.reduce ideal QQXs.one
+    |> (fun p -> QQXs.equal p (QQXs.zero))
+  in
+  if is_full_ring then
+    (* cutting plane closure is itself; note that the else branch requires the
+       ideal to be proper, so this is not just an optimization!
+     *)
+    polynomial_cone
+  else
+    compute_cut transformation_data polynomial_cone
+    |> (fun (linear, conic) ->
+    L.logf ~level:`trace "cutting_plane_operator: Cut computed@;";
+    (linear, conic))
+    |> (fun (linear, conic) ->
+    PolynomialCone.add_polys_to_cone polynomial_cone linear conic)
+
+(**
+   [regular_cutting_plane_closure L C] computes the smallest regular
+   polynomial cone that contains C and is closed with respect to the polynomial
+   lattice L spanned by L (and the polynomial 1).
+
    - Compute basis B = { b_0 = 1, b_1, ..., b_n } for polynomial lattice L.
    - Compute context for L and C assigning monomials to set X of dimensions.
    - Compute transformation data containing fresh variables Y disjoint from X.
-   - Compute cut.
-   - Take the union with the original cone.
+   - Iterate [cutting_plane_operator] until a fixed point is reached.
+
+   Termination is guaranteed by the Hilbert Basis theorem.
  *)
-let cutting_plane_closure lattice polynomial_cone =
+let regular_cutting_plane_closure lattice polynomial_cone =
   L.logf ~level:`trace "CP closure of: @[%a@]@;with respect to @[%a@]"
     (PolynomialCone.pp (PrettyPrintDim.pp_numeric "x"))
     polynomial_cone
     (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
     lattice;
 
-  let ideal = PolynomialCone.get_ideal polynomial_cone in
-  let is_full_ring =
-    Rewrite.reduce ideal QQXs.one
-    |> (fun p -> QQXs.equal p (QQXs.zero))
-  in
-  if is_full_ring || lattice = [] then
-    (* cutting plane closure is itself; note that the else branch requires the
-       ideal to be proper, so this is not just an optimization!
-     *)
+  if lattice = [] then
+    (* CP-closure with only 1 in the lattice (implicit here) is just itself *)
     polynomial_cone
   else
     let polylattice = polylattice_spanned_by lattice in
     let (_denom, one, basis) = polylattice in
     let (zeroes, positives) =
-      ( Rewrite.generators ideal
+      ( Rewrite.generators (PolynomialCone.get_ideal polynomial_cone)
       , PolynomialCone.get_cone_generators polynomial_cone) in
     let ctxt_x = monomials_in (List.concat [zeroes ; positives ; [one]; basis])
                  |> MonomialSet.to_list
                  |> context_of in
-    compute_transformation polylattice ctxt_x
-    |> (fun tdata -> L.logf ~level:`trace "Transformation data computed@;"; tdata)
-    |> compute_cut polynomial_cone
-    |> (fun (linear, conic) -> L.logf ~level:`trace "Cut computed@;"; (linear, conic))
-    |> (fun (linear, conic) ->
-      PolynomialCone.add_polys_to_cone PolynomialCone.trivial
-        (List.concat [ zeroes ; linear ])
-        (List.concat [ positives ; conic ]))
+    let tdata =
+      (* Introduce fresh dimensions/variables and associated data *)
+      compute_transformation polylattice ctxt_x
+      |> (fun tdata -> L.logf ~level:`trace "Transformation data computed@;"; tdata)
+    in
+    (* The transformation is fixed for all iterations, because the lattice is fixed
+       and the cutting plane closure does not introduce new monomials.
+     *)
+    let rec closure cone =
+      let cone' = cutting_plane_operator tdata cone in
+      if PolynomialCone.equal cone' cone then cone'
+      else closure cone'
+    in
+    closure polynomial_cone
