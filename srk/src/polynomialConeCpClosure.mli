@@ -3,8 +3,13 @@
 *)
 
 (** [cutting_plane_closure lattice cone]
-    computes the cutting plane closure of the polynomial cone [cone] with
-    respect to the lattice spanned by [lattice] AND (the polynomial) 1.
+    computes the smallest polynomial cone that contains [cone] and
+    is closed under CP-INEQ with respect to the lattice L spanned by
+    [lattice] AND (the polynomial) 1.
+
+    A polynomial cone C is closed under CP-INEQ if for all f in L,
+    integers n, m with n > 0,
+    whenever nf + m is in C, f + floor(m/n) is in C.
  *)
 val cutting_plane_closure :
   Polynomial.QQXs.t list -> PolynomialCone.t -> PolynomialCone.t
@@ -23,7 +28,7 @@ open PolynomialUtil
 (** Denominator, and the basis polynomials not equal to 1 (1 is implicit) *)
 type polylattice = ZZ.t * QQXs.t * QQXs.t list
 
-val lattice_spanned_by : QQXs.t list -> polylattice
+val polylattice_spanned_by : QQXs.t list -> polylattice
 
 type transformation_data =
   { codomain_dims: Monomial.dim * Monomial.dim list
@@ -36,8 +41,4 @@ val pp_transformation_data : (Format.formatter -> int -> unit)
 
 val compute_transformation : polylattice -> PolyVectorContext.t -> transformation_data
 
-type expanded_cone = PolynomialCone.t * transformation_data
-
-val expand_cone : PolynomialCone.t -> transformation_data -> expanded_cone
-
-val compute_cut : expanded_cone -> (QQXs.t list * QQXs.t list)
+val compute_cut : PolynomialCone.t -> transformation_data -> (QQXs.t list * QQXs.t list)

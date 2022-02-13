@@ -44,7 +44,7 @@ exception Invalid_lattice
     by [polys] AND the polynomial 1, and returns (d, (b_1, ..., b_n)).
     Note that b_0 = 1 is omitted; it is implicit.
 *)
-let lattice_spanned_by polys : polylattice =
+let polylattice_spanned_by polys : polylattice =
   let polys = QQXs.one :: polys in
   let ctxt = monomials_in polys |> MonomialSet.to_list |> context_of in
   let open PolynomialUtil in
@@ -85,17 +85,14 @@ let lattice_spanned_by polys : polylattice =
   (denom, constant_poly, basis_polys)
 
 type transformation_data =
-  (* Pairs are s.t. the first component is for the polynomial 1, and the second
-     component is for the rest.
-   *)
+  (** Pairs are s.t. the first component is for the polynomial 1, and the second
+      component is for the rest. *)
+  (** The fresh dimensions/variables introduced *)
   { codomain_dims: Monomial.dim * Monomial.dim list
-    (* dimension for polynomial 1 is the smallest fresh variable/dimension
-       introduced
-     *)
+  (** \y_dim. y_dim -> b *)
   ; substitutions: (Monomial.dim -> QQXs.t) * (Monomial.dim -> QQXs.t)
-  (* \y_dim. y_dim -> b *)
+  (** { y_i - b_i }, where each b_i is in the lattice and y_i is fresh *)
   ; rewrite_polys: QQXs.t * QQXs.t list
-  (* { y_i - b_i }, where each b_i is in the lattice and y_i is fresh *)
   }
 
 let pp_transformation_data pp_dim fmt transformation_data =
@@ -106,11 +103,13 @@ let pp_transformation_data pp_dim fmt transformation_data =
     (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
     (fst transformation_data.rewrite_polys :: snd transformation_data.rewrite_polys)
 
-(** [compute_transformation_data lattice fresh_dim], where
-    [lattice] = (d, b_1, ..., b_n) is s.t. 1/d { b_0 = 1, b_1, ..., b_n } is a
+(** [compute_transformation_data polylattice ctxt], where
+
+    [polylattice] = (d, b_1, ..., b_n) is s.t. 1/d { b_0 = 1, b_1, ..., b_n } is a
     basis for a polynomial lattice, and
-    [ctxt] is the conversion context betweeen polynomials in the lattice
-    (and polynomial cone) and a set of dimensions X,
+    [ctxt] is the conversion context betweeen the set of polynomials in the
+    polylattice (and polynomial cone), and a set of dimensions X,
+
     computes fresh dimensions Y = y_0, ..., y_n, with y_0 corresponding to 1,
     the substitution y_i |-> b_i for 0 <= i <= n,
     and the rewrite polynomials { f_i = y_i - b_i : 0 <= i <= n }.
@@ -158,17 +157,12 @@ let compute_transformation lattice ctxt : transformation_data =
     (pp_transformation_data (PrettyPrintDim.pp_numeric "x")) data;
   data
 
-(** An expanded cone is a polynomial cone with { y_i - b_i : 0 <= i <= n }
-    introduced as zeroes into a polynomial cone, where { y_i - b_i } are the
-    rewrite polynomials of the attached [transformation_data].
- *)
-type expanded_cone = PolynomialCone.t * transformation_data
-
 (**
    [expand_cone polynomial_cone transform] adjoins the rewrite polynomials
    {y_i - b_i : 0 <= i <= n} from [transform] to the zeros of
-   [polynomial_cone], computes a Groebner basis for the new ideal,
-   and reduces the positives with respect to the basis.
+   [polynomial_cone], computes a Groebner basis with X > Y
+   (Y the codomain variables, X the original variables) for the new ideal,
+   and reduces the positives with respect to this basis.
  *)
 let expand_cone polynomial_cone transform =
   let elim_order =
@@ -184,32 +178,37 @@ let expand_cone polynomial_cone transform =
     |> Rewrite.mk_rewrite elim_order
   in
   (* Use PolynomialCone to reduce the positives *)
-  (PolynomialCone.make_enclosing_cone expanded_ideal positives, transform)
+  PolynomialCone.make_enclosing_cone expanded_ideal positives
 
 (**
-   [compute_cut transform zeroes positives] computes [cl_{ZZ B}(C)], where
-   C = (zeroes, positives) is an "expanded" polynomial cone and
-   B is the standard basis spanned by [codomain_dims] in [transform],
-   with the first codomain dimension treated as 1.
+   [compute_cut C T] computes [cl_{ZZ B}(C \cap QQ B)], where
+   B = T.substitutions(T.codomain_dims) = { b_0 = 1, b_1, ..., b_n } is the
+   basis for the lattice.
 
-   - Convert the polynomial cone defined by zeros and positives to a polyhedron,
-     and projecting that onto the dimensions Y = y0, ..., y_n corresponding to
-     [codomain_dims] in [transform] (i.e., the fresh variables).
-     This implements intersection with QQ Y, which gives the image of cone
+   - Expand the cone C to contain the rewrite polynomials
+     { y_i - b_i : 0 <= i <= n } of T in its ideal, and have its Groebner
+     basis be with respect to an elimination order X > Y.
+
+   - Convert this cone to a polyhedron and project it onto the dimensions
+     Y = y0, ..., y_n, the [codomain_dims] in T (i.e., the fresh variables).
+     This implements intersection with QQ Y, which gives the image of the cone
      under the linear map defined by [transform].
-     (TODO: Use [PolynomialCone.project] directly.)
+
+     (TODO: Compare with using [PolynomialCone.project] directly, namely:
+     compute the intersection of the polynomial cone with QQ[Y] (not QQ Y),
+     and extract only the linear (affine) polynomials. Are these the same?)
 
    - Substitute y_0 |-> 1 throughout.
-   - Compute integral hull.
+
+   - Compute the integral hull.
+
    - Convert back to polynomials and do the substitution y_i |-> b_i.
  *)
-let compute_cut expanded_polynomial_cone =
-  let (zeroes, positives, transform) =
-    let (cone, transform) = expanded_polynomial_cone in
-    ( PolynomialCone.get_ideal cone |> Rewrite.generators
-    , PolynomialCone.get_cone_generators cone
-    , transform
-    )
+let compute_cut cone transform =
+  let expanded = expand_cone cone transform in
+  let (zeroes, positives) =
+    ( PolynomialCone.get_ideal expanded |> Rewrite.generators
+    , PolynomialCone.get_cone_generators expanded)
   in
   let open PolynomialUtil in
   (* Conversion context to polyhedron.
@@ -321,12 +320,13 @@ let compute_cut expanded_polynomial_cone =
 
 (**
    [cutting_plane_closure L C]:
-   - Check if the ideal is the whole ring.
-   - Compute basis B = { b_0 = 1, b_1, ..., b_n} for lattice L.
+   - Check if the ideal is the whole ring or if L = [] (1 is implicit);
+     if so, C is already closed under CP-INEQ.
+   - Compute basis B = { b_0 = 1, b_1, ..., b_n } for polynomial lattice L.
    - Compute context for L and C assigning monomials to set X of dimensions.
    - Compute transformation data containing fresh variables Y disjoint from X.
    - Expand cone.
-   - Compute context for L, C, Y to embed polynomial cone into QQ Y.
+   - Compute context for L, C, Y to embed polynomial cone C into QQ Y.
    - Compute cut.
    - Take the union with the original cone.
  *)
@@ -342,10 +342,13 @@ let cutting_plane_closure lattice polynomial_cone =
     Rewrite.reduce ideal QQXs.one
     |> (fun p -> QQXs.equal p (QQXs.zero))
   in
-  if is_full_ring then
-    polynomial_cone (* cutting plane closure is itself *)
+  if is_full_ring || lattice = [] then
+    (* cutting plane closure is itself; note that the else branch requires the
+       ideal to be proper, so this is not just an optimization!
+     *)
+    polynomial_cone
   else
-    let polylattice = lattice_spanned_by lattice in
+    let polylattice = polylattice_spanned_by lattice in
     let (_denom, one, basis) = polylattice in
     let (zeroes, positives) =
       ( Rewrite.generators ideal
@@ -355,11 +358,9 @@ let cutting_plane_closure lattice polynomial_cone =
                  |> context_of in
     compute_transformation polylattice ctxt_x
     |> (fun tdata -> L.logf ~level:`trace "Transformation data computed@;"; tdata)
-    |> expand_cone polynomial_cone
-    |> (fun expanded_cone -> L.logf ~level:`trace "Cone expanded@;"; expanded_cone)
-    |> compute_cut
+    |> compute_cut polynomial_cone
     |> (fun (linear, conic) -> L.logf ~level:`trace "Cut computed@;"; (linear, conic))
     |> (fun (linear, conic) ->
-      PolynomialCone.add_polys_to_cone PolynomialCone.empty
+      PolynomialCone.add_polys_to_cone PolynomialCone.trivial
         (List.concat [ zeroes ; linear ])
         (List.concat [ positives ; conic ]))
