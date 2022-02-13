@@ -205,6 +205,7 @@ let expand_cone polynomial_cone transform =
    - Convert back to polynomials and do the substitution y_i |-> b_i.
  *)
 let compute_cut cone transform =
+  (* 1. Expand the cone *)
   let expanded = expand_cone cone transform in
   let (zeroes, positives) =
     ( PolynomialCone.get_ideal expanded |> Rewrite.generators
@@ -230,7 +231,7 @@ let compute_cut cone transform =
     (PolyVectorContext.pp (PrettyPrintDim.pp_numeric "x"))
     ctxt;
 
-  (* 1. Convert to polyhedron *)
+  (* 2. Convert to polyhedron *)
   let linear_constraints =
     List.map (fun poly ->
         PolyVectorConversion.poly_to_vector ctxt poly
@@ -242,7 +243,8 @@ let compute_cut cone transform =
   let expanded_polyhedron =
     Polyhedron.of_constraints
       (BatList.enum (List.append linear_constraints conic_constraints)) in
-  (* 2. Project out the original dimensions and substitute y0 |-> 1 *)
+
+  (* 3. Project out the original dimensions *)
   let (y0, ys) =
     let dim_of mono = PolyVectorContext.dim_of (Monomial.singleton mono 1) ctxt in
     (dim_of (fst transform.codomain_dims), List.map dim_of (snd transform.codomain_dims))
@@ -256,6 +258,8 @@ let compute_cut cone transform =
       []
       (PolyVectorContext.enum_by_dimension ctxt) in
   let projected = Polyhedron.project original_dimensions expanded_polyhedron in
+
+  (* 4. Substitute y_0 |-> one *)
   let substitute_one v =
     let entry = Linear.QQVector.coeff y0 v in
     Linear.QQVector.of_term entry y0
@@ -273,9 +277,11 @@ let compute_cut cone transform =
       [] (Polyhedron.enum_constraints projected)
   in
   let polyhedron_to_hull = Polyhedron.of_constraints (BatList.enum substituted_constraints) in
-  (* 2. Integer hull *)
+
+  (* 5. Integer hull *)
   let hull = Polyhedron.integer_hull polyhedron_to_hull in
-  (* 3. Substitute back *)
+
+  (* 6. Substitute back *)
   let (new_zeroes, new_positives) =
     BatEnum.fold (fun (zeroes, positives) (kind, v) ->
         let sub = snd transform.substitutions in
