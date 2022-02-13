@@ -472,7 +472,6 @@ module Solver = struct
       `Fun func
 
   let get_model ?(symbols=[]) solver =
-    logf "trying to get model";
     let srk = solver.srk in
     let z3 = solver.z3 in
     match check solver [] with

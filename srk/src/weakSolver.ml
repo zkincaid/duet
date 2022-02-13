@@ -46,7 +46,7 @@ Z3.set_global_param "model.completion" "true";
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
   in
-    logf "Uninterpreted formula: %a" (Formula.pp srk) uninterp_phi;
+    (* logf "Uninterpreted formula: %a" (Formula.pp srk) uninterp_phi; *)
 let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
@@ -80,7 +80,7 @@ let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   (* TODO: adding lemmas. Using preduce in Groebner basis to get a subset of atoms whose conjunction is unsat. *)
   let rec go () =
 
-    logf "solver is: %s ===" (Smt.Solver.to_string solver);
+    (* logf "solver is: %s ===" (Smt.Solver.to_string solver); *)
     match Smt.Solver.get_model solver with
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
@@ -177,7 +177,7 @@ let find_consequences srk phi =
             poly_cone
             (fun i -> let s = Syntax.symbol_of_int i in not (BatSet.mem s existential_vars))
         in
-        (* logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc; *)
+        logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc;
         let new_pc = PolynomialCone.intersection current_pc projected_pc in
         logf "intersection: %a" (PolynomialCone.pp (pp_dim srk)) new_pc;
         let term_of_dim dim = mk_const srk (symbol_of_int dim) in

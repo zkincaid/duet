@@ -88,13 +88,14 @@ let find_tf_invs srk tr_symbols loop_counter tf =
       x_xp
       dx
   in
-    let formula_with_dx = mk_and srk ((TF.formula tf) :: diff) in
+  let formula_with_dx = mk_and srk ((TF.formula tf) :: diff) in
   let consequence_cone = WTS.find_consequences srk formula_with_dx in
   logf "consequence cone is %a" (PC.pp (pp_dim srk)) consequence_cone;
   let implied_ideal = PC.get_ideal consequence_cone in
   let inv_functionals = find_inv_functionals dx_dims implied_ideal in
   logf "printing inv functionals:";
-  BatList.iter (fun (inv, other) -> logf "Inv linear func: %a, other part: %a" V.pp inv (P.QQXs.pp (pp_dim srk)) other) inv_functionals;
+  BatList.iter (fun (inv, other) -> logf "Inv linear func: %a, other part: %a" (ArithTerm.pp srk) (Linear.of_linterm srk inv) (P.QQXs.pp (pp_dim srk)) other) inv_functionals;
+  logf "printing end";
   let zs = BatList.mapi (fun i _ ->
       let name = String.concat "" ["z_"; string_of_int i] in
       mk_symbol srk ~name `TyReal)
@@ -108,10 +109,10 @@ let find_tf_invs srk tr_symbols loop_counter tf =
       inv_functionals
   in
   let formula_with_dx_inv = mk_and srk (formula_with_dx :: inv_eqs) in
-  logf "formula with dx invs: %a" (Formula.pp srk) formula_with_dx_inv;
+  logf "formula with dx defs: %a" (Formula.pp srk) formula_with_dx_inv;
   let existential_formula = mk_exists_consts
       srk
-      (fun symbol -> BatList.mem symbol dx || BatList.mem symbol zs)
+      (fun symbol -> TF.is_symbolic_constant tf symbol ||  BatList.mem symbol dx || BatList.mem symbol zs)
       formula_with_dx_inv in
   let inv_cone = WTS.find_consequences srk existential_formula in
   logf "polynomial cone of delta and inv lin funcs: %a" (PC.pp (pp_dim srk)) inv_cone;
@@ -135,8 +136,9 @@ let find_tf_invs srk tr_symbols loop_counter tf =
       )
       (P.Rewrite.generators ideal)
   in
-  logf "implied_zero_polys_of_inv_funcs is:";
+  logf "implied_zero_polys_of_inv_funcs are:";
   BatList.iter (fun p -> logf "poly: %a" (P.QQXs.pp (pp_dim srk)) p) implied_zero_polys_of_inv_funcs;
+  logf "printing end";
   let subst_zs_by_lin_comb_of_x = BatList.map (fun p ->
       P.QQXs.substitute (fun dim -> if BatSet.Int.mem dim z_dims then
                             let order_in_inv_func_list, _ = BatList.findi (fun _ sym -> int_of_symbol sym = dim) zs in
@@ -150,9 +152,9 @@ let find_tf_invs srk tr_symbols loop_counter tf =
     )
   in
   let implied_zero_polys_in_x = subst_zs_by_lin_comb_of_x implied_zero_polys_of_inv_funcs in
-logf "implied_zero_polys_in_x is:";
+  logf "implied_zero_polys_in_x is:";
   BatList.iter (fun p -> logf "poly: %a" (P.QQXs.pp (pp_dim srk)) p) implied_zero_polys_in_x;
-
+  logf "printing end";
   let term_of_poly p = P.QQXs.term_of srk (fun dim -> mk_const srk (symbol_of_int dim)) p in
   let implied_zero_polys_formulas = BatList.map (fun p -> mk_eq srk (mk_zero srk) (term_of_poly p)) implied_zero_polys_in_x in
 
