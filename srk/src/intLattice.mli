@@ -10,10 +10,13 @@ type t
 val lattice_of : ?ordering: (Linear.QQVector.dim -> Linear.QQVector.dim -> int)
                  -> Linear.QQVector.t list -> t
 
-(** basis L = (d, B), where L = ZZ (1/d B) = { \sum_i (1/d b_i) : b_i in B }
+(** [basis L = (d, B)], where L = ZZ (1/d B) = { \sum_i (1/d b_i) : b_i in B }
     and B is a basis in row Hermite normal form.
 *)
 val basis : t -> ZZ.t * Linear.ZZVector.t list
+
+(** [member v L] = true iff v is a member of the lattice L. *)
+val member : Linear.QQVector.t -> t -> bool
 
 val pp : Format.formatter -> t -> unit
 
