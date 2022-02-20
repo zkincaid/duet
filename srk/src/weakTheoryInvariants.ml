@@ -27,7 +27,6 @@ let cs_of_symbols srk symbols =
 let filter_polys_linear_in_dims dims polys =
   let polys_linear_in_dx = BatList.filter_map
       (fun poly -> let lin, higher = P.QQXs.split_linear poly in
-        logf "linear part is: %a" V.pp lin;
         let higher_contains_dx =
           BatEnum.exists
             (fun (_, mono) ->
@@ -58,12 +57,74 @@ let filter_polys_linear_in_dims dims polys =
     )
     polys_linear_in_dx
 
+(*
+x = x + 1
+y = y - 1
+
+generators (dx - 1), (dy + 1)
+(dx + dy) in span(dx-1, dy+1)
+x+y should be an inv functional
+
+use homogenization as in the write-up to find all these
+ *)
+(* in consequence finding, can also throw out a lot of stuff, maybe worth
+having an interface letting the user controlling what to throw out at
+every step of consequence finding. Thus it can be used to
+find linear consequences, affine/linear eqs, etc.
+the idea also applies to the recurrence ineqs.
+e.g. degree limitations, throwing out ineqs and keep only the eqs
+
+set up the generators as columns of a matrix *)
+(* let the generators be g1 ... gn
+
+let c1 through cn be the constant parts of the generators
+
+[ c1 ... cn ] x = 0
+[ -1 1 ] x = 0
+compute a basis for the solution and then
+{ [ g1 ... gn ] b1 , ..., [ g1 ... gn ] bm }
+ will be the basis for the space of inv functionals
+ *)
+(*
+TODO: consider loop splitting in a monotone
+F(x, x') /\ g(x) |= g(x')
+
+or consider phase graph analysis as in the termaination analysis
+for some fixed set of predicates
+sign and direction preds makes sense
+attractor region can also be used as a predicate (maybe not in this paper but next)
+
+
+final comparison should be with cra and cra-split-loops
+
+
+
+also need to check the monotonicity proof generalize to the inv gen case
+also need to add the target node in addition to the source node
+algebraic char of the star operator as well
+
+*)
 
 let find_inv_functionals dx_dims implied_ideal =
   logf "finding inv functionals";
+  let open Linear in
   let basis = P.Rewrite.generators implied_ideal in
   let polys = filter_polys_linear_in_dims dx_dims basis in
-  BatList.filter (fun (_, other) -> P.QQXs.equal P.QQXs.zero other) polys
+  let lin_parts = BatList.map (fun (lin, _) -> lin) polys in
+  let lin_part_mat = QQMatrix.transpose (QQMatrix.of_rows lin_parts) in
+  logf "linear part matrix is: %a" QQMatrix.pp lin_part_mat;
+  let const_parts = BatList.mapi (fun num ( _, const) -> (P.QQXs.coeff (P.Monomial.one) const, num)) polys in
+  let const_vec = QQVector.of_list const_parts in
+  let const_mat = QQMatrix.of_rows [const_vec] in
+  logf "const part matrix is: %a" QQMatrix.pp const_mat;
+  let all_dims = BatList.of_enum (0 -- (BatList.length const_parts - 1)) in
+  let null_space = nullspace const_mat all_dims in
+  let inv_bases = BatList.map (fun base_vec -> QQMatrix.vector_right_mul lin_part_mat base_vec) null_space in
+  (* let const_bases = BatList.map (fun base_vec -> QQMatrix.vector_right_mul const_mat base_vec) null_space in *)
+  inv_bases
+  (* let polys = BatList.filter (fun (_, other) -> P.QQXs.equal P.QQXs.zero other) polys in *)
+
+
 
 let find_tf_invs srk tr_symbols loop_counter tf =
   logf "finding transition formula invs for %a" (Formula.pp srk) (TF.formula tf) ;
@@ -89,12 +150,21 @@ let find_tf_invs srk tr_symbols loop_counter tf =
       dx
   in
   let formula_with_dx = mk_and srk ((TF.formula tf) :: diff) in
-  let consequence_cone = WTS.find_consequences srk formula_with_dx in
+  let formula_exists_dx = mk_exists_consts
+      srk
+      (fun symbol -> BatList.mem symbol dx)
+      formula_with_dx in
+
+  let consequence_cone = WTS.find_consequences srk formula_exists_dx in
   logf "consequence cone is %a" (PC.pp (pp_dim srk)) consequence_cone;
   let implied_ideal = PC.get_ideal consequence_cone in
+  (* TODO: should also add symb constants as inv functionals *)
   let inv_functionals = find_inv_functionals dx_dims implied_ideal in
+  let inv_functionals = BatList.map (fun f -> Linear.of_linterm srk f) inv_functionals in
+  let sym_consts = Symbol.Set.to_list (TF.symbolic_constants tf) |> BatList.map (fun sym -> mk_const srk sym) in
+  let inv_functionals = inv_functionals @ sym_consts in
   logf "printing inv functionals:";
-  BatList.iter (fun (inv, other) -> logf "Inv linear func: %a, other part: %a" (ArithTerm.pp srk) (Linear.of_linterm srk inv) (P.QQXs.pp (pp_dim srk)) other) inv_functionals;
+  BatList.iter (fun inv -> logf "Inv func: %a" (ArithTerm.pp srk) inv) inv_functionals;
   logf "printing end";
   let zs = BatList.mapi (fun i _ ->
       let name = String.concat "" ["z_"; string_of_int i] in
@@ -102,8 +172,8 @@ let find_tf_invs srk tr_symbols loop_counter tf =
       inv_functionals
   in
   let z_dims = BatList.fold (fun s z -> BatSet.Int.add (int_of_symbol z) s) BatSet.Int.empty zs in
-  let inv_eqs = BatList.map2 (fun z (inv_func, _) ->
-      mk_eq srk (mk_const srk z) (Linear.of_linterm srk inv_func)
+  let inv_eqs = BatList.map2 (fun z inv_func ->
+      mk_eq srk (mk_const srk z)  inv_func
     )
       zs
       inv_functionals
@@ -142,9 +212,9 @@ let find_tf_invs srk tr_symbols loop_counter tf =
   let subst_zs_by_lin_comb_of_x = BatList.map (fun p ->
       P.QQXs.substitute (fun dim -> if BatSet.Int.mem dim z_dims then
                             let order_in_inv_func_list, _ = BatList.findi (fun _ sym -> int_of_symbol sym = dim) zs in
-                            let inv_func, _ = BatList.nth inv_functionals order_in_inv_func_list in
-                            logf "linear.oflinterm is: %a" (ArithTerm.pp srk) (Linear.of_linterm srk inv_func);
-                            P.QQXs.of_term srk (Linear.of_linterm srk inv_func)
+                            let inv_func = BatList.nth inv_functionals order_in_inv_func_list in
+                            (* logf "linear.oflinterm is: %a" (ArithTerm.pp srk) (Linear.of_linterm srk inv_func); *)
+                            P.QQXs.of_term srk inv_func
                           else
                             P.QQXs.of_dim dim
                         )

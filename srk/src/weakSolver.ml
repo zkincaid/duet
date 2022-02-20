@@ -153,6 +153,9 @@ let is_sat srk phi =
   | `Unsat -> `Unsat
   | `Unknown -> `Unknown
 
+(* projecting down to only linear consequences distributes through intersection, so could
+   do project first then compute intersection, which could be cheaper *)
+
 (* Finding all equations and inequalities implied by a formula according to the weak theory. *)
 let find_consequences srk phi =
   let phi = eliminate_ite srk phi in
