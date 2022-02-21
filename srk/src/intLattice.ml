@@ -1,6 +1,8 @@
 open Normalizffi
 
-module L = Log.Make(struct let name = "intLattice" end)
+module L = Log.Make(struct let name = "srk.intLattice" end)
+
+(* let _ = Log.set_verbosity_level "srk.intLattice" `trace *)
 
 type dim_idx_bijection = { dim_to_idx : int SrkUtil.Int.Map.t
                          ; idx_to_dim : int SrkUtil.Int.Map.t
@@ -127,33 +129,12 @@ let basis t =
   | EmptyLattice -> (ZZ.one, [])
   | Lattice lat -> (lat.denominator, lat.sparse_rep)
 
-let member v t =
-  match t with
-  | EmptyLattice -> false
-  | Lattice lat ->
-     let embedding_dim = Array.length (List.hd lat.dense_rep) in
-     let mat = Flint.new_matrix (List.map Array.to_list lat.dense_rep) in
-     (* The generators should be linearly independent *)
-     let rank = List.length lat.dense_rep in
-     let extended_basis = Flint.extend_hnf_to_basis mat in
-     let transposed = Flint.transpose extended_basis in
-     let inv = Flint.matrix_inverse transposed in
-     let vec = densify_and_zzify embedding_dim lat.dimension_indices.dim_to_idx
-                 ZZ.one v
-               |> (fun arr -> Flint.new_matrix [Array.to_list arr]) in
-     let (denom, preimage) = Flint.matrix_multiply inv vec
-                             |> Flint.zz_denom_matrix_of_rational_matrix in
-     begin match preimage with
-     | [preimage] ->
-        let (prefix, suffix) = BatList.takedrop rank preimage in
-        (* The unique solution to B^T y = v must have all zeroes in the extended
-           part of the basis to fall within the QQ-span of the lattice,
-           and then have ZZ entries to be within the ZZ-span of the lattice.
-         *)
-        (List.for_all (ZZ.equal ZZ.zero) suffix)
-        && (List.for_all (fun x -> ZZ.equal (ZZ.modulo x denom) ZZ.zero) prefix)
-     | _ -> failwith "member: Impossible"
-     end
+let pp_vector_list pp =
+  Format.pp_print_list
+    ~pp_sep:Format.pp_print_newline
+    (fun fmt v -> Format.pp_print_list
+                    ~pp_sep:(fun fmt _ -> Format.fprintf fmt ", ")
+                    pp fmt v)
 
 let pp fmt t =
   match t with
@@ -178,3 +159,47 @@ let pp_term pp_dim fmt t =
        (Format.pp_print_list ~pp_sep:Format.pp_print_cut
           (Linear.ZZVector.pp_term pp_dim))
        lat.sparse_rep
+
+let member v t =
+  match t with
+  | EmptyLattice -> false
+  | Lattice lat ->
+     let embedding_dim = Array.length (List.hd lat.dense_rep) in
+     let mat = Flint.new_matrix (List.map Array.to_list lat.dense_rep) in
+     (* The generators should be linearly independent *)
+     let rank = List.length lat.dense_rep in
+     let extended_basis = Flint.extend_hnf_to_basis mat in
+     let transposed = Flint.transpose extended_basis in
+     let inv = Flint.matrix_inverse transposed in
+     let vec = densify_and_zzify embedding_dim lat.dimension_indices.dim_to_idx
+                 ZZ.one v
+               |> (fun arr -> Flint.new_matrix [Array.to_list arr])
+               |> Flint.transpose in
+     let (denom, preimage) = Flint.matrix_multiply inv vec
+                             |> Flint.zz_denom_matrix_of_rational_matrix in
+     let preimage_vector = List.concat preimage in
+     let (prefix, suffix) = BatList.takedrop rank preimage_vector in
+     (* The unique solution to B^T y = v must have all zeroes in the extended
+        part of the basis to fall within the QQ-span of the lattice,
+        and then have ZZ entries to be within the ZZ-span of the lattice.
+      *)
+     let (transposed_denom, transposed_matrix) =
+       Flint.zz_denom_matrix_of_rational_matrix transposed in
+     let (target_denom, target_vector) = Flint.zz_denom_matrix_of_rational_matrix vec in
+     L.logf
+       "@[<v 0>Lattice: %a
+        @; embedding dimension: %d | rank: %d
+        @; Transposed: (1/%a) %a
+        @; v in B^T x = v: (1/%a) %a
+        @; Preimage: %a
+        @]"
+       pp t
+       embedding_dim
+       rank
+       ZZ.pp transposed_denom
+       (pp_vector_list ZZ.pp) transposed_matrix
+       ZZ.pp target_denom
+       (pp_vector_list ZZ.pp) target_vector
+       (pp_vector_list ZZ.pp) preimage;
+     (List.for_all (ZZ.equal ZZ.zero) suffix)
+     && (List.for_all (fun x -> ZZ.equal (ZZ.modulo x denom) ZZ.zero) prefix)
