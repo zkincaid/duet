@@ -109,10 +109,15 @@ val destruct : 'a context -> ('a, 'b) expr -> [
     | `Or of ('a formula) list
     | `Not of ('a formula)
     | `Quantify of [`Exists | `Forall] * string * typ_fo * ('a formula)
-    | `Atom of 
+    | `Atom of
         [ `Arith of [`Eq | `Leq | `Lt] * ('a arith_term) * ('a arith_term)
-        | `ArrEq of 'a arr_term * 'a arr_term ]
+        | `ArrEq of 'a arr_term * 'a arr_term
+        | `LatticeGen of 'a arith_term ]
     | `Proposition of [ `Var of int
+                      (* NK: Shouldn't this be ('a, typ_fo)?
+                         Also, there are two definitions of `App, although
+                         the other one means an (arithmetic) term.
+                       *)
                       | `App of symbol * (('b, typ_fo) expr) list ]
   ]
 
@@ -402,9 +407,11 @@ type ('a,'b) open_formula = [
   | `Or of 'a list
   | `Not of 'a
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
-  | `Atom of 
+  | `Atom of
       [ `Arith of [`Eq | `Leq | `Lt] * ('b arith_term) * ('b arith_term)
-      | `ArrEq of 'b arr_term * 'b arr_term ]
+      | `ArrEq of 'b arr_term * 'b arr_term
+      | `LatticeGen of 'b arith_term
+      ]
   | `Proposition of [ `Var of int
                     | `App of symbol * (('b, typ_fo) expr) list ]
   | `Ite of 'a * 'a * 'a
@@ -436,6 +443,8 @@ val mk_lt : 'a context -> 'a arith_term -> 'a arith_term -> 'a formula
 val mk_leq : 'a context -> 'a arith_term -> 'a arith_term -> 'a formula
 val mk_true : 'a context -> 'a formula
 val mk_false : 'a context -> 'a formula
+
+val mk_lattice_gen : 'a context -> 'a arith_term -> 'a formula
 
 (** This is syntactic sugar for intrinsic array equality *)
 val mk_arr_eq : 'a context -> 'a arr_term -> 'a arr_term -> 'a formula
@@ -492,8 +501,7 @@ module Formula : sig
   val destruct : 'a context -> 'a formula -> ('a formula, 'a) open_formula
   val construct : 'a context -> ('a formula, 'a) open_formula -> 'a formula
   val eval : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
-  val eval_memo : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 
-    'b
+  val eval_memo : 'a context -> (('b, 'a) open_formula -> 'b) -> 'a formula -> 'b
   val existential_closure : 'a context -> 'a formula -> 'a formula
   val universal_closure : 'a context -> 'a formula -> 'a formula
   val skolemize_free : 'a context -> 'a formula -> 'a formula
@@ -540,6 +548,7 @@ module type Context = sig
   val mk_arr_eq : arr_term -> arr_term -> formula
   val mk_true : formula
   val mk_false : formula
+  val mk_lattice_gen : arith_term -> formula
   val mk_ite : formula -> (t, 'a) expr -> (t, 'a) expr -> (t, 'a) expr
   val stats : unit -> (int * int * int)
 end
@@ -576,6 +585,8 @@ module Infix (C : sig
   val ( .%[]<- ) : C.t arr_term -> C.t arith_term -> C.t arith_term -> 
     C.t arr_term
   val ( == ) : C.t arr_term -> C.t arr_term -> C.t formula
+
+  val latGen : C.t arith_term -> C.t formula
 end
 
 (** A context table is a hash table mapping contents to values.  If a context

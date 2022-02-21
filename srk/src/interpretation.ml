@@ -182,6 +182,7 @@ and evaluate_formula interp ?(env=Env.empty) phi =
         with Divide_by_zero -> false
       end
     | `Atom (`ArrEq _) -> invalid_arg "evaluate_formula: array atom"
+    | `Atom (`LatticeGen _) -> invalid_arg "evaluate_formula: lattice gen atom"
     | `Not v -> not v
     | `Ite (cond, bthen, belse) -> if cond then bthen else belse
     | `Proposition (`App (k, [])) -> bool interp k
@@ -317,6 +318,7 @@ let select_implicant interp ?(env=Env.empty) phi =
         with Divide_by_zero -> None
       end
     | `Atom (`ArrEq _) -> assert false
+    | `Atom (`LatticeGen _) -> assert false
     | `Proposition (`App (p, [])) ->
       if bool interp p then Some [phi]
       else None

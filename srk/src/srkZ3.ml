@@ -24,6 +24,7 @@ type 'a open_expr = [
   | `Ite of 'a * 'a * 'a
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
+  | `LatticeGen of 'a list
 ]
 
 let bool_val x =
@@ -66,7 +67,12 @@ let rec eval alg ast =
       let decl = Expr.get_func_decl ast in
       let args = List.map (eval alg) (Expr.get_args ast) in
       match FuncDecl.get_decl_kind decl, args with
-      | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
+      | (OP_UNINTERPRETED, args) ->
+         let name = decl |> FuncDecl.get_name |> Symbol.get_string in
+         if String.equal name "latGen" then
+           alg (`LatticeGen args)
+         else
+           alg (`App (decl, args))
       | (OP_ADD, args) -> alg (`Add args)
       | (OP_MUL, args) -> alg (`Mul args)
       | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
@@ -79,7 +85,7 @@ let rec eval alg ast =
 
       | (OP_STORE, [a; i; v]) -> alg (`Store (a, i, v))
       | (OP_SELECT, [a; i]) -> alg (`Binop(`Select, a, i))
-      
+
       | (OP_TRUE, []) -> alg `Tru
       | (OP_FALSE, []) -> alg `Fls
       | (OP_AND, args) -> alg (`And args)
@@ -280,7 +286,11 @@ and z3_of_formula srk z3 =
     | `Atom (`Arith (`Lt, s, t)) -> Z3.Arithmetic.mk_lt z3 (of_arith_term s) (of_arith_term t)
     | `Atom (`ArrEq (s, t)) -> Z3.Boolean.mk_eq z3 (of_arr_term s) (of_arr_term t)
     | `Proposition (`Var i) ->
-      Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
+       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
+    | `Atom (`LatticeGen s) ->
+       let latgen_sym = get_named_symbol srk "latGen" in
+       let decl = decl_of_symbol z3 srk latgen_sym in
+       Z3.Expr.mk_app z3 decl [z3_of_expr srk z3 (s :> ('a, typ_fo) expr)]
     | `Proposition (`App (p, [])) ->
       let decl =
         Z3.FuncDecl.mk_const_decl z3
@@ -307,6 +317,9 @@ let of_z3 context sym_of_decl expr =
     | `App (decl, args) ->
       let const_sym = sym_of_decl decl in
       mk_app context const_sym args
+    | `LatticeGen args ->
+       (mk_and context
+          (List.map (fun x -> x |> arith_term |> mk_lattice_gen context) args) :> 'a gexpr)
     | `Add sum -> (mk_add context (List.map arith_term sum) :> 'a gexpr)
     | `Mul product -> (mk_mul context (List.map arith_term product) :> 'a gexpr)
     | `Binop (`Div, s, t) -> (mk_div context (arith_term s) (arith_term t) :> 'a gexpr)
