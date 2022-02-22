@@ -425,6 +425,7 @@ let destruct_atom_for_weak_theory srk phi =
       |`Leq -> `ArithComparisonWeak (`Leq, s, t)
     end
   | `Atom (`ArrEq (a, b)) ->  `ArrEq (a, b)
+  | `Atom (`LatticeGen s) -> `LatticeLit (`Pos, s)
   | `Proposition (`App (k, [])) ->
     `Literal (`Pos, `Const k)
   | `Proposition (`Var i) -> `Literal (`Pos, `Var i)
@@ -437,8 +438,9 @@ let destruct_atom_for_weak_theory srk phi =
             | `Eq -> `ArithComparisonWeak (`Neq, s, t)
             | `Leq -> `ArithComparisonWeak (`Lt, t, s)
             | `Lt -> `ArithComparisonWeak (`Leq, t, s)
-      end
-
+        end
+      | `Atom (`LatticeGen s) ->
+         `LatticeLit (`Neg, s)
       | _ -> invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
     end
   | `Tru ->
