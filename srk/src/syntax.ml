@@ -667,7 +667,7 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
       (pp_expr ~env srk) bthen
       (pp_expr ~env srk) belse
   | LatticeGen, [s] ->
-     fprintf formatter "latgen(@[%a@])"
+     fprintf formatter "is_integer(@[%a@])"
        (pp_expr ~env srk) s
   | _ -> failwith "pp_expr: ill-formed expression"
 
@@ -814,7 +814,7 @@ let pp_expr_unnumbered ?(env=Env.empty) srk formatter expr =
         (go ~env srk) bthen
         (go ~env srk) belse
     | LatticeGen, [s] ->
-       fprintf formatter "latgen(@[%a@])"
+       fprintf formatter "is_integer(@[%a@])"
          (go ~env srk) s
     | _ -> failwith "pp_expr_unnumbered: ill-formed expression"
 
@@ -1911,7 +1911,7 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
         (go env) i
         (go env) v
     | LatticeGen, [s] ->
-       fprintf formatter "(latgen %a)" (go env) s
+       fprintf formatter "(is_integer %a)" (go env) s
     | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
   List.iteri (fun i phi ->

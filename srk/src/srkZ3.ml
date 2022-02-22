@@ -69,7 +69,7 @@ let rec eval alg ast =
       match FuncDecl.get_decl_kind decl, args with
       | (OP_UNINTERPRETED, args) ->
          let name = decl |> FuncDecl.get_name |> Symbol.get_string in
-         if String.equal name "latgen" then
+         if String.equal name "is_integer" then
            alg (`LatticeGen args)
          else
            alg (`App (decl, args))
@@ -288,7 +288,7 @@ and z3_of_formula srk z3 =
     | `Proposition (`Var i) ->
        Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
     | `Atom (`LatticeGen s) ->
-       let latgen_sym = get_named_symbol srk "latgen" in
+       let latgen_sym = get_named_symbol srk "is_integer" in
        let decl = decl_of_symbol z3 srk latgen_sym in
        Z3.Expr.mk_app z3 decl [z3_of_expr srk z3 (s :> ('a, typ_fo) expr)]
     | `Proposition (`App (p, [])) ->
