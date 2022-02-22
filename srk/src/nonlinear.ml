@@ -235,11 +235,11 @@ let interpret_rewriter srk =
   fun expr ->
     match destruct srk expr with
     | `App (func, [x; y]) when func = mul || func = imul ->
-      (mk_mul srk [to_term x; to_term y] :> ('a,typ_fo) expr)
+       (mk_mul srk [to_term x; to_term y] :> ('a,typ_fo) expr)
     | `App (func, [x]) when func = inv ->
-      (mk_div srk (mk_real srk QQ.one) (to_term x) :> ('a,typ_fo) expr)
+       (mk_div srk (mk_real srk QQ.one) (to_term x) :> ('a,typ_fo) expr)
     | `App (func, [x; y]) when func = modulo || func = imodulo ->
-      (mk_mod srk (to_term x) (to_term y) :> ('a,typ_fo) expr)
+       (mk_mod srk (to_term x) (to_term y) :> ('a,typ_fo) expr)
     | _ -> expr
 
 let interpret srk expr =
