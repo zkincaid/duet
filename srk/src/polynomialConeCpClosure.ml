@@ -367,36 +367,37 @@ let cutting_plane_operator transformation_data polynomial_cone =
 
    Termination is guaranteed by the Hilbert Basis theorem.
  *)
-let regular_cutting_plane_closure lattice polynomial_cone =
-  L.logf ~level:`trace "CP closure of: @[%a@]@;with respect to @[%a@]"
-    (PolynomialCone.pp (PrettyPrintDim.pp_numeric "x"))
-    polynomial_cone
-    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
-    lattice;
-
-  if lattice = [] then
-    (* CP-closure with only 1 in the lattice (implicit here) is just itself *)
+let regular_cutting_plane_closure polylattice polynomial_cone =
+  let (_denom, one, basis) = polylattice in
+  if basis = [] then
+    (* CP-closure with only 1 in the lattice is just itself *)
     polynomial_cone
   else
-    let polylattice = polylattice_spanned_by lattice in
-    let (_denom, one, basis) = polylattice in
-    let (zeroes, positives) =
-      ( Rewrite.generators (PolynomialCone.get_ideal polynomial_cone)
-      , PolynomialCone.get_cone_generators polynomial_cone) in
-    let ctxt_x = monomials_in (List.concat [zeroes ; positives ; [one]; basis])
-                 |> MonomialSet.to_list
-                 |> context_of in
-    let tdata =
-      (* Introduce fresh dimensions/variables and associated data *)
-      compute_transformation polylattice ctxt_x
-      |> (fun tdata -> L.logf ~level:`trace "Transformation data computed@;"; tdata)
-    in
-    (* The transformation is fixed for all iterations, because the lattice is fixed
+    begin
+      L.logf ~level:`trace "CP closure of: @[%a@]@;with respect to @[%a@]"
+        (PolynomialCone.pp (PrettyPrintDim.pp_numeric "x"))
+        polynomial_cone
+        (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
+        basis;
+
+      let (zeroes, positives) =
+        ( Rewrite.generators (PolynomialCone.get_ideal polynomial_cone)
+        , PolynomialCone.get_cone_generators polynomial_cone) in
+      let ctxt_x = monomials_in (List.concat [zeroes ; positives ; [one]; basis])
+                   |> MonomialSet.to_list
+                   |> context_of in
+      let tdata =
+        (* Introduce fresh dimensions/variables and associated data *)
+        compute_transformation polylattice ctxt_x
+        |> (fun tdata -> L.logf ~level:`trace "Transformation data computed@;"; tdata)
+      in
+      (* The transformation is fixed for all iterations, because the lattice is fixed
        and the cutting plane closure does not introduce new monomials.
-     *)
-    let rec closure cone =
-      let cone' = cutting_plane_operator tdata cone in
-      if PolynomialCone.equal cone' cone then cone'
-      else closure cone'
-    in
-    closure polynomial_cone
+       *)
+      let rec closure cone =
+        let cone' = cutting_plane_operator tdata cone in
+        if PolynomialCone.equal cone' cone then cone'
+        else closure cone'
+      in
+      closure polynomial_cone
+    end
