@@ -11,6 +11,8 @@ type polylattice
  *)
 val polylattice_spanned_by : QQXs.t list -> polylattice
 
+val in_polylattice : QQXs.t -> polylattice -> bool
+
 (** [regular_cutting_plane_closure lattice cone]
     computes the smallest regular polynomial cone that contains [cone] and
     is closed under CP-INEQ with respect to [lattice].

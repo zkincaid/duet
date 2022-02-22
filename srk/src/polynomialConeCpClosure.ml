@@ -27,15 +27,19 @@ let zzvector_to_qqvector vec =
     Linear.QQVector.zero
     (Linear.ZZVector.enum vec)
 
-(** Denominator, the constant polynomial, and the other basis polynomials.
-
-    TODO: Check that the constant polynomial is always 1, for otherwise the cutting
+(** TODO: Check that the constant polynomial is always 1, for otherwise the cutting
     plane axiom can lead to inconsistency, e.g. if 1/3 is in the lattice,
     3(1/3) + (-1/2) >= 0 =>  1/3 - 1 >= 0.
     We should thus be able to return only the denominator and the other basis
     polynomials after testing is done.
 *)
-type polylattice = ZZ.t * QQXs.t * QQXs.t list
+type polylattice =
+  { denominator : ZZ.t
+  ; constant_poly : QQXs.t
+  ; basis_polys : QQXs.t list
+  ; lattice_context : PolyVectorContext.t
+  ; int_lattice : IntLattice.t
+  }
 
 exception Invalid_lattice
 
@@ -50,12 +54,13 @@ let polylattice_spanned_by polys : polylattice =
   let open PolynomialUtil in
   let vectors =
     List.map (PolyVectorConversion.poly_to_vector ctxt) polys in
-  let (denom, basis) = IntLattice.basis (IntLattice.lattice_of vectors) in
+  let lattice = IntLattice.lattice_of vectors in
+  let (denominator, basis) = IntLattice.basis lattice in
   let (one, others) =
     List.partition
       (fun v ->
         Linear.QQVector.equal (zzvector_to_qqvector v)
-          (Linear.const_linterm (QQ.of_zz denom)))
+          (Linear.const_linterm (QQ.of_zz denominator)))
       basis
   in
   if (List.length one <> 1)
@@ -70,7 +75,7 @@ let polylattice_spanned_by polys : polylattice =
         Linear.ZZVector.pp in
     L.logf ~level:`trace
         "@[<v 0>lattice_spanned_by: 1 not in basis:@;denominator = %a;@;vectors are: @[%a@]@]"
-        ZZ.pp denom pp_vectors (List.append one others);
+        ZZ.pp denominator pp_vectors (List.append one others);
     raise Invalid_lattice
   else
     ();
@@ -82,7 +87,20 @@ let polylattice_spanned_by polys : polylattice =
     List.map (fun v -> zzvector_to_qqvector v
                        |> PolyVectorConversion.vector_to_poly ctxt)
       others in
-  (denom, constant_poly, basis_polys)
+  { denominator
+  ; constant_poly
+  ; basis_polys
+  ; int_lattice = lattice
+  ; lattice_context = ctxt
+  }
+
+let in_polylattice poly polylattice =
+  let open PolynomialUtil in
+  try
+    let v = PolyVectorConversion.poly_to_vector polylattice.lattice_context poly in
+    IntLattice.member v polylattice.int_lattice
+  with PolyVectorContext.Not_in_context ->
+    false
 
 type transformation_data =
   (** Pairs are s.t. the first component is for the polynomial 1, and the second
@@ -108,7 +126,7 @@ let pp_transformation_data pp_dim fmt transformation_data =
     [polylattice] = (d, b_1, ..., b_n) is s.t. 1/d { b_0 = 1, b_1, ..., b_n } is a
     basis for a polynomial lattice, and
     [ctxt] is the conversion context betweeen the set of polynomials in the
-    polylattice (and polynomial cone), and a set of dimensions X,
+    polylattice and polynomial cone, and a set of dimensions X;
 
     computes fresh dimensions Y = y_0, ..., y_n, with y_0 corresponding to 1,
     the substitution y_i |-> b_i for 0 <= i <= n,
@@ -117,7 +135,12 @@ let pp_transformation_data pp_dim fmt transformation_data =
     Need to ensure that [ctxt] contains all monomials in the lattice.
 *)
 let compute_transformation lattice ctxt : transformation_data =
-  let (denom, one, lattice) = lattice in
+  (* Polynomial generators of the lattice have to be converted to vectors
+     using the combined context, not the one used in the formation of the 
+     lattice.
+   *)
+  let { denominator = denom ; constant_poly = one ; basis_polys = lattice ; _ }
+    = lattice in
   let rescale poly = QQXs.scalar_mul (QQ.inverse (QQ.of_zz denom)) poly in
   let fresh_start = Option.value ~default:0 (PolyVectorContext.max_variable ctxt) + 1 in
 
@@ -368,7 +391,7 @@ let cutting_plane_operator transformation_data polynomial_cone =
    Termination is guaranteed by the Hilbert Basis theorem.
  *)
 let regular_cutting_plane_closure polylattice polynomial_cone =
-  let (_denom, one, basis) = polylattice in
+  let { constant_poly = one ; basis_polys = basis ; _ } = polylattice in
   if basis = [] then
     (* CP-closure with only 1 in the lattice is just itself *)
     polynomial_cone
