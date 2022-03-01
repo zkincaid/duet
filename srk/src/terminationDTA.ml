@@ -320,7 +320,7 @@ let mp srk tf =
           end
        | `Quantify _ -> failwith "should not see quantifiers in the TF"
        | `Atom (`ArrEq _) -> failwith "should not see ArrEq in the TF"
-       | `Atom (`LatticeGen _) -> failwith "should not see LatticeGen in the TF"
+       | `Atom (`IsInt _) -> failwith "should not see IsInt in the TF"
        | `Proposition _ -> failwith "should not see proposition in the TF"
        | `Ite _ -> failwith "should not see ite in the TF"
      in

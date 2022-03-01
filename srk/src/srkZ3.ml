@@ -24,7 +24,7 @@ type 'a open_expr = [
   | `Ite of 'a * 'a * 'a
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
-  | `LatticeGen of 'a list
+  | `IsInt of 'a list
 ]
 
 let bool_val x =
@@ -56,7 +56,7 @@ let rec sort_of_typ z3 = function
   | `TyInt -> Z3.Arithmetic.Integer.mk_sort z3
   | `TyReal -> Z3.Arithmetic.Real.mk_sort z3
   | `TyBool -> Z3.Boolean.mk_sort z3
-  | `TyArr -> 
+  | `TyArr ->
     Z3.Z3Array.mk_sort z3 (sort_of_typ z3 `TyInt) (sort_of_typ z3 `TyInt)
 
 let rec eval alg ast =
@@ -69,8 +69,10 @@ let rec eval alg ast =
       match FuncDecl.get_decl_kind decl, args with
       | (OP_UNINTERPRETED, args) ->
          let name = decl |> FuncDecl.get_name |> Symbol.get_string in
-         if String.equal name "is_integer" then
-           alg (`LatticeGen args)
+         if String.equal name "is_int" then
+           begin
+             alg (`IsInt args)
+           end
          else
            alg (`App (decl, args))
       | (OP_ADD, args) -> alg (`Add args)
@@ -216,7 +218,7 @@ and z3_of_arr_term (srk : 'a context) z3 (term : 'a arr_term) =
 
     | `Var (i, `TyArr) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyArr)
-    | `Store (a, i, v) -> 
+    | `Store (a, i, v) ->
       Z3.Z3Array.mk_store z3 a (z3_of_arith_term srk z3 i) (z3_of_arith_term srk z3 v)
     | `Ite (cond, bthen, belse) ->
       Z3.Boolean.mk_ite z3 (z3_of_formula srk z3 cond) bthen belse
@@ -287,8 +289,8 @@ and z3_of_formula srk z3 =
     | `Atom (`ArrEq (s, t)) -> Z3.Boolean.mk_eq z3 (of_arr_term s) (of_arr_term t)
     | `Proposition (`Var i) ->
        Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
-    | `Atom (`LatticeGen s) ->
-       let latgen_sym = get_named_symbol srk "is_integer" in
+    | `Atom (`IsInt s) ->
+       let latgen_sym = get_named_symbol srk "is_int" in
        let decl = decl_of_symbol z3 srk latgen_sym in
        Z3.Expr.mk_app z3 decl [z3_of_expr srk z3 (s :> ('a, typ_fo) expr)]
     | `Proposition (`App (p, [])) ->
@@ -317,14 +319,14 @@ let of_z3 context sym_of_decl expr =
     | `App (decl, args) ->
       let const_sym = sym_of_decl decl in
       mk_app context const_sym args
-    | `LatticeGen args ->
+    | `IsInt args ->
        (mk_and context
-          (List.map (fun x -> x |> arith_term |> mk_lattice_gen context) args) :> 'a gexpr)
+          (List.map (fun x -> x |> arith_term |> mk_is_int context) args) :> 'a gexpr)
     | `Add sum -> (mk_add context (List.map arith_term sum) :> 'a gexpr)
     | `Mul product -> (mk_mul context (List.map arith_term product) :> 'a gexpr)
     | `Binop (`Div, s, t) -> (mk_div context (arith_term s) (arith_term t) :> 'a gexpr)
-    | `Binop (`Mod, s, t) -> (mk_mod context (arith_term s) (arith_term t) :> 'a gexpr) 
-    | `Binop (`Select, a, i) -> (mk_select context (arr_term a) (arith_term i) :> 'a gexpr) 
+    | `Binop (`Mod, s, t) -> (mk_mod context (arith_term s) (arith_term t) :> 'a gexpr)
+    | `Binop (`Select, a, i) -> (mk_select context (arr_term a) (arith_term i) :> 'a gexpr)
     | `Unop (`Floor, t) -> (mk_floor context (arith_term t) :> 'a gexpr)
     | `Unop (`Neg, t) -> (mk_neg context (arith_term t) :> 'a gexpr)
     | `Store (a, i, v) -> (mk_store context (arr_term a) (arith_term i) (arith_term v) :> 'a gexpr)
@@ -382,7 +384,7 @@ type 'a solver =
     of_formula : 'a formula -> z3_expr }
 
 let mk_solver ?(context=Z3.mk_context []) ?(theory="") srk =
-  let s = 
+  let s =
     if theory = "" then
       Z3.Solver.mk_simple_solver context
     else

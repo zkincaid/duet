@@ -63,7 +63,7 @@ type label =
   | Ite
   | Store
   | Select
-  | LatticeGen
+  | IsInt
 
 type sexpr = Node of label * ((sexpr hobj) list) * typ_fo
 type ('a,'typ) expr = sexpr hobj
@@ -221,7 +221,7 @@ type ('a,'b) open_formula = [
   | `Atom of
       [ `Arith of [`Eq | `Leq | `Lt] * ('b arith_term) * ('b arith_term)
       | `ArrEq of 'b arr_term * 'b arr_term
-      | `LatticeGen of 'b term
+      | `IsInt of 'b term
       ]
   | `Proposition of [ `Var of int
                     | `App of symbol * (('b, typ_fo) expr) list ]
@@ -341,7 +341,7 @@ let mk_lt srk s t = srk.mk Lt [s; t]
 let mk_eq srk s t = srk.mk Eq [s; t]
 let mk_arr_eq srk s t = srk.mk ArrEq [s; t]
 
-let mk_lattice_gen srk t = srk.mk LatticeGen [t]
+let mk_is_int srk t = srk.mk IsInt [t]
 
 let is_true phi = match phi.obj with
   | Node (True, [], _) -> true
@@ -537,7 +537,7 @@ let destruct _srk sexpr =
   | Node (Leq, [s; t], _) -> `Atom (`Arith (`Leq, s, t))
   | Node (Lt, [s; t], _) -> `Atom (`Arith (`Lt, s, t))
   | Node (ArrEq, [s; t], _) -> `Atom (`ArrEq (s, t))
-  | Node (LatticeGen, [s], _) -> `Atom (`LatticeGen s)
+  | Node (IsInt, [s], _) -> `Atom (`IsInt s)
   | Node (_, _, _) -> assert false
 
 let rec flatten_universal phi = match phi.obj with
@@ -666,7 +666,7 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
       (pp_expr ~env srk) cond
       (pp_expr ~env srk) bthen
       (pp_expr ~env srk) belse
-  | LatticeGen, [s] ->
+  | IsInt, [s] ->
      fprintf formatter "is_integer(@[%a@])"
        (pp_expr ~env srk) s
   | _ -> failwith "pp_expr: ill-formed expression"
@@ -813,7 +813,7 @@ let pp_expr_unnumbered ?(env=Env.empty) srk formatter expr =
         (go ~env srk) cond
         (go ~env srk) bthen
         (go ~env srk) belse
-    | LatticeGen, [s] ->
+    | IsInt, [s] ->
        fprintf formatter "is_integer(@[%a@])"
          (go ~env srk) s
     | _ -> failwith "pp_expr_unnumbered: ill-formed expression"
@@ -1208,7 +1208,7 @@ module Formula = struct
     | Node (Var (v, `TyBool), [], _) -> `Proposition (`Var v)
     | Node (App f, args, `TyBool) -> `Proposition (`App (f, args))
     | Node (Ite, [cond; bthen; belse], `TyBool) -> `Ite (cond, bthen, belse)
-    | Node (LatticeGen, [s], _) -> `Atom (`LatticeGen s)
+    | Node (IsInt, [s], _) -> `Atom (`IsInt s)
     | _ -> invalid_arg "destruct: not a formula"
 
   let construct _srk open_formula = match open_formula with
@@ -1223,7 +1223,7 @@ module Formula = struct
     | `Atom (`Arith (`Leq, s, t)) -> mk_leq _srk s t
     | `Atom (`Arith (`Lt, s, t)) -> mk_lt _srk s t
     | `Atom (`ArrEq (s, t)) -> mk_arr_eq _srk s t
-    | `Atom (`LatticeGen s) -> mk_lattice_gen _srk s
+    | `Atom (`IsInt s) -> mk_is_int _srk s
     | `Proposition (`Var v) -> mk_var _srk v `TyBool
     | `Proposition (`App (f, args)) -> mk_app _srk f args
     | `Ite (cond, bthen, belse) -> mk_ite _srk cond bthen belse
@@ -1490,13 +1490,13 @@ let node_typ symbols label children =
         end
       | _ -> assert false
     end
-  | LatticeGen ->
+  | IsInt ->
      match children with
      | [gen] ->
         begin match gen.obj with
         | Node (_, _, `TyInt)
           | Node (_, _, `TyReal) -> `TyBool
-        | _ -> invalid_arg "ill-typed LatticeGen"
+        | _ -> invalid_arg "ill-typed IsInt"
         end
      | _ -> assert false
 
@@ -1670,8 +1670,8 @@ let eliminate_ite srk phi =
           (fun s -> map_ite (fun t -> `Term (mk_arr_eq srk s t)) promote_t)
           (promote_ite s)
         |> ite_formula
-      | `Atom (`LatticeGen s) ->
-         map_ite (fun s -> `Term (mk_lattice_gen srk s)) (promote_ite s)
+      | `Atom (`IsInt s) ->
+         map_ite (fun s -> `Term (mk_is_int srk s)) (promote_ite s)
          |> ite_formula
       | `Proposition (`Var i) -> mk_var srk i `TyBool
       | `Proposition (`App (func, args)) ->
@@ -1910,7 +1910,7 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
         (go env) a
         (go env) i
         (go env) v
-    | LatticeGen, [s] ->
+    | IsInt, [s] ->
        fprintf formatter "(is_integer %a)" (go env) s
     | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
@@ -1953,7 +1953,7 @@ struct
   let ( .%[]<- ) = mk_store C.context
   let ( == ) = mk_arr_eq C.context
 
-  let latGen = mk_lattice_gen C.context
+  let is_int = mk_is_int C.context
 end
 
 module type Context = sig
@@ -1994,7 +1994,7 @@ module type Context = sig
   val mk_arr_eq : arr_term -> arr_term -> formula
   val mk_true : formula
   val mk_false : formula
-  val mk_lattice_gen : arith_term -> formula
+  val mk_is_int : arith_term -> formula
   val mk_ite : formula -> (t, 'a) expr -> (t, 'a) expr -> (t, 'a) expr
   val stats : unit -> (int * int * int)
 end
@@ -2034,7 +2034,7 @@ module ImplicitContext(C : sig
   let mk_arr_eq = mk_arr_eq context
   let mk_true = mk_true context
   let mk_false = mk_false context
-  let mk_lattice_gen = mk_lattice_gen context
+  let mk_is_int = mk_is_int context
   let mk_ite = mk_ite context
   let stats _ = context_stats context
 end

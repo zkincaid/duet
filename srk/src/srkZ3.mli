@@ -23,7 +23,7 @@ type 'a open_expr = [
   | `Ite of 'a * 'a * 'a
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
-  | `LatticeGen of 'a list
+  | `IsInt of 'a list
 ]
 
 val z3_of_term : 'a context -> z3_context -> 'a term -> z3_expr

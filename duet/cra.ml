@@ -919,7 +919,7 @@ let lift_universals srk phi =
     | `Atom (`Arith (`Lt, x, y)) -> (0, mk_lt srk x y)
     | `Atom (`Arith (`Leq, x, y)) -> (0, mk_leq srk x y)
     | `Atom (`ArrEq (a, b)) -> (0, mk_arr_eq srk a b)
-    | `Atom (`LatticeGen x) -> (0, mk_lattice_gen srk x)
+    | `Atom (`IsInt x) -> (0, mk_is_int srk x)
     | `And conjuncts ->
        let max_nb = List.fold_left max 0 (List.map fst conjuncts) in
        let shift_conjuncts =

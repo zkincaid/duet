@@ -182,7 +182,7 @@ and evaluate_formula interp ?(env=Env.empty) phi =
         with Divide_by_zero -> false
       end
     | `Atom (`ArrEq _) -> invalid_arg "evaluate_formula: array atom"
-    | `Atom (`LatticeGen _) -> invalid_arg "evaluate_formula: lattice gen atom"
+    | `Atom (`IsInt _) -> invalid_arg "evaluate_formula: lattice gen atom"
     | `Not v -> not v
     | `Ite (cond, bthen, belse) -> if cond then bthen else belse
     | `Proposition (`App (k, [])) -> bool interp k
@@ -318,7 +318,7 @@ let select_implicant interp ?(env=Env.empty) phi =
         with Divide_by_zero -> None
       end
     | `Atom (`ArrEq _) -> assert false
-    | `Atom (`LatticeGen _) -> assert false
+    | `Atom (`IsInt _) -> assert false
     | `Proposition (`App (p, [])) ->
       if bool interp p then Some [phi]
       else None
@@ -425,7 +425,7 @@ let destruct_atom_for_weak_theory srk phi =
       |`Leq -> `ArithComparisonWeak (`Leq, s, t)
     end
   | `Atom (`ArrEq (a, b)) ->  `ArrEq (a, b)
-  | `Atom (`LatticeGen s) -> `LatticeLit (`Pos, s)
+  | `Atom (`IsInt s) -> `IsInt (`Pos, s)
   | `Proposition (`App (k, [])) ->
     `Literal (`Pos, `Const k)
   | `Proposition (`Var i) -> `Literal (`Pos, `Var i)
@@ -439,8 +439,8 @@ let destruct_atom_for_weak_theory srk phi =
             | `Leq -> `ArithComparisonWeak (`Lt, t, s)
             | `Lt -> `ArithComparisonWeak (`Leq, t, s)
         end
-      | `Atom (`LatticeGen s) ->
-         `LatticeLit (`Neg, s)
+      | `Atom (`IsInt s) ->
+         `IsInt (`Neg, s)
       | _ -> invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
     end
   | `Tru ->

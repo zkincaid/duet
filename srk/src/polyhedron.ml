@@ -83,7 +83,7 @@ let of_formula ?(admit=false) cs phi =
       P.singleton (`Pos, V.sub (linearize y) (linearize x))
     | `Or _ | `Not _ | `Quantify (_, _, _, _) | `Proposition _
       | `Ite (_, _, _) | `Atom (`ArrEq _)
-      | `Atom (`LatticeGen _) -> invalid_arg "Polyhedron.of_formula"
+      | `Atom (`IsInt _) -> invalid_arg "Polyhedron.of_formula"
   in
   Formula.eval (CS.get_context cs) alg phi
 

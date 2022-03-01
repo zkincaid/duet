@@ -112,7 +112,7 @@ val destruct : 'a context -> ('a, 'b) expr -> [
     | `Atom of
         [ `Arith of [`Eq | `Leq | `Lt] * ('a arith_term) * ('a arith_term)
         | `ArrEq of 'a arr_term * 'a arr_term
-        | `LatticeGen of 'a arith_term ]
+        | `IsInt of 'a arith_term ]
     | `Proposition of [ `Var of int
                       (* NK: Shouldn't this be ('a, typ_fo)?
                          Also, there are two definitions of `App, although
@@ -410,7 +410,7 @@ type ('a,'b) open_formula = [
   | `Atom of
       [ `Arith of [`Eq | `Leq | `Lt] * ('b arith_term) * ('b arith_term)
       | `ArrEq of 'b arr_term * 'b arr_term
-      | `LatticeGen of 'b arith_term
+      | `IsInt of 'b arith_term
       ]
   | `Proposition of [ `Var of int
                     | `App of symbol * (('b, typ_fo) expr) list ]
@@ -444,7 +444,7 @@ val mk_leq : 'a context -> 'a arith_term -> 'a arith_term -> 'a formula
 val mk_true : 'a context -> 'a formula
 val mk_false : 'a context -> 'a formula
 
-val mk_lattice_gen : 'a context -> 'a arith_term -> 'a formula
+val mk_is_int : 'a context -> 'a arith_term -> 'a formula
 
 (** This is syntactic sugar for intrinsic array equality *)
 val mk_arr_eq : 'a context -> 'a arr_term -> 'a arr_term -> 'a formula
@@ -548,7 +548,7 @@ module type Context = sig
   val mk_arr_eq : arr_term -> arr_term -> formula
   val mk_true : formula
   val mk_false : formula
-  val mk_lattice_gen : arith_term -> formula
+  val mk_is_int : arith_term -> formula
   val mk_ite : formula -> (t, 'a) expr -> (t, 'a) expr -> (t, 'a) expr
   val stats : unit -> (int * int * int)
 end
@@ -586,7 +586,7 @@ module Infix (C : sig
     C.t arr_term
   val ( == ) : C.t arr_term -> C.t arr_term -> C.t formula
 
-  val latGen : C.t arith_term -> C.t formula
+  val is_int : C.t arith_term -> C.t formula
 end
 
 (** A context table is a hash table mapping contents to values.  If a context

@@ -49,6 +49,9 @@ let get_model srk phi =
   in
   logf "Uninterpreted formula: %a" (Formula.pp srk) uninterp_phi;
   let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
+
+  logf "purified";
+
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
     /@ (fun (symbol, expr) ->
@@ -78,31 +81,32 @@ let get_model srk phi =
   (* Smt.Solver.add solver [uninterp_phi]; *)
   Smt.Solver.add solver (lin_phi :: nonlinear_defs);
 
-  (* TODO: adding lemmas. Using preduce in Groebner basis to get a subset of atoms whose conjunction is unsat. *)
+  (* TODO: adding lemmas. Using preduce in Groebner basis to get a subset of 
+     atoms whose conjunction is unsat. *)
   let rec go () =
 
-    logf "solver is: %s ===" (Smt.Solver.to_string solver);
+    logf "weakSolver: solver is: %s ===" (Smt.Solver.to_string solver);
     match Smt.Solver.get_model solver with
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
     | `Sat model ->
-       logf "successfully getting model";
+       logf "weakSolver: successfully getting model";
        match Interpretation.select_implicant model lin_phi with
        | None -> assert false
        | Some implicant ->
-          logf "got implicant";
+          logf "weakSolver: got implicant";
           (* let () = BatList.iter (fun f -> *)
-          (* logf "Selected implicant atom: %a" (Formula.pp srk) f) implicant in *)
+          (* logf "weakSolver: Selected implicant atom: %a" (Formula.pp srk) f) implicant in *)
           (* The implicant should be atomic, should be able to destruct to get t < c, t <= c, t = c *)
           let implicant = List.map (fun imp -> replace_defs imp) implicant in
           let atoms = List.map (Nonlinear.interpret srk) implicant in
 
           let rec process_atoms l geqs eqs ineqs lat_members lat_nonmembers =
             match l with
-            | [] -> logf "list of atoms left is empty";
+            | [] -> logf "weakSolver: list of atoms left is empty";
                     (geqs, eqs, ineqs, lat_members, lat_nonmembers)
             | h :: t ->
-               logf "Processing atom: %a" (Formula.pp srk) h;
+               logf "weakSolver: Processing atom: %a" (Formula.pp srk) h;
                match (Interpretation.destruct_atom_for_weak_theory srk h) with
                  `ArithComparisonWeak (`Eq, a, b) ->
                   process_atoms t geqs ((mk_sub srk a b) :: eqs) ineqs lat_members lat_nonmembers
@@ -115,9 +119,9 @@ let get_model srk phi =
                   (* Strict inequality a < b is represented as a <= b && a != b. *)
                   let diff = mk_sub srk b a in
                   process_atoms t (diff :: geqs) eqs (diff :: ineqs) lat_members lat_nonmembers
-               | `LatticeLit (sign, s) when sign = `Pos ->
+               | `IsInt (sign, s) when sign = `Pos ->
                   process_atoms t geqs eqs ineqs (s :: lat_members) lat_nonmembers
-               | `LatticeLit (sign, s) when sign = `Neg ->
+               | `IsInt (sign, s) when sign = `Neg ->
                   process_atoms t geqs eqs ineqs lat_members (s :: lat_nonmembers)
                | `Literal _ -> process_atoms t geqs eqs ineqs lat_members lat_nonmembers
                | _ -> failwith "Weak theory does not support arr expressions."
@@ -127,33 +131,50 @@ let get_model srk phi =
           let geqs = BatList.map (fun expr -> P.of_term srk expr) geqs in
           let eqs = BatList.map (fun expr -> P.of_term srk expr) eqs in
           let ineqs = BatList.map (fun expr -> P.of_term srk expr) ineqs2 in
-          let lattice_gens = BatList.map (fun expr -> P.of_term srk expr) lat_members in
-          let notin_lattice = BatList.map (fun expr -> P.of_term srk expr) lat_nonmembers in
+          let is_ints = BatList.map (fun expr -> P.of_term srk expr) lat_members in
+          let not_ints = BatList.map (fun expr -> P.of_term srk expr) lat_nonmembers in
           BatList.iter
-            (fun f -> logf "checking inequalities: %a"
+            (fun f -> logf "weakSolver: checking inequations: %a"
                         (Syntax.ArithTerm.pp srk) f)
             ineqs2;
           let initial_ideal =
             Polynomial.Rewrite.mk_rewrite Polynomial.Monomial.degrevlex eqs
             |> Polynomial.Rewrite.grobner_basis
           in
-          logf "Start making enclosing cone";
+          logf "weakSolver: Start making enclosing cone of: ideal: @[%a@] @; geqs: @[%a@]"
+            (Polynomial.Rewrite.pp
+               (PolynomialUtil.PrettyPrintDim.pp_numeric "x"))
+            initial_ideal
+            (PolynomialUtil.PrettyPrintPoly.pp_poly_list
+               (PolynomialUtil.PrettyPrintDim.pp_numeric "x"))
+            geqs;
+
           let pc = PolynomialCone.make_enclosing_cone initial_ideal geqs in
-          let lattice = PolynomialConeCpClosure.polylattice_spanned_by lattice_gens in
+          let lattice = PolynomialConeCpClosure.polylattice_spanned_by is_ints in
+
+          logf "weakSolver: lattice: @[%a@] @, initially generated by @[%a@]"
+            (PolynomialConeCpClosure.pp_polylattice
+               (PolynomialUtil.PrettyPrintDim.pp_numeric "x")) lattice
+            (PolynomialUtil.PrettyPrintPoly.pp_poly_list
+               (PolynomialUtil.PrettyPrintDim.pp_numeric "x"))
+            is_ints;
+
+          logf "weakSolver: enclosing cone: @[%a@]"
+            (PolynomialCone.pp (PolynomialUtil.PrettyPrintDim.pp_numeric "x")) pc;
 
           let continue () =
             let f = (mk_not srk (mk_and srk implicant)) in
-            logf "adding formula to solver: %a" (Formula.pp srk) f;
+            logf "weakSolver: adding formula to solver: %a" (Formula.pp srk) f;
             Smt.Solver.add solver [f]; go ()
           in
 
           if (List.exists (fun p -> PolynomialConeCpClosure.in_polylattice p lattice)
-                notin_lattice)
+                not_ints)
           then
             continue ()
           else
             let cut_pc = PolynomialConeCpClosure.regular_cutting_plane_closure lattice pc in
-            logf "Finish making enclosing cone";
+            logf "weakSolver: Finish making enclosing cone";
             (* Check if induced equalities contradict with strict inequalities
              as required by the formula.  *)
             let contradictory =
@@ -162,10 +183,10 @@ let get_model srk phi =
                   let t = Polynomial.Rewrite.reduce ideal nonzero in
                   Polynomial.QQXs.equal t Polynomial.QQXs.zero
                 ) ineqs in
-            logf "Strict inequalities cannot be satisfied: %b" contradictory;
+            logf "weakSolver: Strict inequalities cannot be satisfied: %b" contradictory;
             (* If the polynomial cone is not proper then the model is no longer consistent. *)
             if (PolynomialCone.is_proper cut_pc) && not contradictory then
-              let () = logf "Got a model represented as polynomial cone: %a"
+              let () = logf "weakSolver: Got a model represented as polynomial cone: %a"
                          (PolynomialCone.pp (pp_dim srk)) cut_pc in
               `Sat (model, cut_pc)
             else continue ()
