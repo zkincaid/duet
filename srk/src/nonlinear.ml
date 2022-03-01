@@ -160,7 +160,7 @@ let ensure_symbols srk =
      ("imod", `TyFun ([`TyReal; `TyReal], `TyInt));
      ("pow", (`TyFun ([`TyReal; `TyReal], `TyReal)));
      ("log", (`TyFun ([`TyReal; `TyReal], `TyReal)));
-     ("latgen", `TyFun ([`TyReal], `TyBool)) (* *)
+     ("is_int", `TyFun ([`TyReal], `TyBool))
     ]
 
 let uninterpret_rewriter srk =
@@ -170,7 +170,7 @@ let uninterpret_rewriter srk =
   let modulo = get_named_symbol srk "mod" in
   let imul = get_named_symbol srk "imul" in
   let imodulo = get_named_symbol srk "imod" in
-  let lattice_pred = get_named_symbol srk "is_int" in
+  let is_int_pred = get_named_symbol srk "is_int" in
 
   fun expr ->
     match destruct srk expr with
@@ -222,7 +222,7 @@ let uninterpret_rewriter srk =
       (term :> ('a,typ_fo) expr)
 
     | `Atom (`IsInt s) ->
-       mk_app srk lattice_pred [s]
+       mk_app srk is_int_pred [s]
 
     | _ -> expr
 
