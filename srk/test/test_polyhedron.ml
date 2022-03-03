@@ -5,25 +5,6 @@ open Test_pervasives
 
 module V = Linear.QQVector
 
-let _ =
-  let open Normalizffi in
-  let open FfiLib in
-  let* c =
-    Normaliz.add_rays
-      Normaliz.empty_cone
-      [[ZZ.of_int 1; ZZ.of_int 1; ZZ.of_int 2];
-       [ZZ.of_int 1; ZZ.of_int 2; ZZ.of_int 3]]
-  in
-  (* let* c2 =
-   *   Normaliz.add_rays
-   *     Normaliz.empty_cone
-   *     [[ZZ.of_int 0; ZZ.of_int 1; ZZ.of_int 2];
-   *      [ZZ.of_int 0; ZZ.of_int 2; ZZ.of_int 3]]
-   * in *)
-  let* contains = Normaliz.contains (Normaliz.new_cone c) [ZZ.of_int 2; ZZ.of_int 3; ZZ.of_int 5] in
-  assert contains;
-  Result.ok 0
-
 let mk_polyhedron halfspaces =
   BatList.enum halfspaces
   /@ (fun (v, a) -> (`Nonneg,

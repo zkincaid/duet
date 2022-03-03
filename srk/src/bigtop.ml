@@ -220,7 +220,7 @@ let spec_list = [
        let fp = Chc.Fp.create () in
        let fp = load_chc fp file in
        let pd = 
-         (module Product(LinearRecurrenceInequation)(PolyhedronGuard) : PreDomain) 
+         (module Product(LossyTranslation)(PolyhedronGuard) : PreDomain) 
        in (*TODO: let user pick iter operation*)
        let rels = Chc.Fp.get_relations_used fp in
        let sln = Chc.Fp.solve srk fp pd in
