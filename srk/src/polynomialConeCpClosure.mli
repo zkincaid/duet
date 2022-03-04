@@ -11,6 +11,9 @@ type polylattice
  *)
 val polylattice_spanned_by : QQXs.t list -> polylattice
 
+val pp_polylattice : (Format.formatter -> int -> unit)
+                     -> Format.formatter -> polylattice -> unit
+
 val in_polylattice : QQXs.t -> polylattice -> bool
 
 (** [regular_cutting_plane_closure lattice cone]

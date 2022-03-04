@@ -41,6 +41,13 @@ type polylattice =
   ; int_lattice : IntLattice.t
   }
 
+let pp_polylattice pp_dim fmt polylattice =
+  Format.fprintf fmt
+    "@[denominator: @[%a@] | constant_poly: @[%a@] | basis_polys: @[%a@]@]"
+    ZZ.pp polylattice.denominator
+    (QQXs.pp pp_dim) polylattice.constant_poly
+    (PrettyPrintPoly.pp_poly_list pp_dim) polylattice.basis_polys
+
 exception Invalid_lattice
 
 (** [lattice_spanned_by polys] computes Hermite Normal Form basis
@@ -73,8 +80,8 @@ let polylattice_spanned_by polys : polylattice =
     let pp_vectors =
       Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", @;")
         Linear.ZZVector.pp in
-    L.logf ~level:`trace
-        "@[<v 0>lattice_spanned_by: 1 not in basis:@;denominator = %a;@;vectors are: @[%a@]@]"
+    L.logf
+        "@[<v 0>polylattice_spanned_by:@;denominator = %a;@;vectors are: @[%a@]@]"
         ZZ.pp denominator pp_vectors (List.append one others);
     raise Invalid_lattice
   else
@@ -118,7 +125,7 @@ let pp_transformation_data pp_dim fmt transformation_data =
     "@[<v 0>{ @[codomain_dims: %a@] @;@[rewrites: @[<v 0>%a@]@] }@]"
     (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ") pp_dim)
     (fst transformation_data.codomain_dims :: snd transformation_data.codomain_dims)
-    (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
+    (PrettyPrintPoly.pp_poly_list pp_dim)
     (fst transformation_data.rewrite_polys :: snd transformation_data.rewrite_polys)
 
 (** [compute_transformation_data polylattice ctxt], where
@@ -136,7 +143,7 @@ let pp_transformation_data pp_dim fmt transformation_data =
 *)
 let compute_transformation lattice ctxt : transformation_data =
   (* Polynomial generators of the lattice have to be converted to vectors
-     using the combined context, not the one used in the formation of the 
+     using the combined context, not the one used in the formation of the
      lattice.
    *)
   let { denominator = denom ; constant_poly = one ; basis_polys = lattice ; _ }
@@ -397,7 +404,7 @@ let regular_cutting_plane_closure polylattice polynomial_cone =
     polynomial_cone
   else
     begin
-      L.logf ~level:`trace "CP closure of: @[%a@]@;with respect to @[%a@]"
+      L.logf "regular_cutting_plane_closure: CP closure of: @[%a@]@;with respect to @[%a@]"
         (PolynomialCone.pp (PrettyPrintDim.pp_numeric "x"))
         polynomial_cone
         (PrettyPrintPoly.pp_poly_list (PrettyPrintDim.pp_numeric "x"))
@@ -422,5 +429,9 @@ let regular_cutting_plane_closure polylattice polynomial_cone =
         if PolynomialCone.equal cone' cone then cone'
         else closure cone'
       in
-      closure polynomial_cone
+      let final = closure polynomial_cone in
+      L.logf "regular_cutting_plane_closure: closure is: @[%a@]"
+        (PolynomialCone.pp (PrettyPrintDim.pp_numeric "x"))
+        final;
+      final
     end
