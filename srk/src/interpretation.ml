@@ -329,7 +329,7 @@ let select_implicant interp ?(env=Env.empty) phi =
        let is_int_symb = get_named_symbol interp.srk "is_int" in
        let is_int_pred = mk_app srk is_int_symb [s] in
        if evaluate_formula interp ~env is_int_pred then
-         Some [is_int_pred]
+         Some [mk_is_int srk s]
        else
          None
     | `Proposition (`App (p, [])) ->
@@ -452,8 +452,7 @@ let destruct_atom_for_weak_theory srk phi =
             | `Leq -> `ArithComparisonWeak (`Lt, t, s)
             | `Lt -> `ArithComparisonWeak (`Leq, t, s)
         end
-      | `Atom (`IsInt s) ->
-         `IsInt (`Neg, s)
+      | `Atom (`IsInt s) -> `IsInt (`Neg, s)
       | _ -> invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi
     end
   | `Tru ->
