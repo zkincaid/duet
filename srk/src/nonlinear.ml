@@ -170,8 +170,6 @@ let uninterpret_rewriter srk =
   let modulo = get_named_symbol srk "mod" in
   let imul = get_named_symbol srk "imul" in
   let imodulo = get_named_symbol srk "imod" in
-  let is_int_pred = get_named_symbol srk "is_int" in
-
   fun expr ->
     match destruct srk expr with
     | `Binop (`Div, x, y) ->
@@ -220,10 +218,6 @@ let uninterpret_rewriter srk =
           mk_mul srk [coeff_term; product]
       in
       (term :> ('a,typ_fo) expr)
-
-    | `Atom (`IsInt s) ->
-       mk_app srk is_int_pred [s]
-
     | _ -> expr
 
 let interpret_rewriter srk =
@@ -233,7 +227,6 @@ let interpret_rewriter srk =
   let modulo = get_named_symbol srk "mod" in
   let imul = get_named_symbol srk "imul" in
   let imodulo = get_named_symbol srk "imod" in
-  let is_int_pred = get_named_symbol srk "is_int" in
   let to_term expr =
     match Expr.refine srk expr with
     | `ArithTerm t -> t
@@ -248,8 +241,6 @@ let interpret_rewriter srk =
        (mk_div srk (mk_real srk QQ.one) (to_term x) :> ('a,typ_fo) expr)
     | `App (func, [x; y]) when func = modulo || func = imodulo ->
        (mk_mod srk (to_term x) (to_term y) :> ('a,typ_fo) expr)
-    | `App (func, [x]) when func = is_int_pred ->
-       (mk_is_int srk (to_term x) :> ('a, typ_fo) expr)
     | _ -> expr
 
 let interpret srk expr =
