@@ -667,7 +667,7 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
       (pp_expr ~env srk) bthen
       (pp_expr ~env srk) belse
   | IsInt, [s] ->
-     fprintf formatter "is_integer(@[%a@])"
+     fprintf formatter "in_int_lattice(@[%a@])"
        (pp_expr ~env srk) s
   | _ -> failwith "pp_expr: ill-formed expression"
 
