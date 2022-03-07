@@ -68,17 +68,7 @@ let rec eval alg ast =
       let args = List.map (eval alg) (Expr.get_args ast) in
       match FuncDecl.get_decl_kind decl, args with
       | (OP_UNINTERPRETED, args) ->
-         (* TODO: Whether it is interpreted or not depends on the theory chosen
-            for the SMT solver. For now, whether it is interpreted or not,
-            "is_int" is translated into `IsInt.
-          *)
-         let name = decl |> FuncDecl.get_name |> Symbol.get_string in
-         if String.equal name "is_int" then
-           begin
-             alg (`IsInt args)
-           end
-         else
-           alg (`App (decl, args))
+         alg (`App (decl, args))
       | (OP_ADD, args) -> alg (`Add args)
       | (OP_MUL, args) -> alg (`Mul args)
       | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
@@ -295,12 +285,7 @@ and z3_of_formula srk z3 =
     | `Proposition (`Var i) ->
        Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
     | `Atom (`IsInt s) ->
-       (* TODO: Check that this is okay whether is_int is interpreted in the solver's
-          logic or not.
-        *)
-       let is_int_sym = get_named_symbol srk "is_int" in
-       let decl = decl_of_symbol z3 srk is_int_sym in
-       Z3.Expr.mk_app z3 decl [z3_of_expr srk z3 (s :> ('a, typ_fo) expr)]
+       Z3.Arithmetic.Real.mk_is_integer z3 (z3_of_expr srk z3 (s :> ('a, typ_fo) expr))
     | `Proposition (`App (p, [])) ->
       let decl =
         Z3.FuncDecl.mk_const_decl z3

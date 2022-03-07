@@ -183,12 +183,9 @@ and evaluate_formula interp ?(env=Env.empty) phi =
       end
     | `Atom (`ArrEq _) -> invalid_arg "evaluate_formula: array atom"
     | `Atom (`IsInt s) ->
-       let is_int_symb = get_named_symbol interp.srk "is_int" in
-       begin match Expr.refine_coarse interp.srk (unfold_app interp is_int_symb [s]) with
-       | `Formula phi ->
-          evaluate_formula interp ~env phi
-       | `Term _ ->
-          invalid_arg "evaluate_formula: ill-typed is_int"
+       begin match QQ.to_int (evaluate_term interp ~env s) with
+       | Some _ -> true
+       | None -> false
        end
     | `Not v -> not v
     | `Ite (cond, bthen, belse) -> if cond then bthen else belse
@@ -325,13 +322,8 @@ let select_implicant interp ?(env=Env.empty) phi =
         with Divide_by_zero -> None
       end
     | `Atom (`ArrEq _) -> assert false
-    | `Atom (`IsInt s) ->
-       let is_int_symb = get_named_symbol interp.srk "is_int" in
-       let is_int_pred = mk_app srk is_int_symb [s] in
-       if evaluate_formula interp ~env is_int_pred then
-         Some [mk_is_int srk s]
-       else
-         None
+    | `Atom (`IsInt _s) ->
+       if evaluate_formula interp ~env phi then Some [phi] else None
     | `Proposition (`App (p, [])) ->
       if bool interp p then Some [phi]
       else None
