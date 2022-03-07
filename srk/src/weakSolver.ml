@@ -97,6 +97,15 @@ let get_model srk phi =
           so even if the conjunction is SAT in the weak theory, the original formula
           may not be.
           So at this point, SAT is unsound (but UNSAT is sound).
+
+          M |= Imp |= F in propositional
+          M' |= WImp |= WF in Weak theory
+
+          0 <= x <= 1 /\ x <> 0, 1.
+
+          x = 1 \/ x = 2 \/ (1 <= x <= 2)
+
+          ~(x = 1, x = 2)
         *)
        match Interpretation.select_implicant model lin_phi with
        | None -> assert false
@@ -178,30 +187,35 @@ let get_model srk phi =
             Smt.Solver.add solver [f]; go ()
           in
 
-          let cut_pc = PolynomialConeCpClosure.regular_cutting_plane_closure lattice pc in
-          logf ~level:`trace "weakSolver: Finish making enclosing cone";
-          (* Check if induced equalities contradict with strict inequalities
-             as required by the formula.  *)
-          let ideal = PolynomialCone.get_ideal cut_pc in
-          let contradict_inequations =
-            BatList.exists (fun nonzero ->
-                let t = Polynomial.Rewrite.reduce ideal nonzero in
-                Polynomial.QQXs.equal t Polynomial.QQXs.zero
-              ) ineqs in
-          logf "weakSolver: Strict inequations cannot be satisfied: %b" contradict_inequations;
           let contradict_int =
-            let final_lattice = PolynomialConeCpClosure.polylattice_spanned_by
-                                  (is_ints @ Polynomial.Rewrite.generators ideal) in
-            List.exists (fun p -> PolynomialConeCpClosure.in_polylattice p final_lattice)
+            (* The IsInt relation is not closed under equality, so this is all we have
+               to check.
+             *)
+            List.exists (fun p -> PolynomialConeCpClosure.in_polylattice p lattice)
               not_ints
           in
-          (* If the polynomial cone is not proper then the model is no longer consistent. *)
-          if (PolynomialCone.is_proper cut_pc)
-             && not contradict_inequations && not contradict_int then
-            let () = logf "weakSolver: Got a model represented as polynomial cone: %a"
-                       (PolynomialCone.pp (pp_dim srk)) cut_pc in
-            `Sat (model, cut_pc)
-          else continue ()
+          if contradict_int then
+            continue ()
+          else
+            let cut_pc = PolynomialConeCpClosure.regular_cutting_plane_closure lattice pc in
+            logf ~level:`trace "weakSolver: Finish making enclosing cone";
+            (* Check if induced equalities contradict with strict inequalities
+             as required by the formula.  *)
+            let ideal = PolynomialCone.get_ideal cut_pc in
+            let contradict_inequations =
+              BatList.exists (fun nonzero ->
+                  let t = Polynomial.Rewrite.reduce ideal nonzero in
+                  Polynomial.QQXs.equal t Polynomial.QQXs.zero
+                ) ineqs in
+            logf "weakSolver: Strict inequations cannot be satisfied: %b" contradict_inequations;
+
+            (* If the polynomial cone is not proper then the model is no longer consistent. *)
+            if (PolynomialCone.is_proper cut_pc)
+               && not contradict_inequations && not contradict_int then
+              let () = logf "weakSolver: Got a model represented as polynomial cone: %a"
+                         (PolynomialCone.pp (pp_dim srk)) cut_pc in
+              `Sat (model, cut_pc)
+            else continue ()
   in
   go ()
 
