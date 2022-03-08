@@ -29,6 +29,7 @@ let pp pp_dim formatter pc =
 let get_ideal (ideal, _) = ideal
 
 (* let pp_dim srk = (fun formatter i -> Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i)) *)
+let make_cone ideal cone_gens = (ideal, cone_gens)
 
 let get_cone_generators (_, cone_generators) = cone_generators
 
@@ -227,7 +228,7 @@ let project_cone cone_generators f =
   let pvutil = pvutil_of_polys cone_generators in
   let dim = MonomialMap.cardinal pvutil.mono_map in
   let polyhedron_rep_of_cone = polyhedron_of_cone cone_generators pvutil in
-  Log.errorf "polyhedron of cone before proj";
+  (* Log.errorf "polyhedron of cone before proj"; *)
   let elim_dims = (0 -- (dim - 1)) |> BatEnum.filter
                     (fun i ->
                        let monomial = BatList.nth pvutil.ordered_mono_list i in
@@ -238,11 +239,11 @@ let project_cone cone_generators f =
                     ) |> BatList.of_enum in
   logf "elim dims has dim %d" (BatList.length elim_dims);
   let polys_of_elim_dims = BatList.enum (BatList.map (fun dim -> (`Zero, V.add_term QQ.one dim V.zero)) elim_dims) in
-  Log.errorf "polys of elim dims";
+  (* Log.errorf "polys of elim dims"; *)
   let p = Polyhedron.of_constraints polys_of_elim_dims in
 
   logf "elim polyhedron is: %a" (Polyhedron.pp pp_dim) p;
-  Log.errorf "polyhedron of constraints";
+  (* Log.errorf "polyhedron of constraints"; *)
   let projected_polyhedron = Polyhedron.meet polyhedron_rep_of_cone p |> Polyhedron.normalize_constraints in
   cone_of_polyhedron projected_polyhedron pvutil
 
@@ -289,26 +290,26 @@ let intersection (i1, c1) (i2, c2) =
     Rewrite.mk_rewrite (Monomial.block [dims_to_elim] Monomial.degrevlex) (i1' @ i2')
     |> Rewrite.grobner_basis
   in
-  Log.errorf "ideal has generators";
-  List.iter (fun p -> Log.errorf "=== %a ===" (QQXs.pp pp_dim) p) (Rewrite.generators ideal);
+  (* Log.errorf "ideal has generators"; *)
+  (* List.iter (fun p -> Log.errorf "=== %a ===" (QQXs.pp pp_dim) p) (Rewrite.generators ideal); *)
   let ideal2 =
     Rewrite.generators ideal
     |> List.filter (polynomial_over (not % dims_to_elim))
     |> Rewrite.mk_rewrite Monomial.degrevlex
   in
-Log.errorf "ideal2 has generators";
-  List.iter (fun p -> Log.errorf "=== %a ====" (QQXs.pp pp_dim) p) (Rewrite.generators ideal2);
+(* Log.errorf "ideal2 has generators"; *)
+  (* List.iter (fun p -> Log.errorf "=== %a ====" (QQXs.pp pp_dim) p) (Rewrite.generators ideal2); *)
 
   let reduced = (List.map (Rewrite.reduce ideal) (c1' @ c2')) in
 
-Log.errorf "reduced cone has generators";
-  List.iter (fun p -> Log.errorf "=== %a ===" (QQXs.pp pp_dim) p) (reduced);
-  Log.errorf "before project";
+(* Log.errorf "reduced cone has generators"; *)
+  List.iter (fun p -> Log.errorf "=== (* %a *) ===" (QQXs.pp pp_dim) p) (reduced);
+  (* Log.errorf "before project"; *)
   let cone = project_cone reduced (fun x -> x = fresh_var) in
-Log.errorf "projected cone has generators";
-  List.iter (fun p -> Log.errorf "=== %a ===" (QQXs.pp pp_dim) p) (cone);
+(* Log.errorf "projected cone has generators"; *)
+  (* List.iter (fun p -> Log.errorf "=== %a ===" (QQXs.pp pp_dim) p) (cone); *)
 
-  Log.errorf "returning";
+  (* Log.errorf "returning"; *)
   (ideal2, cone)
 
 let equal (i1, c1) (i2, c2) =

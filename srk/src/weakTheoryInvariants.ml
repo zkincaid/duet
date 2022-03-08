@@ -152,11 +152,11 @@ let find_tf_invs srk tr_symbols loop_counter tf =
   let formula_with_dx = mk_and srk ((TF.formula tf) :: diff) in
   let formula_exists_dx = mk_exists_consts
       srk
-      (fun symbol -> BatList.mem symbol dx)
+      (fun symbol -> (BatList.mem symbol dx))
       formula_with_dx in
 
-  let consequence_cone = WTS.find_consequences srk formula_exists_dx in
-  logf "consequence cone is %a" (PC.pp (pp_dim srk)) consequence_cone;
+  let consequence_cone = WTS.find_linear_consequences srk formula_exists_dx dx_dims in
+  logf "linear consequence cone is %a" (PC.pp (pp_dim srk)) consequence_cone;
   let implied_ideal = PC.get_ideal consequence_cone in
   (* TODO: should also add symb constants as inv functionals *)
   let inv_functionals = find_inv_functionals dx_dims implied_ideal in
