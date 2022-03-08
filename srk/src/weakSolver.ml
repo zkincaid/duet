@@ -42,48 +42,63 @@ let get_model srk phi =
   let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
 
   (* Special note: cannot rewrite into negation normal form past equalities, since
-     not (p = 0) is not equiv to p > 0 or p < 0 in the weak theory *)
-  let uninterp_phi =
+     not (p = 0) is not equiv to p > 0 or p < 0 in the weak theory
+
+     let uninterp_phi =
+       rewrite srk
+       ~down:(nnf_rewriter_without_replacing_eq srk)
+       ~up:(Nonlinear.uninterpret_rewriter srk)
+       phi
+     in
+
+    logf "Uninterpreted formula: %a" (Formula.pp srk) uninterp_phi;
+    let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
+
+    logf ~level:`trace "purified";
+
+    let nonlinear_defs =
+      Symbol.Map.enum nonlinear
+      /@ (fun (symbol, expr) ->
+        match Expr.refine srk expr with
+        | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
+        | `Formula phi -> mk_iff srk (mk_const srk symbol) phi
+        | `ArrTerm _ -> assert false)
+      |> BatList.of_enum
+    in
+
+    let rec replace_defs_term term =
+      substitute_const
+        srk
+        (fun x ->
+          try replace_defs_term (Symbol.Map.find x nonlinear)
+          with Not_found -> mk_const srk x)
+        term
+    in
+    let replace_defs =
+      substitute_const
+        srk
+        (fun x ->
+          try replace_defs_term (Symbol.Map.find x nonlinear)
+          with Not_found -> mk_const srk x)
+    in
+
+    (* Smt.Solver.add solver [uninterp_phi]; *)
+    Smt.Solver.add solver (lin_phi :: nonlinear_defs);
+
+   *)
+
+  let (prop_skeleton, unprop_map) =
     rewrite srk
       ~down:(nnf_rewriter_without_replacing_eq srk)
-      ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
+    |> SrkSimplify.propositionalize srk
   in
-  logf "Uninterpreted formula: %a" (Formula.pp srk) uninterp_phi;
-  let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
+  let unprop fml =
+    Syntax.substitute_const srk (fun sym -> Symbol.Map.find sym unprop_map) fml in
 
-  logf ~level:`trace "purified";
+  Smt.Solver.add solver [prop_skeleton];
 
-  let nonlinear_defs =
-    Symbol.Map.enum nonlinear
-    /@ (fun (symbol, expr) ->
-      match Expr.refine srk expr with
-      | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
-      | `Formula phi -> mk_iff srk (mk_const srk symbol) phi
-      | `ArrTerm _ -> assert false)
-    |> BatList.of_enum
-  in
-
-  let rec replace_defs_term term =
-    substitute_const
-      srk
-      (fun x ->
-        try replace_defs_term (Symbol.Map.find x nonlinear)
-        with Not_found -> mk_const srk x)
-      term
-  in
-  let replace_defs =
-    substitute_const
-      srk
-      (fun x ->
-        try replace_defs_term (Symbol.Map.find x nonlinear)
-        with Not_found -> mk_const srk x)
-  in
-
-  (* Smt.Solver.add solver [uninterp_phi]; *)
-  Smt.Solver.add solver (lin_phi :: nonlinear_defs);
-
-  (* TODO: adding lemmas. Using preduce in Groebner basis to get a subset of 
+  (* TODO: adding lemmas. Using preduce in Groebner basis to get a subset of
      atoms whose conjunction is unsat. *)
   let rec go () =
 
@@ -93,21 +108,8 @@ let get_model srk phi =
     | `Unknown -> `Unknown
     | `Sat model ->
        logf ~level:`trace "weakSolver: successfully getting model";
-       (* TODO: An implicant in LIRA may not be an implicant in the weak theory,
-          so even if the conjunction is SAT in the weak theory, the original formula
-          may not be.
-          So at this point, SAT is unsound (but UNSAT is sound).
-
-          M |= Imp |= F in propositional
-          M' |= WImp |= WF in Weak theory
-
-          0 <= x <= 1 /\ x <> 0, 1.
-
-          x = 1 \/ x = 2 \/ (1 <= x <= 2)
-
-          ~(x = 1, x = 2)
-        *)
-       match Interpretation.select_implicant model lin_phi with
+    (* match Interpretation.select_implicant model lin_phi with *)
+       match Interpretation.select_implicant model prop_skeleton with
        | None -> assert false
        | Some implicant ->
           logf "weakSolver: got implicant";
@@ -115,8 +117,8 @@ let get_model srk phi =
                        logf "weakSolver: Selected implicant atom: %a"
                          (Formula.pp srk) f) implicant in
           (* The implicant should be atomic, should be able to destruct to get t < c, t <= c, t = c *)
-          let implicant = List.map (fun imp -> replace_defs imp) implicant in
-          let atoms = List.map (Nonlinear.interpret srk) implicant in
+          (* let implicant = List.map (fun imp -> replace_defs imp) implicant in *)
+          let atoms = List.map unprop implicant in
 
           let rec process_atoms l geqs eqs ineqs lat_members lat_nonmembers =
             match l with
