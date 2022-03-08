@@ -167,7 +167,9 @@ let find_implied_zero_polynomials polys basis =
 
 let make_enclosing_cone basis geq_zero_polys =
   let rec go basis geq_zero_polys =
-    let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
+    let reduced = BatList.map (Rewrite.reduce basis) geq_zero_polys in
+    let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials reduced basis in
+
     if (BatList.length new_zero_polys) = 0 then
       begin
         logf "not getting any new zero polys, done";
