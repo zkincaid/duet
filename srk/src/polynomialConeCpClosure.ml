@@ -212,12 +212,17 @@ let expand_cone polynomial_cone transform =
     |> Rewrite.mk_rewrite elim_order
   in
   L.logf ~level:`trace
-    "@[expand_cone: expanded zeroes: @[%a@]@; positives: @[%a@]@]@;"
+    "@[expand_cone: zeroes after adding rewrites: @[%a@]@; positives: @[%a@]@]@;"
     (pp_poly_list pp_dim) (Rewrite.generators expanded_ideal)
     (pp_poly_list pp_dim) positives;
   
   (* Use PolynomialCone to reduce the positives *)
-  PolynomialCone.make_enclosing_cone expanded_ideal positives
+  let pc = PolynomialCone.make_enclosing_cone expanded_ideal positives in
+  L.logf ~level:`trace
+    "@[expand_cone: result: zeroes: @[%a@]@; positives: @[%a@]@]@;"
+    (pp_poly_list pp_dim) (Rewrite.generators (PolynomialCone.get_ideal pc))
+    (pp_poly_list pp_dim) (PolynomialCone.get_cone_generators pc);
+  pc
 
 (**
    [compute_cut T C] computes [cl_{ZZ B}(C \cap QQ B)], where
