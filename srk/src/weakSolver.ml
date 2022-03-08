@@ -41,7 +41,10 @@ let get_model srk phi =
   (* QF_LRA, QF_UF *)
   let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
 
-  (* Special note: cannot rewrite into negation normal form past equalities, since
+  (* TODO: The following relaxes to the LIA theory, which makes UNSAT unsound 
+     in general, e,g. 0 < x < 1 is UNSAT in LIA but SAT in the weak theory.
+
+     Special note: cannot rewrite into negation normal form past equalities, since
      not (p = 0) is not equiv to p > 0 or p < 0 in the weak theory
 
      let uninterp_phi =
