@@ -559,3 +559,30 @@ let simplify_integer_atom srk op s t =
 
       | _ -> `CompareZero (`Lt, snd (zz_linterm s))
     end
+
+let propositionalize srk =
+  let table = Expr.HT.create 991 in
+  let rewriter srk table =
+    fun expr ->
+    match destruct srk expr with
+    | `Atom _atom ->
+       let sym =
+         try
+           Expr.HT.find table expr
+         with Not_found ->
+           let sym = mk_symbol srk ~name:"prop_atom" (expr_typ srk expr) in
+           Expr.HT.add table expr sym;
+           sym
+       in
+       mk_const srk sym
+    | _ -> expr
+  in
+  fun expr ->
+  let expr' = rewrite srk ~up:(rewriter srk table) expr in
+  let map =
+    BatEnum.fold
+      (fun map (term, sym) -> Symbol.Map.add sym term map)
+      Symbol.Map.empty
+      (Expr.HT.enum table)
+  in
+  (expr', map)
