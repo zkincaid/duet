@@ -97,7 +97,21 @@ let get_model srk phi =
     |> SrkSimplify.propositionalize srk
   in
   let unprop fml =
-    Syntax.substitute_const srk (fun sym -> Symbol.Map.find sym unprop_map) fml in
+    Syntax.substitute_const srk
+      (fun sym ->
+        try
+          Symbol.Map.find sym unprop_map
+        with Not_found ->
+          Syntax.mk_const srk sym
+      )
+      fml
+  in
+  logf ~level:`trace "weakSolver: unprop_map: @[%a@]"
+    (fun _fmt unprop_map ->
+      BatEnum.iter (fun (sym, expr) ->
+          logf "(%a, %a)@;" (Syntax.pp_symbol srk) sym (Syntax.Expr.pp srk) expr)
+        (Symbol.Map.enum unprop_map))
+    unprop_map;
 
   Smt.Solver.add solver [prop_skeleton];
 
@@ -121,7 +135,9 @@ let get_model srk phi =
                          (Formula.pp srk) f) implicant in
           (* The implicant should be atomic, should be able to destruct to get t < c, t <= c, t = c *)
           (* let implicant = List.map (fun imp -> replace_defs imp) implicant in *)
+          logf "weakSolver: Unpropping...";
           let atoms = List.map unprop implicant in
+          logf "weakSolver: Unpropped";
 
           let rec process_atoms l geqs eqs ineqs lat_members lat_nonmembers =
             match l with
