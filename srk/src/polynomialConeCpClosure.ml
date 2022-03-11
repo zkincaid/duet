@@ -8,7 +8,7 @@ module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 module MonomialSet = BatSet.Make(Monomial)
 
 let pp_dim = PrettyPrintDim.pp_numeric "x"
-                   
+
 let pp_poly_list = PolynomialUtil.PrettyPrintPoly.pp_poly_list
 
 let monomials_in polys =
@@ -190,7 +190,7 @@ let compute_transformation lattice ctxt : transformation_data =
   L.logf ~level:`trace "@[compute_transformation: %a@]"
     (pp_transformation_data pp_dim) data;
   data
-  
+
 (**
    [expand_cone polynomial_cone transform] adjoins the rewrite polynomials
    {y_i - b_i : 0 <= i <= n} from [transform] to the zeros of
@@ -215,7 +215,7 @@ let expand_cone polynomial_cone transform =
     "@[expand_cone: zeroes after adding rewrites: @[%a@]@; positives: @[%a@]@]@;"
     (pp_poly_list pp_dim) (Rewrite.generators expanded_ideal)
     (pp_poly_list pp_dim) positives;
-  
+
   (* Use PolynomialCone to reduce the positives *)
   let pc = PolynomialCone.make_enclosing_cone expanded_ideal positives in
   L.logf ~level:`trace

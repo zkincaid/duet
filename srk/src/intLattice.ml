@@ -160,7 +160,7 @@ let pp_term pp_dim fmt t =
           (Linear.ZZVector.pp_term pp_dim))
        lat.sparse_rep
 
-let member v t =
+let _flint_member v t =
   match t with
   | EmptyLattice -> false
   | Lattice lat ->
@@ -203,3 +203,25 @@ let member v t =
        (pp_vector_list ZZ.pp) preimage;
      (List.for_all (ZZ.equal ZZ.zero) suffix)
      && (List.for_all (fun x -> ZZ.equal (ZZ.modulo x denom) ZZ.zero) prefix)
+
+let member v t =
+  match t with
+  | EmptyLattice -> false
+  | Lattice lat ->
+     let (matrix, _) =
+       List.fold_left (fun (mat, i) vec ->
+           let v = Linear.ZZVector.fold (fun dim scalar v ->
+                       Linear.QQVector.add_term (QQ.of_zz scalar) dim v)
+                     vec
+                     Linear.QQVector.zero in
+           (Linear.QQMatrix.add_column i v mat, i + 1)
+         )
+         (Linear.QQMatrix.zero, 0) lat.sparse_rep in
+     begin match Linear.solve matrix v with
+     | Some x -> (Linear.QQVector.fold
+                    (fun _ scalar bool ->
+                      ZZ.equal (QQ.denominator scalar) ZZ.one && bool)
+                    x)
+                   true
+     | None -> false
+     end
