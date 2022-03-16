@@ -90,10 +90,38 @@ let get_model srk phi =
 
    *)
 
+  let declared_ints =
+    Symbol.Set.fold
+      (fun sym l ->
+        match Syntax.typ_symbol srk sym with
+        | `TyInt ->
+           (* logf ~level:`trace "%s : fun" (Syntax.show_symbol srk sym); *)
+           (sym :: l)
+        | `TyReal
+          | `TyBool
+          | `TyArr -> l
+        | `TyFun (_args, _range_typ) ->
+           (* if args = [] && range_typ = `TyInt then
+             (sym :: l)
+           else *)
+           l
+      )
+      (Syntax.symbols phi)
+      []
+  in
+  let new_is_ints =
+    List.map
+      (fun sym ->
+        Syntax.mk_const srk sym
+        |> Syntax.ArithTerm.arith_term_of srk
+        |> mk_is_int srk)
+      declared_ints in
+  let phi_with_ints = Syntax.mk_and srk (phi :: new_is_ints) in
+
   let (prop_skeleton, unprop_map) =
     rewrite srk
       ~down:(nnf_rewriter_without_replacing_eq srk)
-      phi
+      phi_with_ints
     |> SrkSimplify.propositionalize srk
   in
   let unprop fml =
