@@ -167,12 +167,11 @@ let find_implied_zero_polynomials polys basis =
 
 let make_enclosing_cone basis geq_zero_polys =
   let rec go basis geq_zero_polys =
-    let reduced = BatList.map (Rewrite.reduce basis) geq_zero_polys in
-    let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials reduced basis in
-
+    let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
     if (BatList.length new_zero_polys) = 0 then
       begin
         logf "not getting any new zero polys, done";
+        (* NK: The following is needed when the original [equal] using pvutil is used. *)
         let reduced = BatList.map (Rewrite.reduce basis) geq_zero_polys in
         (* logf "enclosing cone: %a" pp pc; *)
         (basis, reduced)
@@ -186,7 +185,8 @@ let make_enclosing_cone basis geq_zero_polys =
       let reduced_geq_polys = BatList.map (Rewrite.reduce new_basis) geq_zero_polys in
       go new_basis reduced_geq_polys
   in
-  go basis (QQXs.one :: geq_zero_polys)
+  let r = BatList.map (Rewrite.reduce basis) (QQXs.one :: geq_zero_polys) in
+  go basis r
 
 let add_polys_to_cone pc zero_polys nonneg_polys =
   let basis, cone_generators = pc in
@@ -313,16 +313,39 @@ Log.errorf "projected cone has generators";
   Log.errorf "returning";
   (ideal2, cone)
 
+(*
 let equal (i1, c1) (i2, c2) =
   Rewrite.equal i1 i2
   && (let rewritten_c2 = List.map (Rewrite.reduce i1) c2 in
       try
         let pvutil = pvutil_of_polys rewritten_c2 in
         (
-      Polyhedron.equal
-        (polyhedron_of_cone c1 pvutil)
-        (polyhedron_of_cone rewritten_c2 pvutil))
-    with Not_found -> false)
+          Polyhedron.equal
+            (polyhedron_of_cone c1 pvutil)
+            (polyhedron_of_cone rewritten_c2 pvutil))
+      with Not_found -> false)
+ *)
+
+let equal (i1, c1) (i2, c2) =
+  Rewrite.equal i1 i2
+  && (
+    let rewritten_c1 = List.map (Rewrite.reduce i2) c1 in
+    let rewritten_c2 = List.map (Rewrite.reduce i1) c2 in
+    let monos = List.map (fun p -> BatEnum.fold (fun l (_scalar, mono) -> mono :: l)
+                                     []
+                                     (Polynomial.QQXs.enum p))
+                  (rewritten_c1 @ rewritten_c2)
+                |> List.concat in
+    let context = PolynomialUtil.PolyVectorContext.context Polynomial.Monomial.degrevlex
+                    monos in
+    let to_vectors polys =
+      List.map (fun poly ->
+          (`Nonneg, PolynomialUtil.PolyVectorConversion.poly_to_vector context poly))
+        polys
+      |> BatList.enum in
+    let c1_vectors = to_vectors rewritten_c1 in
+    let c2_vectors = to_vectors rewritten_c2 in
+    Polyhedron.equal (Polyhedron.of_constraints c1_vectors) (Polyhedron.of_constraints c2_vectors))
 
 let to_formula srk term_of_dim (ideal, cone_generators) =
   let open Syntax in
