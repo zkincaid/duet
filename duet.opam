@@ -9,7 +9,7 @@ depends: [
   "dune" {>= "2.5"}
   "batteries"
   "ppx_deriving"
-  "gmp"
+  "mlgmpidl"
   "camlidl"
   "apron"
   "z3"
