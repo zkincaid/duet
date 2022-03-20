@@ -15,16 +15,18 @@ end
 
 module PrettyPrintPoly = struct
 
-  let pp_list pp_elt =
-    Format.pp_print_list
-      ~pp_sep:(fun fmt _unit -> Format.fprintf fmt "@;")
-      (SrkUtil.pp_print_list pp_elt)
+  let pp_list pp_elt fmt =
+    Format.fprintf fmt
+      "@[<v 0>%a@]"
+      (Format.pp_print_list
+         ~pp_sep:(fun fmt _unit -> Format.fprintf fmt "@;")
+         pp_elt)
 
-  let pp_qq_list = pp_list QQ.pp
+  let pp_qq_matrix = pp_list (SrkUtil.pp_print_list QQ.pp)
 
-  let pp_zz_list = pp_list ZZ.pp
+  let pp_zz_matrix = pp_list (SrkUtil.pp_print_list ZZ.pp)
 
-  let pp_poly_list pp_dim = SrkUtil.pp_print_list (QQXs.pp pp_dim)
+  let pp_poly_list pp_dim = pp_list (QQXs.pp pp_dim)
 
 end
 

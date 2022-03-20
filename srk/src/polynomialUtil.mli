@@ -12,9 +12,9 @@ end
 
 module PrettyPrintPoly : sig
 
-  val pp_qq_list : Format.formatter -> QQ.t list list -> unit
+  val pp_qq_matrix : Format.formatter -> QQ.t list list -> unit
 
-  val pp_zz_list : Format.formatter -> ZZ.t list list -> unit
+  val pp_zz_matrix : Format.formatter -> ZZ.t list list -> unit
 
   val pp_poly_list : (Format.formatter -> int -> unit)
     -> Format.formatter -> QQXs.t list -> unit
