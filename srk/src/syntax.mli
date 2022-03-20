@@ -181,19 +181,20 @@ val symbols : ('a, 'b) expr -> Symbol.Set.t
 
 (** A rewriter is a function that transforms an expression into another.  {b
     The transformation should preserve types}; if not, [rewrite] will fail. *)
-type 'a rewriter = ('a, typ_fo) expr -> ('a, typ_fo) expr
+(* type 'a rewriter = ('a, typ_fo) expr -> ('a, typ_fo) expr *)
+type ('a, 'b) rewriter = ('a, 'b) expr -> ('a, 'b) expr
 
 (** Rewrite an expression.  The {i down} rewriter is applied to each
     expression going down the expression tree, and the {i up} rewriter is
     applied to each expression going up the tree. *)
-val rewrite : 'a context -> ?down:('a rewriter) -> ?up:('a rewriter) ->
+val rewrite : 'a context -> ?down:(('a, 'b) rewriter) -> ?up:(('a, 'b) rewriter) ->
   ('a, 'typ) expr -> ('a, 'typ) expr
 
 (** Convert to negation normal form ({i down} pass). *)
-val nnf_rewriter : 'a context -> 'a rewriter
+val nnf_rewriter : 'a context -> ('a, typ_fo) rewriter
 
 (** Convert to negation normal form, but do not rewrite equalities. *)
-val nnf_rewriter_without_replacing_eq : 'a context -> 'a rewriter
+val nnf_rewriter_without_replacing_eq : 'a context -> ('a, typ_fo) rewriter
 
 module Expr : sig
   val equal : ('a,'b) expr -> ('a,'b) expr -> bool

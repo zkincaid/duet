@@ -102,20 +102,33 @@ let hermite_normal_form matrix =
 
 let rev_compare x y = - Int.compare x y
 
+let pp_zz_matrix =
+  SrkUtil.pp_print_list
+    (fun fmt entry ->
+      Format.pp_print_list
+        ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
+        ZZ.pp fmt entry
+    )
+
 let lattice_of ?(ordering=rev_compare) vectors =
   if vectors = [] then EmptyLattice
   else
     let (dimensions, lcm) = dims_and_lcm_denoms vectors in
     let (bijection, length) = assign_indices ordering dimensions in
-    let generators = List.map (fun v ->
-                         v
-                         |> densify_and_zzify length bijection.dim_to_idx lcm
-                         |> Array.to_list)
-                       vectors
-                     |> hermite_normal_form (* *)
-                     |> List.map Array.of_list
-    in
-    L.logf ~level:`debug "@[lattice_of: dimensions-to-indices: %a@]"
+    let densified = List.map (fun v ->
+                        v
+                        |> densify_and_zzify length bijection.dim_to_idx lcm
+                        |> Array.to_list)
+                      vectors in
+    let hermitized = hermite_normal_form densified in
+    let generators = List.map Array.of_list hermitized in
+    L.logf "lattice_of: input vectors: @[%a@]@;"
+      (SrkUtil.pp_print_list Linear.QQVector.pp) vectors;
+    L.logf ~level:`trace "lattice_of: densified: @[%a@]@;"
+      pp_zz_matrix densified;
+    L.logf "lattice_of: basis: @[%a@]@;"
+      pp_zz_matrix hermitized;
+    L.logf ~level:`trace "lattice_of: dimensions-to-indices: @[%a@]"
       pp_bijection bijection;
     Lattice
       { sparse_rep = List.map (sparsify bijection.idx_to_dim) generators
@@ -128,13 +141,6 @@ let basis t =
   match t with
   | EmptyLattice -> (ZZ.one, [])
   | Lattice lat -> (lat.denominator, lat.sparse_rep)
-
-let pp_vector_list pp =
-  Format.pp_print_list
-    ~pp_sep:Format.pp_print_newline
-    (fun fmt v -> Format.pp_print_list
-                    ~pp_sep:(fun fmt _ -> Format.fprintf fmt ", ")
-                    pp fmt v)
 
 let pp fmt t =
   match t with
@@ -197,10 +203,10 @@ let _flint_member v t =
        embedding_dim
        rank
        ZZ.pp transposed_denom
-       (pp_vector_list ZZ.pp) transposed_matrix
+       pp_zz_matrix transposed_matrix
        ZZ.pp target_denom
-       (pp_vector_list ZZ.pp) target_vector
-       (pp_vector_list ZZ.pp) preimage;
+       pp_zz_matrix target_vector
+       pp_zz_matrix preimage;
      (List.for_all (ZZ.equal ZZ.zero) suffix)
      && (List.for_all (fun x -> ZZ.equal (ZZ.modulo x denom) ZZ.zero) prefix)
 

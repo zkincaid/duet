@@ -1507,7 +1507,7 @@ let expr_typ _ node =
   | Node (_, _, `TyArr) -> `TyArr
   | Node (_, _, `TyBool) -> `TyBool
 
-type 'a rewriter = ('a, typ_fo) expr -> ('a, typ_fo) expr
+type ('a, 'b) rewriter = ('a, 'b) expr -> ('a, 'b) expr
 
 let rec nnf_rewriter srk sexpr =
   match sexpr.obj with
