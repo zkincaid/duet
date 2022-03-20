@@ -128,7 +128,7 @@ let lattice_of ?(ordering=rev_compare) vectors =
       pp_zz_matrix densified;
     L.logf "lattice_of: basis: @[%a@]@;"
       pp_zz_matrix hermitized;
-    L.logf ~level:`trace "lattice_of: dimensions-to-indices: @[%a@]"
+    L.logf ~level:`trace "lattice_of: dimensions-to-indices: @[%a@]@;"
       pp_bijection bijection;
     Lattice
       { sparse_rep = List.map (sparsify bijection.idx_to_dim) generators
