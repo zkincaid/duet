@@ -9,7 +9,7 @@ type dim_idx_bijection = { dim_to_idx : int SrkUtil.Int.Map.t
                          }
 
 let pp_bijection fmt bijection =
-  Format.fprintf fmt "@[{ dim_to_idx: @[%a@] }@]"
+  Format.fprintf fmt "{ dim_to_idx: @[%a@] }"
     (SrkUtil.pp_print_enum
        (fun fmt (dim, idx) -> Format.fprintf fmt "(dim=%d, idx=%d)" dim idx))
     (SrkUtil.Int.Map.enum bijection.dim_to_idx)
@@ -148,10 +148,9 @@ let pp fmt t =
                       "@[<empty>@]"
   | Lattice lat ->
      Format.fprintf fmt
-       "@[<v 0>{denominator: %a; @[basis: %a@]}@]"
+       "@[<v 0>{ denominator: %a@;; basis: %a }@]"
        ZZ.pp lat.denominator
-       (Format.pp_print_list ~pp_sep:Format.pp_print_cut
-          Linear.ZZVector.pp)
+       (SrkUtil.pp_print_list Linear.ZZVector.pp)
        lat.sparse_rep
 
 let pp_term pp_dim fmt t =

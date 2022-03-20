@@ -13,7 +13,8 @@ module PrettyPrint = struct
 
   let pp_list pp_elt fmt =
     Format.fprintf fmt
-      "@[<v 0>%a@]"
+      (* "@[<v 0>%a@]" *)
+      "%a"
       (Format.pp_print_list
          ~pp_sep:(fun fmt _unit -> Format.fprintf fmt "@;")
          pp_elt)
