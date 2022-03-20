@@ -2,15 +2,11 @@
 
 open Polynomial
 
-module PrettyPrintDim : sig
+module PrettyPrint : sig
 
   val pp_ascii_dim : Format.formatter -> int -> unit
 
-  val pp_numeric : string -> Format.formatter -> int -> unit
-
-end
-
-module PrettyPrintPoly : sig
+  val pp_numeric_dim : string -> Format.formatter -> int -> unit
 
   val pp_qq_matrix : Format.formatter -> QQ.t list list -> unit
 

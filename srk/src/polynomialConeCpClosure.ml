@@ -7,9 +7,10 @@ module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 
 module MonomialSet = BatSet.Make(Monomial)
 
-let pp_dim = PrettyPrintDim.pp_numeric "x"
+let pp_dim = PrettyPrint.pp_numeric_dim "x"
 
-let pp_poly_list = PolynomialUtil.PrettyPrintPoly.pp_poly_list
+let pp_poly_list = PolynomialUtil.PrettyPrint.pp_poly_list
+let pp_vectors pp_elem = SrkUtil.pp_print_list pp_elem
 
 let monomials_in polys =
   let monomials_in p =
@@ -74,6 +75,13 @@ let polylattice_spanned_by polys : polylattice =
           (Linear.const_linterm (QQ.of_zz denominator)))
       basis
   in
+  L.logf "polylattice_spanned_by: input polynomials: @[%a@]@\n"
+    (PolynomialUtil.PrettyPrint.pp_poly_list pp_dim) polys;
+  L.logf "polylattice_spanned_by: transformed vectors: @[<v 0> %a@]@\n"
+    (pp_vectors Linear.QQVector.pp)
+    vectors;
+  L.logf "polylattice_spanned_by: lattice: @[%a@]@\n"
+    IntLattice.pp lattice;
   if (List.length one <> 1)
   then
   (* Lattice must contain 1. Since we add 1 above, this happens if there is
@@ -81,12 +89,6 @@ let polylattice_spanned_by polys : polylattice =
      inconsistency, e.g., if 1/2 is in the lattice, 2 (1/2) + (-1) >= 0
      implies 1/2 + floor(-1/2) >= 0, which implies -1/2 >= 0.
    *)
-    let pp_vectors =
-      Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", @;")
-        Linear.ZZVector.pp in
-    L.logf
-        "@[<v 0>polylattice_spanned_by:@;denominator = %a;@;vectors are: @[%a@]@]"
-        ZZ.pp denominator pp_vectors (List.append one others);
     raise Invalid_lattice
   else
     ();
@@ -155,10 +157,10 @@ let compute_transformation lattice ctxt : transformation_data =
   let rescale poly = QQXs.scalar_mul (QQ.inverse (QQ.of_zz denom)) poly in
   let fresh_start = Option.value ~default:0 (PolyVectorContext.max_variable ctxt) + 1 in
 
-  L.logf ~level:`trace "compute_transformation: transformation context: %a\n"
+  L.logf ~level:`trace "compute_transformation: transformation context: %a@\n"
     (PolyVectorContext.pp pp_dim)
       ctxt;
-  L.logf ~level:`trace "compute_transformation: fresh variables range from %d to %d\n"
+  L.logf ~level:`trace "compute_transformation: fresh variables range from %d to %d@\n"
     fresh_start (fresh_start + List.length lattice);
 
   let transformation_poly dim basis_poly =
@@ -187,7 +189,7 @@ let compute_transformation lattice ctxt : transformation_data =
     ; rewrite_polys = (rewrite_one, rewrite_rest)
     }
   in
-  L.logf ~level:`trace "@[compute_transformation: %a@]"
+  L.logf ~level:`trace "compute_transformation: @[%a@]"
     (pp_transformation_data pp_dim) data;
   data
 
@@ -212,7 +214,7 @@ let expand_cone polynomial_cone transform =
     |> Rewrite.mk_rewrite elim_order
   in
   L.logf ~level:`trace
-    "@[expand_cone: zeroes after adding rewrites: @[%a@]@; positives: @[%a@]@]@;"
+    "expand_cone: zeroes after adding rewrites: @[<v 0>%a@]@; positives: @[%a@]"
     (pp_poly_list pp_dim) (Rewrite.generators expanded_ideal)
     (pp_poly_list pp_dim) positives;
 

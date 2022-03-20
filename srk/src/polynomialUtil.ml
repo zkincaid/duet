@@ -1,6 +1,6 @@
 open Polynomial
 
-module PrettyPrintDim = struct
+module PrettyPrint = struct
 
   let pp_ascii_dim formatter i =
     if i <> Linear.const_dim then
@@ -8,12 +8,8 @@ module PrettyPrintDim = struct
     else
       Format.pp_print_string formatter "1"
 
-  let pp_numeric base formatter i =
+  let pp_numeric_dim base formatter i =
     Format.fprintf formatter "%s_{%d}" base i
-
-end
-
-module PrettyPrintPoly = struct
 
   let pp_list pp_elt fmt =
     Format.fprintf fmt
