@@ -48,7 +48,7 @@ type polylattice =
 
 let pp_polylattice pp_dim fmt polylattice =
   Format.fprintf fmt
-    "@[<v 0>{ denominator: @[%a@]@;; constant_poly: @[%a@]@;; basis_polys: @[<v 0>%a@] }@]@;"
+    "@[<v 0>{ denominator: @[%a@]@;; constant_poly: @[%a@]@;; basis_polys: @[<v 0>%a@] }@]"
     ZZ.pp polylattice.denominator
     (QQXs.pp pp_dim) polylattice.constant_poly
     (pp_poly_list pp_dim) polylattice.basis_polys
@@ -429,7 +429,7 @@ let regular_cutting_plane_closure polylattice polynomial_cone =
     polynomial_cone
   else
     begin
-      L.logf "regular_cutting_plane_closure: CP closure of:@;@[<v 0>@[%a@]@;with respect to @[%a@]@]@;"
+      L.logf "regular_cutting_plane_closure: CP closure of:@;@[<v 0>@[%a@]@;  with respect to @[%a@]@]@;"
         (PolynomialCone.pp pp_dim) polynomial_cone
         (pp_poly_list pp_dim) basis;
 
