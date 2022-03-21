@@ -14,6 +14,14 @@ let pp_bijection fmt bijection =
        (fun fmt (dim, idx) -> Format.fprintf fmt "(dim=%d, idx=%d)" dim idx))
     (SrkUtil.Int.Map.enum bijection.dim_to_idx)
 
+let pp_zz_matrix =
+  SrkUtil.pp_print_list
+    (fun fmt entry ->
+      Format.pp_print_list
+        ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
+        ZZ.pp fmt entry
+    )
+
 (** A lattice is represented as a matrix 1/d B,
     where B is in row Hermite normal form
     and the rows of B are the basis of the lattice.
@@ -93,22 +101,27 @@ let sparsify idx_to_dim arr =
    ZZ L = (1/d) ZZ (d L) = (1/d) ZZ B = ZZ (1/d B).
  *)
 let hermite_normal_form matrix =
+  let level = `trace in
+  let verbose = if Log.level_leq (!Log.verbosity_level) level
+                   || Log.level_leq (!L.my_verbosity_level) level
+                then true else false in
+  if verbose then Flint.set_debug true else ();
   let mat = Flint.new_matrix matrix in
+  let (denom, m) =  Flint.zz_denom_matrix_of_rational_matrix mat in
+  L.logf ~level:`trace "hermite_normal_form: new matrix: @[denom: %a@;matrix: %a@]"
+    ZZ.pp denom
+    pp_zz_matrix m;
   Flint.hermitize mat;
   let rank = Flint.rank mat in
-  Flint.zz_denom_matrix_of_rational_matrix mat
-  |> snd
-  |> BatList.take rank (* The rows after rank should be all zeros *)
+  let basis =
+    Flint.zz_denom_matrix_of_rational_matrix mat
+    |> snd
+    |> BatList.take rank (* The rows after rank should be all zeros *)
+  in
+  if verbose then Flint.set_debug false else ();
+  basis
 
 let rev_compare x y = - Int.compare x y
-
-let pp_zz_matrix =
-  SrkUtil.pp_print_list
-    (fun fmt entry ->
-      Format.pp_print_list
-        ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
-        ZZ.pp fmt entry
-    )
 
 let lattice_of ?(ordering=rev_compare) vectors =
   if vectors = [] then EmptyLattice
