@@ -275,6 +275,19 @@ let eliminate_floor_mod_div srk phi =
     | _ -> ""
   in
   let gen_equiv sym expr =
+    let constraints_for_rem r t integral =
+      (* 0 <= r < |t| <=> 0 <= r /\ (r < t \/ r < -t) *)
+      let r_nonneg = mk_leq srk (mk_int srk 0) r in
+      let t_bound =
+        if integral then
+          mk_or srk [ mk_leq srk r (mk_add srk [t; mk_int srk (-1)])
+                    ; mk_leq srk r (mk_add srk [mk_neg srk t ; mk_int srk (-1)])]
+        else
+          mk_or srk [ mk_lt srk r t
+                    ; mk_lt srk r (mk_neg srk t)]
+      in
+      [r_nonneg ; t_bound]
+    in
     begin
       match destruct srk expr with
       | `Unop (`Floor, t) ->
@@ -287,57 +300,34 @@ let eliminate_floor_mod_div srk phi =
          let upper_bound = mk_lt srk fractional_part (mk_real srk QQ.one) in
          [mk_eq srk t sum; lower_bound; upper_bound]
       | `Binop (`Mod, s, t) ->
-         (*
-         s % t --> [r = s % t] ; r : Int, q : Int ; s = qt + r /\ 0 <= r < |t|
-         0 <= r < |t| iff 0 <= r /\ (r < t \/ r < -t) 
-         iff (if s : Int /\ t : Int) 0 <= r /\ (r <= t - 1 \/ r <= -t - 1)
-          *)
          let quotient = mk_symbol srk ~name:"quotient" `TyInt
                         |> mk_const srk in
          let rem = mk_const srk sym in
          let sum = mk_add srk [mk_mul srk [quotient ; t] ; rem] in
-         let rem_nonneg = mk_leq srk (mk_int srk 0) rem in
          let integral = (expr_typ srk s = `TyInt) && (expr_typ srk t = `TyInt) in
-         let rem_pos_bound =
-           if integral then
-             mk_leq srk rem (mk_add srk [t; mk_int srk (-1)])
-           else
-             mk_lt srk rem t in
-         let rem_neg_bound =
-           if integral then
-             mk_leq srk rem (mk_add srk [mk_neg srk t; mk_int srk (-1)])
-           else
-             mk_lt srk rem (mk_neg srk t)
-         in
-         [mk_eq srk s sum; rem_nonneg; mk_or srk [rem_pos_bound ; rem_neg_bound]]
+         [mk_or srk
+            [ mk_eq srk t (mk_int srk 0) (* t = 0 *)
+            (* or s = qt + r and 0 <= r < |t| *)
+            ; mk_and srk (mk_eq srk s sum :: (constraints_for_rem rem t integral))
+            ]
+         ]
       | `Binop (`Div, s, t) ->
-         (*
-         0 <= r < |t| <=> 0 <= r /\ (t > r \/ -t < r) <=> 0 <= r /\ (r <= t - 1 \/ r <= -t - 1)
-         integer division:
-         s / t --> [ u = s / t ] ; u : Int, r : Int ; t = 0 \/ (s = ut + r /\ 0 <= r /\ (r <= t - 1 \/ r <= -t - 1))
-         real division:
-         s / t --> [ u = s / t ] ; u : Real ; t = 0 \/ s = ut
-          *)
          begin match expr_typ srk s, expr_typ srk t with
          | `TyInt, `TyReal
            | `TyReal, `TyInt
            | `TyReal, `TyReal ->
             [mk_or srk
-               [ mk_eq srk t (mk_real srk QQ.zero)
+               [ mk_eq srk t (mk_int srk 0)
                ; mk_eq srk s (mk_mul srk [mk_const srk sym ; t])]]
          | `TyInt, `TyInt ->
             let rem = mk_symbol srk ~name:"remainder" `TyInt
                       |> mk_const srk in
             let quotient = mk_const srk sym in
             let sum = mk_add srk [mk_mul srk [quotient ; t] ; rem] in
-            let rem_nonneg = mk_leq srk (mk_int srk 0) rem in
-            let rem_pos_bound = mk_leq srk rem (mk_add srk [t; mk_int srk (-1)]) in
-            let rem_neg_bound = mk_leq srk rem (mk_add srk [mk_neg srk t; mk_int srk (-1)]) in
             [mk_or srk
-               [ mk_eq srk t (mk_real srk QQ.zero)
-               ; mk_and srk [ mk_eq srk s sum
-                            ; rem_nonneg
-                            ; mk_or srk [ rem_pos_bound ; rem_neg_bound ]]
+               [ mk_eq srk t (mk_int srk 0) (* t = 0 *)
+               (* or s = qt + r and 0 <= r < |t| *)
+               ; mk_and srk ( mk_eq srk s sum :: (constraints_for_rem rem t true) )
                ]
             ]
          | _, _ -> invalid_arg "nonlinear: impossible case"
