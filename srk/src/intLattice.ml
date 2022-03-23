@@ -107,10 +107,12 @@ let hermite_normal_form matrix =
                 then true else false in
   if verbose then Flint.set_debug true else ();
   let mat = Flint.new_matrix matrix in
+  L.logf ~level "hermite_normal_form: testing new matrix@;";
   let (denom, m) =  Flint.zz_denom_matrix_of_rational_matrix mat in
-  L.logf ~level:`trace "hermite_normal_form: new matrix: @[denom: %a@;matrix: %a@]"
+  L.logf ~level "hermite_normal_form: new matrix: @[denom: %a@;matrix: %a@]"
     ZZ.pp denom
     pp_zz_matrix m;
+
   Flint.hermitize mat;
   let rank = Flint.rank mat in
   let basis =

@@ -153,7 +153,7 @@ let get_model srk phi =
      atoms whose conjunction is unsat. *)
   let rec go () =
 
-    logf "weakSolver: solver is: %s ===" (Smt.Solver.to_string solver);
+    logf ~level:`trace "weakSolver: solver is: %s ===" (Smt.Solver.to_string solver);
     match Smt.Solver.get_model solver with
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
@@ -163,15 +163,15 @@ let get_model srk phi =
        match Interpretation.select_implicant model prop_skeleton with
        | None -> assert false
        | Some implicant ->
-          logf "weakSolver: got implicant";
+          logf ~level:`trace "weakSolver: got implicant";
           let () = BatList.iter (fun f ->
-                       logf "weakSolver: Selected implicant atom: %a"
+                       logf ~level:`trace "weakSolver: Selected implicant atom: %a"
                          (Formula.pp srk) f) implicant in
           (* The implicant should be atomic, should be able to destruct to get t < c, t <= c, t = c *)
           (* let implicant = List.map (fun imp -> replace_defs imp) implicant in *)
-          logf "weakSolver: Unpropping...";
+          logf ~level:`trace "weakSolver: Unpropping...";
           let atoms = List.map unprop implicant in
-          logf "weakSolver: Unpropped";
+          logf ~level:`trace "weakSolver: Unpropped";
 
           let rec process_atoms l geqs eqs ineqs lat_members lat_nonmembers =
             match l with
