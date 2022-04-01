@@ -639,8 +639,14 @@ module NormalizCone = struct
 
   let integer_hull polyhedron =
     let (cone, bijection) = normaliz_cone_of polyhedron in
+
+    logf ~level:`trace "integer_hull: computed Normliz cone for polyhedron:@[%a@]@;"
+      (pp (PolynomialUtil.PrettyPrint.pp_numeric_dim "x")) polyhedron;
+
     let dehomogenized = Normaliz.dehomogenize cone in
+    logf ~level:`trace "integer_hull: dehomogenized cone, computing integer hull...@;";
     Normaliz.hull dehomogenized;
+    logf ~level:`trace "integer_hull: computed integer hull@;";
     let cut_ineqs = Normaliz.get_int_hull_inequalities dehomogenized in
     let cut_eqns = Normaliz.get_int_hull_equations dehomogenized in
     polyhedron_of (cut_eqns, cut_ineqs, bijection)
