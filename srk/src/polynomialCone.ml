@@ -132,7 +132,8 @@ let find_implied_zero_polynomials polys basis =
       polys
   in
   BatList.iter (fun v -> logf "vector: %a" V.pp v) polys_as_vectors;
-  logf "computing constraint representation of polyhedron";
+  logf "PolynomialCone: computing constraint representation of polyhedron (%d constraints)"
+    (List.length polys_as_vectors);
   let polyhedron = BatEnum.map
       (fun v -> (`Nonneg, v))
       (BatList.enum polys_as_vectors)
@@ -160,6 +161,7 @@ let find_implied_zero_polynomials polys basis =
                              |> BatEnum.map (fun (_, v) -> poly_of_vec v pvutil)
                              |> BatList.of_enum
   in
+  logf "PolynomialCone: computed polyhedron";
   (equality_constraints, geq_zero_constraints)
 
 let make_enclosing_cone basis geq_zero_polys =

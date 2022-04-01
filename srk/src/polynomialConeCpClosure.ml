@@ -288,6 +288,9 @@ let compute_cut transform cone =
     Polyhedron.of_constraints
       (BatList.enum (List.append linear_constraints conic_constraints)) in
 
+  L.logf ~level:`trace
+    "compute_cut: expanded polyhedron@;";
+
   (* 3. Project out the original dimensions *)
   let (y0, ys) =
     let dim_of mono = PolyVectorContext.dim_of (Monomial.singleton mono 1) ctxt in
@@ -302,6 +305,9 @@ let compute_cut transform cone =
       []
       (PolyVectorContext.enum_by_dimension ctxt) in
   let projected = Polyhedron.project original_dimensions expanded_polyhedron in
+
+  L.logf ~level:`trace
+    "compute_cut: projected out original dimensions@;";
 
   (* 4. Substitute y_0 |-> one *)
   let substitute_one v =
@@ -323,7 +329,12 @@ let compute_cut transform cone =
   let polyhedron_to_hull = Polyhedron.of_constraints (BatList.enum substituted_constraints) in
 
   (* 5. Integer hull *)
+  L.logf ~level:`trace
+    "compute_cut: computing integer hull...@;";
+
   let hull = Polyhedron.integer_hull polyhedron_to_hull in
+  L.logf ~level:`trace
+    "compute_cut: computed integer hull@;";
 
   (* 6. Substitute back *)
   let (new_zeroes, new_positives) =
