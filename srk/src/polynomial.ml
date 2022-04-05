@@ -524,7 +524,6 @@ module QQXs = struct
     |> Syntax.mk_add srk
 
   let of_term srk term =
-    logf "term is %a" (Syntax.ArithTerm.pp srk) term;
     let qq_of poly =
       if (degree poly) > 0 then failwith "Cannot convert non-const term to qq (cannot handle modulo involving variables)"
       else coeff Monomial.one poly

@@ -727,16 +727,16 @@ let analyze file =
           | `Unknown ->
             logf ~level:`warn "Z3 inconclusive";
             Report.log_error loc msg;
-end
-else
-  begin
-          match Wedge.is_sat Ctx.context path_condition with
-          | `Sat -> Report.log_error loc msg
-          | `Unsat -> Report.log_safe ()
-          | `Unknown ->
-            logf ~level:`warn "Z3 inconclusive";
-            Report.log_error loc msg
-end);
+          end
+          else
+              begin
+              match Wedge.is_sat Ctx.context path_condition with
+              | `Sat -> Report.log_error loc msg
+              | `Unsat -> Report.log_safe ()
+              | `Unknown ->
+                logf ~level:`warn "Z3 inconclusive";
+                Report.log_error loc msg
+            end);
 
       Report.print_errors ();
       Report.print_safe ();

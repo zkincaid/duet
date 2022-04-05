@@ -28,6 +28,9 @@ let pp pp_dim formatter pc =
 
 let get_ideal (ideal, _) = ideal
 
+(* let pp_dim srk = (fun formatter i -> Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i)) *)
+let make_cone ideal cone_gens = (ideal, cone_gens)
+
 let get_cone_generators (_, cone_generators) = cone_generators
 
 (* Change monomial ordering of a polynomial cone. *)
@@ -165,23 +168,21 @@ let find_implied_zero_polynomials polys basis =
   (equality_constraints, geq_zero_constraints)
 
 let make_enclosing_cone basis geq_zero_polys =
+  (* Assuming that in the arguments geq_zero_polys are reduced w.r.t. basis. *)
   let rec go basis geq_zero_polys =
-    let new_zero_polys, geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
+    let new_zero_polys, new_geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
     if (BatList.length new_zero_polys) = 0 then
       begin
         logf "not getting any new zero polys, done";
-        (* NK: BUG? *)
-        (* let reduced = BatList.map (Rewrite.reduce basis) geq_zero_polys in *)
-        (* logf "enclosing cone: %a" pp pc; *)
         (basis, geq_zero_polys)
       end
     else
       let new_basis = BatList.fold_left
           (fun ideal zero_poly -> Rewrite.add_saturate ideal zero_poly)
           basis
-          new_zero_polys
+          new_geq_zero_polys
       in
-      let reduced_geq_polys = BatList.map (Rewrite.reduce new_basis) geq_zero_polys in
+      let reduced_geq_polys = BatList.map (Rewrite.reduce new_basis) new_geq_zero_polys in
       go new_basis reduced_geq_polys
   in
   let r = BatList.map (Rewrite.reduce basis) (QQXs.one :: geq_zero_polys) in
@@ -280,7 +281,6 @@ let intersection (i1, c1) (i2, c2) =
            (i1_gen @ i2_gen @ c1 @ c2))
   in
   logf "fresh var has dim: %d" fresh_var;
-  Log.errorf "fresh var is: %a" pp_dim fresh_var;
   let i1' = List.map (QQXs.mul (QQXs.of_dim fresh_var)) i1_gen in
   let c1' = List.map (QQXs.mul (QQXs.of_dim fresh_var)) c1 in
   let i2' = List.map (QQXs.mul (QQXs.sub (QQXs.scalar QQ.one) (QQXs.of_dim fresh_var))) i2_gen in
