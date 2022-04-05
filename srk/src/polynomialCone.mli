@@ -27,6 +27,8 @@ val change_monomial_ordering: t ->
 (** A polynomial cone that corresponds to the empty set of polynomials. *)
 val trivial : t
 
+val make_cone : Polynomial.Rewrite.t -> QQXs.t BatList.t -> t
+
 (** Compute the maximal polynomial cone that contains a given ideal and a given set of nonnegative polynomials. *)
 val make_enclosing_cone : Polynomial.Rewrite.t -> QQXs.t BatList.t -> t
 

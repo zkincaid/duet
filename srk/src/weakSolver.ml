@@ -28,6 +28,8 @@ let rec get_quantifiers srk env phi =
     ((qt,k)::qf_pre, psi)
   | _ -> ([], substitute srk (fun (i, _) -> mk_const srk (Env.find env i)) phi)
 
+(* TODO: implement an incremental solver, that retains a solver object and nonlinear map.
+The current get_model just takes in a solver object which contains phi and nonlinear map. *)
 (* Get a weak theory model for a formula. Also serves as an SMT solver for weak theory. *)
 let get_model srk phi =
 Z3.set_global_param "model.completion" "true";
@@ -46,7 +48,7 @@ Z3.set_global_param "model.completion" "true";
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
   in
-    logf "Uninterpreted formula: %a" (Formula.pp srk) uninterp_phi;
+    (* logf "Uninterpreted formula: %a" (Formula.pp srk) uninterp_phi; *)
 let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   let nonlinear_defs =
     Symbol.Map.enum nonlinear
@@ -80,7 +82,7 @@ let (lin_phi, nonlinear) = SrkSimplify.purify srk uninterp_phi in
   (* TODO: adding lemmas. Using preduce in Groebner basis to get a subset of atoms whose conjunction is unsat. *)
   let rec go () =
 
-    logf "solver is: %s ===" (Smt.Solver.to_string solver);
+    (* logf "solver is: %s ===" (Smt.Solver.to_string solver); *)
     match Smt.Solver.get_model solver with
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
@@ -153,6 +155,9 @@ let is_sat srk phi =
   | `Unsat -> `Unsat
   | `Unknown -> `Unknown
 
+(* projecting down to only linear consequences distributes through intersection, so could
+   do project first then compute intersection, which could be cheaper *)
+
 (* Finding all equations and inequalities implied by a formula according to the weak theory. *)
 let find_consequences srk phi =
   let phi = eliminate_ite srk phi in
@@ -177,7 +182,7 @@ let find_consequences srk phi =
             poly_cone
             (fun i -> let s = Syntax.symbol_of_int i in not (BatSet.mem s existential_vars))
         in
-        (* logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc; *)
+        logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc;
         let new_pc = PolynomialCone.intersection current_pc projected_pc in
         logf "intersection: %a" (PolynomialCone.pp (pp_dim srk)) new_pc;
         let term_of_dim dim = mk_const srk (symbol_of_int dim) in
@@ -187,6 +192,90 @@ let find_consequences srk phi =
         go new_pc augmented_formula
       end
     | `Unsat -> logf "Found consequence: %a" (PolynomialCone.pp (pp_dim srk)) current_pc; current_pc
+    | `Unknown -> failwith "Cannot find a model for the current formula"
+  in
+  go pc phi
+
+let filter_polys_linear_in_dims dims polys =
+  let polys_linear_in_dx = BatList.filter_map
+      (fun poly -> let lin, higher = Polynomial.QQXs.split_linear poly in
+        let higher_contains_dx =
+          BatEnum.exists
+            (fun (_, mono) ->
+               BatEnum.exists
+                 (fun (dim, _) ->
+                    if BatSet.Int.mem dim dims then
+                      true
+                    else false
+                 )
+                 (Polynomial.Monomial.enum mono)
+            )
+            (Polynomial.QQXs.enum higher)
+        in
+        if higher_contains_dx then None else Some (lin, higher)
+      )
+      polys
+  in
+  BatList.filter_map (fun (lin, higher) ->
+      let linterm_of_only_dx_enum = BatEnum.filter_map (fun (coeff, dim) ->
+          if BatSet.Int.mem dim dims then Some (coeff, dim) else None
+        )
+          (V.enum lin)
+      in
+      let linterm_of_only_dx = V.of_enum linterm_of_only_dx_enum in
+      let p = Polynomial.QQXs.of_vec linterm_of_only_dx in
+      let other_linterm = V.sub lin linterm_of_only_dx in
+      let other_poly = Polynomial.QQXs.of_vec other_linterm in
+      if V.is_zero linterm_of_only_dx then None else Some (P.add p (P.add other_poly higher))
+    )
+    polys_linear_in_dx
+
+let project_down_to_linear pc lin_dims =
+  let ideal = PolynomialCone.get_ideal pc in
+  let ideal_gen = Polynomial.Rewrite.generators ideal in
+  let lin_ideal = filter_polys_linear_in_dims lin_dims ideal_gen in
+  (* let cone_gen = PolynomialCone.get_cone_generators pc in *)
+  (* let lin_cone = filter_polys_linear_in_dims lin_dims cone_gen in *)
+  let lin_cone = [] in
+  let new_ideal = Polynomial.Rewrite.mk_rewrite (Polynomial.Rewrite.get_monomial_ordering ideal) lin_ideal in
+  PolynomialCone.make_enclosing_cone new_ideal lin_cone
+
+let find_linear_consequences srk phi lin_dims =
+  let phi = eliminate_ite srk phi in
+  let phi = SrkSimplify.simplify_terms srk phi in
+  let quantifiers, phi = get_quantifiers srk Env.empty phi in
+  logf "Finding consequences for formula: %a" (Formula.pp srk) phi;
+  assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false) quantifiers = true);
+  let existential_vars = BatSet.of_list
+      (BatList.filter_map
+         (fun quant -> match quant with `Exists, x -> logf "exists %a" (Syntax.pp_symbol srk) x; Some x | _ -> None)
+         quantifiers)
+  in
+  let pc = PolynomialCone.trivial in
+  let rec go current_pc formula =
+    (* logf "current formula: %a" (Formula.pp srk) formula; *)
+    logf "getting model in find conseq";
+    match get_model srk formula with
+      `Sat (_, poly_cone) ->
+      begin
+        logf "got model poly cone: %a" (PolynomialCone.pp (pp_dim srk)) poly_cone;
+        let projected_pc = PolynomialCone.project
+            poly_cone
+            (fun i -> let s = Syntax.symbol_of_int i in not (BatSet.mem s existential_vars))
+        in
+        logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc;
+        let projected_pc = project_down_to_linear projected_pc lin_dims in
+        let new_pc = PolynomialCone.intersection current_pc projected_pc in
+        let new_pc = project_down_to_linear new_pc lin_dims in
+        logf "intersection: %a" (PolynomialCone.pp (pp_dim srk)) new_pc;
+        let term_of_dim dim = mk_const srk (symbol_of_int dim) in
+        let blocking_clause = PolynomialCone.to_formula srk term_of_dim new_pc |> mk_not srk in
+        (* logf "adding blocking clause: %a" (Formula.pp srk) blocking_clause; *)
+        let augmented_formula = mk_and srk [formula; blocking_clause] in
+        go new_pc augmented_formula
+      end
+    | `Unsat ->
+      logf "Found consequence: %a" (PolynomialCone.pp (pp_dim srk)) current_pc; current_pc
     | `Unknown -> failwith "Cannot find a model for the current formula"
   in
   go pc phi
