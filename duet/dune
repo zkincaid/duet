@@ -5,7 +5,7 @@
 
 (rule
   (target link_flags.sexp)
-  (action (write-file link_flags.sexp %{ocaml-config:system}))
+  (action (write-file link_flags.sexp "()"))
   (enabled_if (<> %{ocaml-config:system} macosx)))
 
 (executable
