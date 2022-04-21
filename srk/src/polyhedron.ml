@@ -82,8 +82,8 @@ let of_formula ?(admit=false) cs phi =
     | `Atom (`Arith (`Lt, x, y)) ->
       P.singleton (`Pos, V.sub (linearize y) (linearize x))
     | `Or _ | `Not _ | `Quantify (_, _, _, _) | `Proposition _
-    | `Ite (_, _, _) | `Atom (`ArrEq _) ->
-      invalid_arg "Polyhedron.of_formula"
+      | `Ite (_, _, _) | `Atom (`ArrEq _)
+      | `Atom (`IsInt _) -> invalid_arg "Polyhedron.of_formula"
   in
   Formula.eval (CS.get_context cs) alg phi
 
@@ -554,3 +554,104 @@ let of_generators dim generators =
   in
   Abstract0.add_ray_array man polytope (BatArray.of_list rays)
   |> of_apron0 man
+
+
+module NormalizCone = struct
+
+  open Normalizffi
+
+  (* TOOD: Repeated code, copied from intLattice.ml *)
+  type dim_idx_bijection = { dim_to_idx : int SrkUtil.Int.Map.t
+                           ; idx_to_dim : int SrkUtil.Int.Map.t
+                           }
+
+  (* Return a bijection between dimensions and (array) indices,
+     and the cardinality of dimensions.
+   *)
+  let assign_indices dimensions =
+    SrkUtil.Int.Set.fold (fun dim (bij, curr) ->
+        ({ dim_to_idx = SrkUtil.Int.Map.add dim curr bij.dim_to_idx
+         ; idx_to_dim = SrkUtil.Int.Map.add curr dim bij.idx_to_dim
+         },
+         curr + 1)
+      )
+      dimensions
+      ({ dim_to_idx = SrkUtil.Int.Map.empty
+       ; idx_to_dim = SrkUtil.Int.Map.empty },
+       0)
+
+  let normaliz_cone_of polyhedron =
+    let module S = SrkUtil.Int.Set in
+    let (equalities, inequalities, dimensions) =
+      BatEnum.fold
+        (fun (equalities, inequalities, dims) (kind, v) ->
+          let (new_dims, lcm_denom) =
+            BatEnum.fold (fun (dims, lcm) (coeff, dim) ->
+                (S.add dim dims, ZZ.lcm lcm (QQ.denominator coeff)))
+              (* 1 >= 0 is explicitly added *)
+              (dims, ZZ.one) (Linear.QQVector.enum v) in
+          match kind with
+          | `Zero -> ((lcm_denom, v) :: equalities, inequalities, new_dims)
+          | `Nonneg -> (equalities, (lcm_denom, v) :: inequalities, new_dims)
+          | `Pos -> invalid_arg "normaliz_cone_of: open faces not supported yet")
+        ( []
+        , [(ZZ.one, Linear.const_linterm (QQ.of_int 1))]
+        , S.add Linear.const_dim S.empty)
+        (enum_constraints polyhedron)
+    in
+    let (bij, cardinality) = assign_indices dimensions in
+    (* The constant dimension must be present and be the first coordinate *)
+    assert (SrkUtil.Int.Map.find Linear.const_dim bij.dim_to_idx = 0);
+    let densify_and_scale (lcm, vector) =
+      let lookup i = SrkUtil.Int.Map.find i bij.dim_to_idx in
+      BatEnum.fold (fun arr (coeff, dim) ->
+          let rescaled = QQ.mul (QQ.of_zz lcm) coeff in
+          assert (ZZ.equal (QQ.denominator rescaled) ZZ.one);
+          Array.set arr (lookup dim) (QQ.numerator rescaled);
+          arr)
+        (Array.make cardinality ZZ.zero)
+        (Linear.QQVector.enum vector) in
+    let to_zz_list lcm_v = densify_and_scale lcm_v |> Array.to_list in
+    let cone =
+      let c1 = Normaliz.add_equalities Normaliz.empty_cone
+                 (List.map to_zz_list equalities) in
+      let c2 = Normaliz.add_inequalities (Result.get_ok c1)
+                 (List.map to_zz_list inequalities) in
+      Result.get_ok c2
+      |> Normaliz.new_cone
+    in
+    (cone, bij)
+
+  let polyhedron_of (equalities, inequalities, bijection) =
+    let lookup_sparsify i = SrkUtil.Int.Map.find i bijection.idx_to_dim in
+    let sparsify l =
+      let v, _ = List.fold_left (fun (v, idx) coeff ->
+                     (Linear.QQVector.add_term (QQ.of_zz coeff) (lookup_sparsify idx) v, idx + 1))
+                   (Linear.QQVector.zero, 0)
+                   l
+      in v
+    in
+    let to_constraint kind v = (kind, sparsify v) in
+    let equalities = List.map (to_constraint `Zero) equalities in
+    let inequalities = List.map (to_constraint `Nonneg) inequalities in
+    BatList.enum (List.append equalities inequalities)
+    |> of_constraints
+
+  let integer_hull polyhedron =
+    let (cone, bijection) = normaliz_cone_of polyhedron in
+
+    logf ~level:`trace "integer_hull: computed Normliz cone for polyhedron:@[%a@]@;"
+      (pp (PolynomialUtil.PrettyPrint.pp_numeric_dim "x")) polyhedron;
+
+    let dehomogenized = Normaliz.dehomogenize cone in
+    logf ~level:`trace "integer_hull: dehomogenized cone, computing integer hull...@;";
+    Normaliz.hull dehomogenized;
+    logf ~level:`trace "integer_hull: computed integer hull@;";
+    let cut_ineqs = Normaliz.get_int_hull_inequalities dehomogenized in
+    let cut_eqns = Normaliz.get_int_hull_equations dehomogenized in
+    polyhedron_of (cut_eqns, cut_ineqs, bijection)
+
+end
+
+let integer_hull = NormalizCone.integer_hull
+

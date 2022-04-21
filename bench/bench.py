@@ -62,6 +62,8 @@ def run():
                 subprocess.call(["benchexec",
                                  "-W", str(timeout),
                                  "-t", suite,
+                                 "--read-only-dir", "/",
+                                 "--overlay-dir", "/home",
                                  "benchmark-defs/%s.xml" % tool],
                                 env=my_env)
 
