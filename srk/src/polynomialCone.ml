@@ -135,7 +135,8 @@ let find_implied_zero_polynomials polys basis =
       polys
   in
   BatList.iter (fun v -> logf "vector: %a" V.pp v) polys_as_vectors;
-  logf "computing constraint representation of polyhedron";
+  logf "PolynomialCone: computing constraint representation of polyhedron (%d constraints)"
+    (List.length polys_as_vectors);
   let polyhedron = BatEnum.map
       (fun v -> (`Nonneg, v))
       (BatList.enum polys_as_vectors)
@@ -163,6 +164,7 @@ let find_implied_zero_polynomials polys basis =
                              |> BatEnum.map (fun (_, v) -> poly_of_vec v pvutil)
                              |> BatList.of_enum
   in
+  logf "PolynomialCone: computed polyhedron";
   (equality_constraints, geq_zero_constraints)
 
 let make_enclosing_cone basis geq_zero_polys =
@@ -310,16 +312,39 @@ let intersection (i1, c1) (i2, c2) =
   (* Log.errorf "returning"; *)
   (ideal2, cone)
 
+(*
 let equal (i1, c1) (i2, c2) =
   Rewrite.equal i1 i2
   && (let rewritten_c2 = List.map (Rewrite.reduce i1) c2 in
       try
         let pvutil = pvutil_of_polys rewritten_c2 in
         (
-      Polyhedron.equal
-        (polyhedron_of_cone c1 pvutil)
-        (polyhedron_of_cone rewritten_c2 pvutil))
-    with Not_found -> false)
+          Polyhedron.equal
+            (polyhedron_of_cone c1 pvutil)
+            (polyhedron_of_cone rewritten_c2 pvutil))
+      with Not_found -> false)
+ *)
+
+let equal (i1, c1) (i2, c2) =
+  Rewrite.equal i1 i2
+  && (
+    let rewritten_c1 = List.map (Rewrite.reduce i2) c1 in
+    let rewritten_c2 = List.map (Rewrite.reduce i1) c2 in
+    let monos = List.map (fun p -> BatEnum.fold (fun l (_scalar, mono) -> mono :: l)
+                                     []
+                                     (Polynomial.QQXs.enum p))
+                  (rewritten_c1 @ rewritten_c2)
+                |> List.concat in
+    let context = PolynomialUtil.PolyVectorContext.context Polynomial.Monomial.degrevlex
+                    monos in
+    let to_vectors polys =
+      List.map (fun poly ->
+          (`Nonneg, PolynomialUtil.PolyVectorConversion.poly_to_vector context poly))
+        polys
+      |> BatList.enum in
+    let c1_vectors = to_vectors rewritten_c1 in
+    let c2_vectors = to_vectors rewritten_c2 in
+    Polyhedron.equal (Polyhedron.of_constraints c1_vectors) (Polyhedron.of_constraints c2_vectors))
 
 let to_formula srk term_of_dim (ideal, cone_generators) =
   let open Syntax in

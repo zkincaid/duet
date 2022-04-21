@@ -89,6 +89,11 @@ val dual_cone : int -> t -> t
    linear (rather than affine) halfspaces. *)
 val conical_hull : t -> t
 
+(** [integer_hull p] computes the convex hull of the integer points contained
+    in p.
+ *)
+val integer_hull : t -> t
+
 (** Test whether two polyhedra are equal (as sets of points in
    QQ^omega). *)
 val equal : t -> t -> bool

@@ -159,7 +159,9 @@ let ensure_symbols srk =
      ("imul", `TyFun ([`TyReal; `TyReal], `TyInt));
      ("imod", `TyFun ([`TyReal; `TyReal], `TyInt));
      ("pow", (`TyFun ([`TyReal; `TyReal], `TyReal)));
-     ("log", (`TyFun ([`TyReal; `TyReal], `TyReal)))]
+     ("log", (`TyFun ([`TyReal; `TyReal], `TyReal)));
+     ("is_int", `TyFun ([`TyReal], `TyBool))
+    ]
 
 let uninterpret_rewriter srk =
   ensure_symbols srk;
@@ -216,7 +218,6 @@ let uninterpret_rewriter srk =
           mk_mul srk [coeff_term; product]
       in
       (term :> ('a,typ_fo) expr)
-
     | _ -> expr
 
 let interpret_rewriter srk =
@@ -229,17 +230,17 @@ let interpret_rewriter srk =
   let to_term expr =
     match Expr.refine srk expr with
     | `ArithTerm t -> t
-    | `ArrTerm _ 
+    | `ArrTerm _
     | `Formula _ -> assert false
   in
   fun expr ->
     match destruct srk expr with
     | `App (func, [x; y]) when func = mul || func = imul ->
-      (mk_mul srk [to_term x; to_term y] :> ('a,typ_fo) expr)
+       (mk_mul srk [to_term x; to_term y] :> ('a,typ_fo) expr)
     | `App (func, [x]) when func = inv ->
-      (mk_div srk (mk_real srk QQ.one) (to_term x) :> ('a,typ_fo) expr)
+       (mk_div srk (mk_real srk QQ.one) (to_term x) :> ('a,typ_fo) expr)
     | `App (func, [x; y]) when func = modulo || func = imodulo ->
-      (mk_mod srk (to_term x) (to_term y) :> ('a,typ_fo) expr)
+       (mk_mod srk (to_term x) (to_term y) :> ('a,typ_fo) expr)
     | _ -> expr
 
 let interpret srk expr =
@@ -247,6 +248,94 @@ let interpret srk expr =
 
 let uninterpret srk expr =
   rewrite srk ~up:(uninterpret_rewriter srk) expr
+
+let eliminate_term srk filter ?(label=fun _ -> "") gen_equiv (qf_phi : 'a formula) =
+  let (phi', map) =
+    SrkSimplify.purify_expr srk filter ~label qf_phi
+  in
+  let equivalences =
+    Symbol.Map.fold
+      (fun sym expr equivalences -> gen_equiv sym expr @ equivalences)
+      map []
+  in
+  mk_and srk (phi' :: equivalences)
+
+let eliminate_floor_mod_div srk phi =
+  let filter expr =
+    match destruct srk expr with
+    | `Unop (`Floor, _t) -> true
+    | `Binop (`Mod, _s, _t) -> true
+    | `Binop (`Div, _s, _t) -> true
+    | _ -> false in
+  let label expr =
+    match destruct srk expr with
+    | `Unop (`Floor, _t) -> "floor"
+    | `Binop (`Mod, _s, _t) -> "remainder"
+    | `Binop (`Div, _s, _t) -> "quotient"
+    | _ -> ""
+  in
+  let gen_equiv sym expr =
+    let constraints_for_rem r t integral =
+      (* 0 <= r < |t| <=> 0 <= r /\ (r < t \/ r < -t) *)
+      let r_nonneg = mk_leq srk (mk_int srk 0) r in
+      let t_bound =
+        if integral then
+          mk_or srk [ mk_leq srk r (mk_add srk [t; mk_int srk (-1)])
+                    ; mk_leq srk r (mk_add srk [mk_neg srk t ; mk_int srk (-1)])]
+        else
+          mk_or srk [ mk_lt srk r t
+                    ; mk_lt srk r (mk_neg srk t)]
+      in
+      [r_nonneg ; t_bound]
+    in
+    begin
+      match destruct srk expr with
+      | `Unop (`Floor, t) ->
+         (* floor(t) --> [s = floor(t)] ; s : Int, s* : Real ; t = s + s* /\ 0 <= s* < 1 *)
+         let fractional_part = mk_symbol srk ~name:"fraction" `TyReal
+                               |> mk_const srk in
+         let integer_part = mk_const srk sym in
+         let sum = mk_add srk [integer_part ; fractional_part] in
+         let lower_bound = mk_leq srk (mk_real srk QQ.zero) fractional_part in
+         let upper_bound = mk_lt srk fractional_part (mk_real srk QQ.one) in
+         [mk_eq srk t sum; lower_bound; upper_bound]
+      | `Binop (`Mod, s, t) ->
+         let quotient = mk_symbol srk ~name:"quotient" `TyInt
+                        |> mk_const srk in
+         let rem = mk_const srk sym in
+         let sum = mk_add srk [mk_mul srk [quotient ; t] ; rem] in
+         let integral = (expr_typ srk s = `TyInt) && (expr_typ srk t = `TyInt) in
+         [mk_or srk
+            [ mk_eq srk t (mk_int srk 0) (* t = 0 *)
+            (* or s = qt + r and 0 <= r < |t| *)
+            ; mk_and srk (mk_eq srk s sum :: (constraints_for_rem rem t integral))
+            ]
+         ]
+      | `Binop (`Div, s, t) ->
+         begin match expr_typ srk s, expr_typ srk t with
+         | `TyInt, `TyReal
+           | `TyReal, `TyInt
+           | `TyReal, `TyReal ->
+            [mk_or srk
+               [ mk_eq srk t (mk_int srk 0)
+               ; mk_eq srk s (mk_mul srk [mk_const srk sym ; t])]]
+         | `TyInt, `TyInt ->
+            let rem = mk_symbol srk ~name:"remainder" `TyInt
+                      |> mk_const srk in
+            let quotient = mk_const srk sym in
+            let sum = mk_add srk [mk_mul srk [quotient ; t] ; rem] in
+            [mk_or srk
+               [ mk_eq srk t (mk_int srk 0) (* t = 0 *)
+               (* or s = qt + r and 0 <= r < |t| *)
+               ; mk_and srk ( mk_eq srk s sum :: (constraints_for_rem rem t true) )
+               ]
+            ]
+         | _, _ -> invalid_arg "nonlinear: impossible case"
+         end
+      | _ -> []
+    end
+  in
+  eliminate_term srk filter ~label gen_equiv phi
 
 let linearize srk phi =
   let uninterp_phi = uninterpret srk phi in
@@ -397,7 +486,7 @@ let linearize srk phi =
     | `Unknown ->
       logf ~level:`warn "linearize: optimization failed";
       lin_phi
-  end
+    end
 
 let mk_log srk base x =
   let pow = get_named_symbol srk "pow" in
