@@ -10,7 +10,7 @@
 
 (library
   (public_name srk)
-  (modules (:standard \ bigtop scratch))
+  (modules (:standard \ bigtop))
   (modes native)
   (libraries
     batteries
@@ -39,8 +39,3 @@
 
 (menhir
   (modules srkParse srkSmtlib2Parse))
-
-(executable
-  (name scratch)
-  (modules scratch)
-  (libraries srk oUnit))
