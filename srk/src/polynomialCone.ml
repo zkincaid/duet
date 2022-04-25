@@ -134,9 +134,6 @@ let find_implied_zero_polynomials polys basis =
       (fun p -> vec_of_poly p pvutil)
       polys
   in
-  BatList.iter (fun v -> logf "vector: %a" V.pp v) polys_as_vectors;
-  logf "PolynomialCone: computing constraint representation of polyhedron (%d constraints)"
-    (List.length polys_as_vectors);
   let polyhedron = BatEnum.map
       (fun v -> (`Nonneg, v))
       (BatList.enum polys_as_vectors)
@@ -164,7 +161,6 @@ let find_implied_zero_polynomials polys basis =
                              |> BatEnum.map (fun (_, v) -> poly_of_vec v pvutil)
                              |> BatList.of_enum
   in
-  logf "PolynomialCone: computed polyhedron";
   (equality_constraints, geq_zero_constraints)
 
 let make_enclosing_cone basis geq_zero_polys =
@@ -173,14 +169,14 @@ let make_enclosing_cone basis geq_zero_polys =
     let new_zero_polys, new_geq_zero_polys = find_implied_zero_polynomials geq_zero_polys basis in
     if (BatList.length new_zero_polys) = 0 then
       begin
-        logf "not getting any new zero polys, done";
+        (* Log.errorf "not getting any new zero polys, done"; *)
         (basis, geq_zero_polys)
       end
     else
       let new_basis = BatList.fold_left
           (fun ideal zero_poly -> Rewrite.add_saturate ideal zero_poly)
           basis
-          new_geq_zero_polys
+          new_zero_polys
       in
       let reduced_geq_polys = BatList.map (Rewrite.reduce new_basis) new_geq_zero_polys in
       go new_basis reduced_geq_polys
