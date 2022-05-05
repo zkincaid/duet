@@ -17,6 +17,7 @@ module PrettyPrint : sig
 
 end
 
+(* module MonomialMap = BatMap.Make(Monomial) *)
 
 (** A polynomial-vector context is a bijective map between a set of monomials
     and the dimensions of the vector space spanned by that set of monomials.
@@ -24,6 +25,8 @@ end
 module PolyVectorContext : sig
 
   type t
+
+  module MonomialMap : BatMap.S
 
   (** Raised when a monomial-dimension association cannot be found *)
   exception Not_in_context
@@ -34,8 +37,16 @@ module PolyVectorContext : sig
       if [increasing] is false. Monomials in the list do not have to be unique.
   *)
   val context: ?increasing:bool
+    -> ?fix_const_dim:bool
     -> (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
     -> Monomial.t list -> t
+
+  val mk_context: ?increasing:bool
+    -> ?fix_const_dim:bool
+    -> (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
+    -> QQXs.t list -> t
+
+  val get_mono_map: t -> int MonomialMap.t
 
   val dim_of : Monomial.t -> t -> Monomial.dim
 
@@ -50,6 +61,8 @@ module PolyVectorContext : sig
 
   val enum_by_monomial : t -> (Monomial.t * Monomial.dim) BatEnum.t
 
+  val context_expand: t -> ?increasing:bool -> QQXs.t -> t
+
   val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
   (*
@@ -59,7 +72,7 @@ module PolyVectorContext : sig
     -> t
   *)
 
-end
+end with module MonomialMap = BatMap.Make(Monomial)
 
 module PolyVectorConversion : sig
 

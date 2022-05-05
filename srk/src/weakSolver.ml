@@ -39,7 +39,8 @@ let get_model srk phi =
   let quantifiers, phi = get_quantifiers srk Env.empty phi in
 
   logf "getting model for formula: %a" (Formula.pp srk) phi;
-  let phi = Nonlinear.eliminate_floor_mod_div srk phi |> SrkSimplify.simplify_terms srk in
+  let phi, new_symbols = Nonlinear.eliminate_floor_mod_div srk phi in
+  let phi = SrkSimplify.simplify_terms srk phi in
   logf "weakSolver: eliminated floor, mod, div: %a" (Formula.pp srk) phi;
 
   assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false)
@@ -107,8 +108,8 @@ let get_model srk phi =
   let rec go () =
     logf ~level:`trace "weakSolver: solver is: %s ===" (Smt.Solver.to_string solver);
     match Smt.Solver.get_model solver with
-    | `Unsat -> `Unsat
-    | `Unknown -> `Unknown
+    | `Unsat -> `Unsat, new_symbols
+    | `Unknown -> `Unknown, new_symbols
     | `Sat model ->
        logf ~level:`trace "weakSolver: successfully getting model";
     (* match Interpretation.select_implicant model lin_phi with *)
@@ -219,16 +220,16 @@ let get_model srk phi =
                && not contradict_inequations && not contradict_int then
               let () = logf "weakSolver: Got a model represented as polynomial cone: %a"
                          (PolynomialCone.pp (pp_dim srk)) cut_pc in
-              `Sat (model, cut_pc)
+              `Sat (model, cut_pc), new_symbols
             else continue ()
   in
   go ()
 
 let is_sat srk phi =
   match get_model srk phi with
-    `Sat _ -> `Sat
-  | `Unsat -> `Unsat
-  | `Unknown -> `Unknown
+    `Sat _, _ -> `Sat
+  | `Unsat, _ -> `Unsat
+  | `Unknown, _ -> `Unknown
 
 (* projecting down to only linear consequences distributes through intersection, so could
    do project first then compute intersection, which could be cheaper *)
@@ -250,9 +251,10 @@ let find_consequences srk phi =
     (* logf "current formula: %a" (Formula.pp srk) formula; *)
     logf "getting model in find conseq";
     match get_model srk formula with
-      `Sat (_, poly_cone) ->
+      `Sat (_, poly_cone), new_symbols ->
       begin
         logf "got model poly cone: %a" (PolynomialCone.pp (pp_dim srk)) poly_cone;
+        let existential_vars = BatList.fold (fun s sym -> BatSet.add sym s) existential_vars new_symbols in
         let projected_pc = PolynomialCone.project
             poly_cone
             (fun i -> let s = Syntax.symbol_of_int i in not (BatSet.mem s existential_vars))
@@ -266,8 +268,8 @@ let find_consequences srk phi =
         let augmented_formula = mk_and srk [formula; blocking_clause] in
         go new_pc augmented_formula
       end
-    | `Unsat -> logf "Found consequence: %a" (PolynomialCone.pp (pp_dim srk)) current_pc; current_pc
-    | `Unknown -> failwith "Cannot find a model for the current formula"
+    | `Unsat, _ -> logf "Found consequence: %a" (PolynomialCone.pp (pp_dim srk)) current_pc; current_pc
+    | `Unknown, _ -> failwith "Cannot find a model for the current formula"
   in
   go pc phi
 

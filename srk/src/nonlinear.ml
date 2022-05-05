@@ -253,12 +253,14 @@ let eliminate_term srk filter ?(label=fun _ -> "") gen_equiv (qf_phi : 'a formul
   let (phi', map) =
     SrkSimplify.purify_expr srk filter ~label qf_phi
   in
-  let equivalences =
+  let equivalences, new_symbols =
     Symbol.Map.fold
-      (fun sym expr equivalences -> gen_equiv sym expr @ equivalences)
-      map []
+      (fun sym expr (equivalences, new_symbols) -> let new_eqs, new_syms = gen_equiv sym expr in
+        (new_eqs @ equivalences, new_syms @ new_symbols)
+      )
+      map ([], [])
   in
-  mk_and srk (phi' :: equivalences)
+  (mk_and srk (phi' :: equivalences), new_symbols)
 
 let eliminate_floor_mod_div srk phi =
   let filter expr =
@@ -292,16 +294,16 @@ let eliminate_floor_mod_div srk phi =
       match destruct srk expr with
       | `Unop (`Floor, t) ->
          (* floor(t) --> [s = floor(t)] ; s : Int, s* : Real ; t = s + s* /\ 0 <= s* < 1 *)
-         let fractional_part = mk_symbol srk ~name:"fraction" `TyReal
-                               |> mk_const srk in
+         let new_sym = mk_symbol srk ~name:"fraction" `TyReal in
+         let fractional_part = mk_const srk new_sym in
          let integer_part = mk_const srk sym in
          let sum = mk_add srk [integer_part ; fractional_part] in
          let lower_bound = mk_leq srk (mk_real srk QQ.zero) fractional_part in
          let upper_bound = mk_lt srk fractional_part (mk_real srk QQ.one) in
-         [mk_eq srk t sum; lower_bound; upper_bound]
+         [mk_eq srk t sum; lower_bound; upper_bound], [new_sym]
       | `Binop (`Mod, s, t) ->
-         let quotient = mk_symbol srk ~name:"quotient" `TyInt
-                        |> mk_const srk in
+         let new_sym = mk_symbol srk ~name:"quotient" `TyInt in
+         let quotient = mk_const srk new_sym in
          let rem = mk_const srk sym in
          let sum = mk_add srk [mk_mul srk [quotient ; t] ; rem] in
          let integral = (expr_typ srk s = `TyInt) && (expr_typ srk t = `TyInt) in
@@ -309,7 +311,7 @@ let eliminate_floor_mod_div srk phi =
             [ mk_eq srk t (mk_int srk 0) (* t = 0 *)
             (* or s = qt + r and 0 <= r < |t| *)
             ; mk_and srk (mk_eq srk s sum :: (constraints_for_rem rem t integral))
-            ]
+            ], [new_sym]
          ]
       | `Binop (`Div, s, t) ->
          begin match expr_typ srk s, expr_typ srk t with
@@ -318,10 +320,10 @@ let eliminate_floor_mod_div srk phi =
            | `TyReal, `TyReal ->
             [mk_or srk
                [ mk_eq srk t (mk_int srk 0)
-               ; mk_eq srk s (mk_mul srk [mk_const srk sym ; t])]]
+               ; mk_eq srk s (mk_mul srk [mk_const srk sym ; t])]], []
          | `TyInt, `TyInt ->
-            let rem = mk_symbol srk ~name:"remainder" `TyInt
-                      |> mk_const srk in
+            let new_sym = mk_symbol srk ~name:"remainder" `TyInt in
+            let rem = mk_const srk new_sym in
             let quotient = mk_const srk sym in
             let sum = mk_add srk [mk_mul srk [quotient ; t] ; rem] in
             [mk_or srk
@@ -329,10 +331,10 @@ let eliminate_floor_mod_div srk phi =
                (* or s = qt + r and 0 <= r < |t| *)
                ; mk_and srk ( mk_eq srk s sum :: (constraints_for_rem rem t true) )
                ]
-            ]
+            ], []
          | _, _ -> invalid_arg "nonlinear: impossible case"
          end
-      | _ -> []
+      | _ -> [], []
     end
   in
   eliminate_term srk filter ~label gen_equiv phi
