@@ -47,7 +47,7 @@ module PolyVectorContext = struct
   (*
   let monomials_ordered_by
       ?increasing:(increasing = true)
-      (ord: Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
+       (ord: Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
       (polys : M.t list) =
     let monos_in p = BatEnum.fold (fun l (_scalar, mono) -> mono :: l) [] (M.enum p) in
     let monos = List.fold_left
@@ -64,7 +64,6 @@ module PolyVectorContext = struct
   let get_mono_map ctx = ctx.mono_to_dim
 
   let context ?increasing:(increasing=true)
-      ?fix_const_dim:(fix_const_dim=true)
       (ord: Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
       monos =
     (* let l = monomials_ordered_by ~increasing:increasing ord polys in *)
@@ -83,7 +82,7 @@ module PolyVectorContext = struct
     BatList.fold_lefti
       (fun ctxt idx mono ->
         let idx =
-          if fix_const_dim && Monomial.equal mono Monomial.one then
+          if Monomial.equal mono Monomial.one then
             Linear.const_dim
           else idx
         in
@@ -97,14 +96,13 @@ module PolyVectorContext = struct
       emp l
 
   let mk_context ?increasing:(increasing=true)
-      ?fix_const_dim:(fix_const_dim=true)
       (ord: Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
       polys =
     let monos = BatList.concat_map (fun poly ->
         (BatList.of_enum (QQXs.enum poly) |>
         BatList.map (fun (_, mono) -> mono)))
        polys in
-    context ~increasing ~fix_const_dim ord monos
+    context ~increasing ord monos
 
 
   let monomial_of dim ctxt =
@@ -137,13 +135,6 @@ module PolyVectorContext = struct
 
   let enum_by_monomial ctxt =
     MonomialMap.enum ctxt.mono_to_dim
-
-  let context_expand ctx ?increasing:(increasing=true) poly =
-    let monos_list = BatList.of_enum (enum_by_dimension ctx) |> BatList.map (fun (_, m) -> m) in
-    let new_monos = BatList.of_enum (QQXs.enum poly) |>
-        BatList.map (fun (_, mono) -> mono) in
-    context ~increasing ctx.ordering (monos_list @ new_monos)
-
 
   let string_of_dim_mono dim_pp dim mono =
     let () = Format.fprintf Format.str_formatter

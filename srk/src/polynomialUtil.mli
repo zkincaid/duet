@@ -37,12 +37,10 @@ module PolyVectorContext : sig
       if [increasing] is false. Monomials in the list do not have to be unique.
   *)
   val context: ?increasing:bool
-    -> ?fix_const_dim:bool
     -> (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
     -> Monomial.t list -> t
 
   val mk_context: ?increasing:bool
-    -> ?fix_const_dim:bool
     -> (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
     -> QQXs.t list -> t
 
@@ -60,8 +58,6 @@ module PolyVectorContext : sig
   val enum_by_dimension : t -> (Monomial.dim * Monomial.t) BatEnum.t
 
   val enum_by_monomial : t -> (Monomial.t * Monomial.dim) BatEnum.t
-
-  val context_expand: t -> ?increasing:bool -> QQXs.t -> t
 
   val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
