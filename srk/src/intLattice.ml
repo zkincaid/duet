@@ -1,4 +1,5 @@
 open Normalizffi
+open BatPervasives
 
 module L = Log.Make(struct let name = "srk.intLattice" end)
 
@@ -19,7 +20,7 @@ let pp_zz_matrix =
     (fun fmt entry ->
       Format.pp_print_list
         ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
-        ZZ.pp fmt entry
+        Mpzf.print fmt entry
     )
 
 (** A lattice is represented as a matrix 1/d B,
@@ -46,7 +47,7 @@ let dims_and_lcm_denoms vectors =
   let dims_and_lcm_denoms' v =
     BatEnum.fold (fun (dimensions, lcm) (q, dim) ->
         (SrkUtil.Int.Set.add dim dimensions, ZZ.lcm lcm (QQ.denominator q)))
-      (SrkUtil.Int.Set.empty, Mpzf.of_int 1)
+      (SrkUtil.Int.Set.empty, ZZ.of_int 1)
       (Linear.QQVector.enum v)
   in
   List.fold_left
@@ -80,13 +81,13 @@ let densify_and_zzify length dim_to_idx denom_to_clear vector =
             invalid_arg "densify_and_zzify: index out of bounds"
           else
             begin
-              Array.set arr idx (QQ.numerator q);
+              Array.set arr idx (ZZ.mpz_of (QQ.numerator q));
               arr
             end
         end
       else
         invalid_arg "densify_and_zzify: argument supplied does not clear denominator")
-    (Array.make length ZZ.zero)
+    (Array.make length (Mpzf.of_int 0))
     (Linear.QQVector.enum vector)
 
 let sparsify idx_to_dim arr =
@@ -110,7 +111,7 @@ let hermite_normal_form matrix =
   L.logf ~level "hermite_normal_form: testing new matrix@;";
   let (denom, m) =  Flint.zz_denom_matrix_of_rational_matrix mat in
   L.logf ~level "hermite_normal_form: new matrix: @[denom: %a@;matrix: %a@]"
-    ZZ.pp denom
+    Mpzf.print denom
     pp_zz_matrix m;
 
   Flint.hermitize mat;
@@ -136,7 +137,9 @@ let lattice_of ?(ordering=rev_compare) vectors =
                         |> Array.to_list)
                       vectors in
     let hermitized = hermite_normal_form densified in
-    let generators = List.map Array.of_list hermitized in
+    let generators =
+      List.map (fun xs -> Array.of_list (List.map ZZ.of_mpz xs)) hermitized
+    in
     L.logf "lattice_of: input vectors: @[%a@]@;"
       (SrkUtil.pp_print_list Linear.QQVector.pp) vectors;
     L.logf ~level:`trace "lattice_of: densified: @[%a@]@;"
@@ -185,7 +188,10 @@ let _flint_member v t =
   | EmptyLattice -> false
   | Lattice lat ->
      let embedding_dim = Array.length (List.hd lat.dense_rep) in
-     let mat = Flint.new_matrix (List.map Array.to_list lat.dense_rep) in
+     let mat =
+       List.map (fun row -> List.map ZZ.mpz_of (Array.to_list row)) lat.dense_rep
+       |> Flint.new_matrix
+     in
      (* The generators should be linearly independent *)
      let rank = List.length lat.dense_rep in
      let extended_basis = Flint.extend_hnf_to_basis mat in
@@ -216,13 +222,13 @@ let _flint_member v t =
        pp t
        embedding_dim
        rank
-       ZZ.pp transposed_denom
+       Mpzf.print transposed_denom
        pp_zz_matrix transposed_matrix
-       ZZ.pp target_denom
+       Mpzf.print target_denom
        pp_zz_matrix target_vector
        pp_zz_matrix preimage;
-     (List.for_all (ZZ.equal ZZ.zero) suffix)
-     && (List.for_all (fun x -> ZZ.equal (ZZ.modulo x denom) ZZ.zero) prefix)
+     (List.for_all (fun x -> Mpzf.cmp_int x 0 = 0) suffix)
+     && (List.for_all (fun x -> Mpzf.cmp_int (Mpzf.fdiv_r x denom) 0 = 0) prefix)
 
 let member v t =
   match t with

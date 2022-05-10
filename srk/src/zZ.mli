@@ -1,6 +1,6 @@
 (** Unbounded integers *)
 
-type t = Mpzf.t
+type t = Z.t
 
 val pp : Format.formatter -> t -> unit
 val show : t -> string
@@ -28,6 +28,24 @@ val div : t -> t -> t
     [a == (a/b)*b + a%b] and [0 <= a%b < |b|] *)
 val modulo : t -> t -> t
 
+(** Division with remainder, conforming to SMTLIB2.
+    [div_rem a b == (div a b, rem a b)] *)
+val div_rem : t -> t -> (t * t)
+
+(** Divide, rounding towards +oo ([ceil(a/b)]) *)
+val cdiv : t -> t -> t
+
+(** Remainder after division, rounding towards +oo:
+    [crem a b == a - ceil(a/b) * b)] *)
+val crem : t -> t -> t
+
+(** Divide, rounding towards -oo ([floor(a,b)]) *)
+val fdiv : t -> t -> t
+
+(** Remainder after division, rounding towards -oo:
+    [frem a b == a - floor(a/b) * b)] *)
+val frem : t -> t -> t
+
 val gcd : t -> t -> t
 val lcm : t -> t -> t
 
@@ -39,3 +57,6 @@ val of_int : int -> t
 val of_string : string -> t
 
 val to_int : t -> int option
+
+val mpz_of : t -> Mpzf.t
+val of_mpz : Mpzf.t -> t

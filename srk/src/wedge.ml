@@ -21,8 +21,8 @@ include Log.Make(struct let name = "srk.wedge" end)
 
 let qq_of_scalar = function
   | Scalar.Float k -> QQ.of_float k
-  | Scalar.Mpqf k  -> k
-  | Scalar.Mpfrf k -> Mpfrf.to_mpqf k
+  | Scalar.Mpqf k  -> QQ.of_mpq k
+  | Scalar.Mpfrf k -> QQ.of_mpq (Mpfrf.to_mpqf k)
 
 let qq_of_coeff = function
   | Coeff.Scalar s -> Some (qq_of_scalar s)
@@ -32,7 +32,7 @@ let qq_of_coeff_exn = function
   | Coeff.Scalar s -> qq_of_scalar s
   | Coeff.Interval _ -> invalid_arg "qq_of_coeff_exn: argument must be a scalar"
 
-let coeff_of_qq = Coeff.s_of_mpqf
+let coeff_of_qq x = Coeff.s_of_mpqf (QQ.mpq_of x)
 
 let mk_log = Nonlinear.mk_log
 let mk_pow = Nonlinear.mk_pow

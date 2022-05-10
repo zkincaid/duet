@@ -468,7 +468,7 @@ module Skeleton = struct
       begin match QQ.to_zz (evaluate_linterm model vt.term) with
         | None -> assert false
         | Some tv ->
-          ZZ.add (Mpzf.fdiv_q tv vt.divisor) vt.offset
+          ZZ.add (ZZ.fdiv tv vt.divisor) vt.offset
           |> QQ.of_zz
       end
     | MReal t -> evaluate_linterm model t
@@ -492,7 +492,7 @@ module Skeleton = struct
         | Some zz -> zz
       in
       let remainder =
-        Mpzf.fdiv_r term_val vt.divisor
+        ZZ.frem term_val vt.divisor
       in
       let numerator =
         V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
@@ -844,13 +844,13 @@ let select_int_term srk interp x atoms =
 
             let rhs_val = (* [[floor(numerator / a)]] *)
               match QQ.to_zz (eval numerator) with
-              | Some num -> Mpzf.fdiv_q num a
+              | Some num -> ZZ.fdiv num a
               | None -> assert false
             in
             let vt =
               { term = numerator;
                 divisor = a;
-                offset = Mpzf.cdiv_r (ZZ.sub x_val rhs_val) delta }
+                offset = ZZ.crem (ZZ.add x_val rhs_val) delta }
             in
             let vt_val = evaluate_vt vt in
 
@@ -885,14 +885,14 @@ let select_int_term srk interp x atoms =
             in
             let rhs_val = (* [[floor(numerator / a)]] *)
               match QQ.to_zz (eval numerator) with
-              | Some num -> Mpzf.fdiv_q num a
+              | Some num -> ZZ.fdiv num a
               | None -> assert false
             in
 
             let vt =
               { term = numerator;
                 divisor = a;
-                offset = Mpzf.fdiv_r (ZZ.sub x_val rhs_val) delta }
+                offset = ZZ.frem (ZZ.sub x_val rhs_val) delta }
             in
             let vt_val = evaluate_vt vt in
             assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
@@ -928,20 +928,20 @@ let select_int_term srk interp x atoms =
       | Some zz -> zz
       | None -> assert false
     in
-    ZZ.add (Mpzf.fdiv_q tval vt.divisor) vt.offset
+    ZZ.add (ZZ.fdiv tval vt.divisor) vt.offset
   in
   match List.fold_left merge `None (List.map bound_of_atom atoms) with
   | `Lower (vt, _) ->
     logf ~level:`trace "Found lower bound: %a < %a"
       (pp_int_virtual_term srk) vt
       (pp_symbol srk) x;
-    assert (ZZ.equal (Mpzf.fdiv_r x_val delta) (Mpzf.fdiv_r (vt_val vt) delta));
+    assert (ZZ.equal (ZZ.frem x_val delta) (ZZ.frem (vt_val vt) delta));
     vt
   | `Upper (vt, _) ->
     logf ~level:`trace "Found upper bound: %a < %a"
       (pp_symbol srk) x
       (pp_int_virtual_term srk) vt;
-    assert (ZZ.equal (Mpzf.fdiv_r x_val delta) (Mpzf.fdiv_r (vt_val vt) delta));
+    assert (ZZ.equal (ZZ.frem x_val delta) (ZZ.frem (vt_val vt) delta));
     vt
   | `None ->
     (* Value of x is irrelevant *)
@@ -1933,7 +1933,7 @@ let mbp ?(dnf=false) srk exists phi =
                  | Some zz -> zz
                in
                let remainder =
-                 Mpzf.fdiv_r term_val vt.divisor
+                 ZZ.frem term_val vt.divisor
                in
                let numerator =
                  V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term

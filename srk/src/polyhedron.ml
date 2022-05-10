@@ -611,7 +611,11 @@ module NormalizCone = struct
           arr)
         (Array.make cardinality ZZ.zero)
         (Linear.QQVector.enum vector) in
-    let to_zz_list lcm_v = densify_and_scale lcm_v |> Array.to_list in
+    let to_zz_list lcm_v =
+      densify_and_scale lcm_v
+      |> Array.to_list
+      |> List.map ZZ.mpz_of
+    in
     let cone =
       let c1 = Normaliz.add_equalities Normaliz.empty_cone
                  (List.map to_zz_list equalities) in
@@ -647,8 +651,14 @@ module NormalizCone = struct
     logf ~level:`trace "integer_hull: dehomogenized cone, computing integer hull...@;";
     Normaliz.hull dehomogenized;
     logf ~level:`trace "integer_hull: computed integer hull@;";
-    let cut_ineqs = Normaliz.get_int_hull_inequalities dehomogenized in
-    let cut_eqns = Normaliz.get_int_hull_equations dehomogenized in
+    let cut_ineqs =
+      Normaliz.get_int_hull_inequalities dehomogenized
+      |> List.map (List.map ZZ.of_mpz)
+    in
+    let cut_eqns =
+      Normaliz.get_int_hull_equations dehomogenized
+      |> List.map (List.map ZZ.of_mpz)
+    in
     polyhedron_of (cut_eqns, cut_ineqs, bijection)
 
 end

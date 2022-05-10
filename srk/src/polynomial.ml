@@ -129,18 +129,18 @@ module QQX = struct
     let zzx =
       (enum p) /@ (fun (coeff, d) ->
           let (num, den) = QQ.to_zzfrac coeff in
-          (d, Ntl.ZZ.of_mpz (ZZ.div (ZZ.mul num denominator) den)))
+          (d, Ntl.ZZ.of_mpz (ZZ.mpz_of (ZZ.div (ZZ.mul num denominator) den))))
       |> BatList.of_enum
       |> Ntl.ZZX.of_list
     in
     let (c, factors) = Ntl.ZZX.factor zzx in
-    let content = QQ.of_zzfrac (Ntl.ZZ.mpz_of c) denominator in
+    let content = QQ.of_zzfrac (ZZ.of_mpz (Ntl.ZZ.mpz_of c)) denominator in
     let factors =
       List.map (fun (zzx, n) ->
           let qqx =
             BatList.enum (Ntl.ZZX.list_of zzx)
             /@ (fun (degree, coeff) ->
-                (QQ.of_zz (Ntl.ZZ.mpz_of coeff), degree))
+                (QQ.of_zz (ZZ.of_mpz (Ntl.ZZ.mpz_of coeff)), degree))
             |> of_enum
           in
           (qqx, n))

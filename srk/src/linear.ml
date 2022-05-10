@@ -73,7 +73,7 @@ module QQMatrix = struct
         Array.map (fun i ->
             Array.map (fun j ->
                 let (num, den) = QQ.to_zzfrac (entry i j m) in
-                Ntl.ZZ.of_mpz (ZZ.div (ZZ.mul num denominator) den))
+                Ntl.ZZ.of_mpz (ZZ.mpz_of (ZZ.div (ZZ.mul num denominator) den)))
               dim_array)
           dim_array
       in
@@ -82,8 +82,8 @@ module QQMatrix = struct
       factors |> BatList.filter_map (fun (p, m) ->
                      if Ntl.ZZX.degree p == 1 then
                        (* p = ax + b *)
-                       let a = Ntl.ZZ.mpz_of (Ntl.ZZX.get_coeff p 1) in
-                       let b = Ntl.ZZ.mpz_of (Ntl.ZZX.get_coeff p 0) in
+                       let a = ZZ.of_mpz (Ntl.ZZ.mpz_of (Ntl.ZZX.get_coeff p 1)) in
+                       let b = ZZ.of_mpz (Ntl.ZZ.mpz_of (Ntl.ZZX.get_coeff p 0)) in
                        let eigenvalue =
                          QQ.negate (QQ.of_zzfrac b (ZZ.mul a denominator))
                        in
