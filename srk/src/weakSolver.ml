@@ -39,7 +39,8 @@ let get_model srk phi =
   let quantifiers, phi = get_quantifiers srk Env.empty phi in
 
   logf "getting model for formula: %a" (Formula.pp srk) phi;
-  let phi = Nonlinear.eliminate_floor_mod_div srk phi |> SrkSimplify.simplify_terms srk in
+  let phi = Nonlinear.eliminate_floor_mod_div srk phi in
+  let phi = SrkSimplify.simplify_terms srk phi in
   logf "weakSolver: eliminated floor, mod, div: %a" (Formula.pp srk) phi;
 
   assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false)
@@ -234,17 +235,18 @@ let is_sat srk phi =
    do project first then compute intersection, which could be cheaper *)
 
 (* Finding all equations and inequalities implied by a formula according to the weak theory. *)
-let find_consequences srk phi =
-  let phi = eliminate_ite srk phi in
+let find_consequences srk orig_phi =
+  let phi_symbols = Syntax.symbols orig_phi in
+  let phi = eliminate_ite srk orig_phi in
   let phi = SrkSimplify.simplify_terms srk phi in
   let quantifiers, phi = get_quantifiers srk Env.empty phi in
   logf "Finding consequences for formula: %a" (Formula.pp srk) phi;
   assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false) quantifiers = true);
-  let existential_vars = BatSet.of_list
-      (BatList.filter_map
-         (fun quant -> match quant with `Exists, x -> logf "exists %a" (Syntax.pp_symbol srk) x; Some x | _ -> None)
-         quantifiers)
-  in
+  (* let existential_vars = BatSet.of_list *)
+  (*     (BatList.filter_map *)
+  (*        (fun quant -> match quant with `Exists, x -> logf "exists %a" (Syntax.pp_symbol srk) x; Some x | _ -> None) *)
+  (*        quantifiers) *)
+  (* in *)
   let pc = PolynomialCone.trivial in
   let rec go current_pc formula =
     (* logf "current formula: %a" (Formula.pp srk) formula; *)
@@ -253,9 +255,10 @@ let find_consequences srk phi =
       `Sat (_, poly_cone) ->
       begin
         logf "got model poly cone: %a" (PolynomialCone.pp (pp_dim srk)) poly_cone;
+        (* let existential_vars = BatList.fold (fun s sym -> BatSet.add sym s) existential_vars new_symbols in *)
         let projected_pc = PolynomialCone.project
             poly_cone
-            (fun i -> let s = Syntax.symbol_of_int i in not (BatSet.mem s existential_vars))
+            (fun i -> let s =  Syntax.symbol_of_int i in Syntax.Symbol.Set.mem s phi_symbols)
         in
         logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc;
         let new_pc = PolynomialCone.intersection current_pc projected_pc in

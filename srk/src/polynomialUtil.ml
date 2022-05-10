@@ -1,4 +1,7 @@
 open Polynomial
+open BatPervasives
+
+module V = Linear.QQVector
 
 module PrettyPrint = struct
 
@@ -44,7 +47,7 @@ module PolyVectorContext = struct
   (*
   let monomials_ordered_by
       ?increasing:(increasing = true)
-      (ord: Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
+       (ord: Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
       (polys : M.t list) =
     let monos_in p = BatEnum.fold (fun l (_scalar, mono) -> mono :: l) [] (M.enum p) in
     let monos = List.fold_left
@@ -57,6 +60,8 @@ module PolyVectorContext = struct
         monos in
     if increasing then sorted else List.rev sorted
   *)
+
+  let get_mono_map ctx = ctx.mono_to_dim
 
   let context ?increasing:(increasing=true)
       (ord: Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
@@ -89,6 +94,16 @@ module PolyVectorContext = struct
          ; size = ctxt.size + 1
          })
       emp l
+
+  let mk_context ?increasing:(increasing=true)
+      (ord: Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
+      polys =
+    let monos = BatList.concat_map (fun poly ->
+        (BatList.of_enum (QQXs.enum poly) |>
+        BatList.map (fun (_, mono) -> mono)))
+       polys in
+    context ~increasing ord monos
+
 
   let monomial_of dim ctxt =
     try
