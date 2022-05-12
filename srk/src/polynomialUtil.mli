@@ -35,10 +35,7 @@ module PolyVectorContext : sig
       monomial order given, with smallest dimension given to the smallest monomial
       if [increasing] is true, and smallest dimension given to the largest monomial
       if [increasing] is false. Monomials in the list do not have to be unique.
-  *)
-  val context: ?increasing:bool
-    -> (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
-    -> Monomial.t list -> t
+   *)
 
   val mk_context: ?increasing:bool
     -> (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
