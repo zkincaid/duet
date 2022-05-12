@@ -12,6 +12,7 @@ let pp_dim = PrettyPrint.pp_numeric_dim "x"
 let pp_poly_list = PolynomialUtil.PrettyPrint.pp_poly_list
 let pp_vectors pp_elem = SrkUtil.pp_print_list pp_elem
 
+(*
 let monomials_in polys =
   let monomials_in p =
     BatEnum.fold (fun s (_scalar, monomial) -> MonomialSet.add monomial s)
@@ -19,13 +20,10 @@ let monomials_in polys =
   in
   List.fold_left (fun s p -> MonomialSet.union s (monomials_in p))
     MonomialSet.empty polys
-
-(**
-   [context_of monomials] computes conversion context consisting of a
-   bijection between the set of monomials and a set X of dimensions.
  *)
-let context_of ?ordering:(ordering=Monomial.degrevlex) monomials =
-  PolyVectorContext.context ordering monomials
+
+let context_of ?ordering:(ordering=Monomial.degrevlex) polys =
+  PolyVectorContext.mk_context ordering polys
 
 let zzvector_to_qqvector vec =
   BatEnum.fold (fun v (scalar, dim) -> Linear.QQVector.add_term (QQ.of_zz scalar) dim v)
@@ -62,7 +60,7 @@ exception Invalid_lattice
 *)
 let polylattice_spanned_by polys : polylattice =
   let polys = QQXs.one :: polys in
-  let ctxt = monomials_in polys |> MonomialSet.to_list |> context_of in
+  let ctxt = context_of polys in
   let open PolynomialUtil in
   let vectors =
     List.map (PolyVectorConversion.poly_to_vector ctxt) polys in
@@ -262,9 +260,11 @@ let compute_cut transform cone =
      [zeroes] and [positives] are those of the expanded cone corresponding to
      [transform], so the fresh y_i's are already among them.
    *)
-  let ctxt = monomials_in (List.concat [zeroes; positives])
+  let ctxt = context_of (List.concat [zeroes; positives]) in
+    (* monomials_in (List.concat [zeroes; positives])
              |> MonomialSet.to_list
              |> context_of in
+     *)
   L.logf ~level:`trace
     "compute_cut: @[zeroes: @[%a@]@;positives: @[%a@]@]@;"
     (pp_poly_list pp_dim) zeroes
@@ -447,9 +447,7 @@ let regular_cutting_plane_closure polylattice polynomial_cone =
       let (zeroes, positives) =
         ( Rewrite.generators (PolynomialCone.get_ideal polynomial_cone)
         , PolynomialCone.get_cone_generators polynomial_cone) in
-      let ctxt_x = monomials_in (List.concat [zeroes ; positives ; [one]; basis])
-                   |> MonomialSet.to_list
-                   |> context_of in
+      let ctxt_x = context_of (List.concat [zeroes ; positives ; [one]; basis]) in
       let tdata =
         (* Introduce fresh dimensions/variables and associated data *)
         compute_transformation polylattice ctxt_x
