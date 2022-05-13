@@ -192,41 +192,6 @@ let compute_transformation lattice ctxt : transformation_data =
   data
 
 (**
-   [expand_cone polynomial_cone transform] adjoins the rewrite polynomials
-   {y_i - b_i : 0 <= i <= n} from [transform] to the zeros of
-   [polynomial_cone], computes a Groebner basis with X > Y
-   (Y the codomain variables, X the original variables) for the new ideal,
-   and reduces the positives with respect to this basis.
- *)
-(*
-let expand_cone polynomial_cone transform =
-  let elim_order =
-    (* order must have original x > fresh y's and be graded on y's. *)
-    Monomial.block [fun dim -> dim < fst transform.codomain_dims]
-      Monomial.degrevlex (* Reverse lexicographic within each block *)
-  in
-  let generators = PolynomialCone.get_ideal polynomial_cone |> Rewrite.generators in
-  let positives = PolynomialCone.get_cone_generators polynomial_cone in
-  let expanded_ideal =
-    let transform_polys = fst transform.rewrite_polys :: snd transform.rewrite_polys in
-    List.append generators transform_polys
-    |> Rewrite.mk_rewrite elim_order
-  in
-  L.logf ~level:`trace
-    "expand_cone: after adding rewrites:@;  @[zeroes: @[%a@]@;positives: @[%a@]@]@;"
-    (pp_poly_list pp_dim) (Rewrite.generators expanded_ideal)
-    (pp_poly_list pp_dim) positives;
-
-  (* Use PolynomialCone to reduce the positives *)
-  let pc = PolynomialCone.make_enclosing_cone expanded_ideal positives in
-  L.logf ~level:`trace
-    "expand_cone: result: @[zeroes: @[%a@]@;positives: @[%a@]@]@;"
-    (pp_poly_list pp_dim) (Rewrite.generators (PolynomialCone.get_ideal pc))
-    (pp_poly_list pp_dim) (PolynomialCone.get_cone_generators pc);
-  pc
- *)
-
-(**
    [compute_cut T C] computes [cl_{ZZ B}(C \cap QQ B)], where
    B = T.substitutions(T.codomain_dims) = { b_0 = 1, b_1, ..., b_n } is the
    basis for the lattice.
