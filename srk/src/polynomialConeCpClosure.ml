@@ -198,6 +198,7 @@ let compute_transformation lattice ctxt : transformation_data =
    (Y the codomain variables, X the original variables) for the new ideal,
    and reduces the positives with respect to this basis.
  *)
+(*
 let expand_cone polynomial_cone transform =
   let elim_order =
     (* order must have original x > fresh y's and be graded on y's. *)
@@ -223,6 +224,7 @@ let expand_cone polynomial_cone transform =
     (pp_poly_list pp_dim) (Rewrite.generators (PolynomialCone.get_ideal pc))
     (pp_poly_list pp_dim) (PolynomialCone.get_cone_generators pc);
   pc
+ *)
 
 (**
    [compute_cut T C] computes [cl_{ZZ B}(C \cap QQ B)], where
@@ -249,86 +251,56 @@ let expand_cone polynomial_cone transform =
    - Convert back to polynomials and do the substitution y_i |-> b_i.
  *)
 let compute_cut transform cone =
-  (* 1. Expand the cone *)
-  let expanded = expand_cone cone transform in
+  (* 1. Expand the polynomial cone and project it onto QQ Y. *)
+  let transform_polys = fst transform.rewrite_polys :: snd transform.rewrite_polys in
+  let expanded = PolynomialCone.add_polys_to_cone cone transform_polys [] in
+  let codim_one = fst transform.codomain_dims in
+  let projected = PolynomialCone.project expanded (fun x ->
+                      let codims = codim_one :: snd transform.codomain_dims in
+                      List.mem x codims) in
+
+  (* 2. Substitute y0 |-> 1 *)
   let (zeroes, positives) =
-    ( PolynomialCone.get_ideal expanded |> Rewrite.generators
-    , PolynomialCone.get_cone_generators expanded)
+    ( Rewrite.generators (PolynomialCone.get_ideal projected)
+    , PolynomialCone.get_cone_generators projected) in
+
+  let substitute_one i =
+    if i = codim_one then QQXs.one else QQXs.of_dim i
   in
+  let (substituted_zeroes, substituted_positives) =
+    let sub = QQXs.substitute substitute_one in
+    (List.map sub zeroes, List.map sub positives) in
+
+  (* 3. Convert to polyhedron *)
   let open PolynomialUtil in
   (* Conversion context to polyhedron.
      [zeroes] and [positives] are those of the expanded cone corresponding to
      [transform], so the fresh y_i's are already among them.
    *)
-  let ctxt = context_of (List.concat [zeroes; positives]) in
-    (* monomials_in (List.concat [zeroes; positives])
-             |> MonomialSet.to_list
-             |> context_of in
-     *)
+  let ctxt = context_of (List.concat [substituted_zeroes; substituted_positives])
+  in
+
   L.logf ~level:`trace
     "compute_cut: @[zeroes: @[%a@]@;positives: @[%a@]@]@;"
-    (pp_poly_list pp_dim) zeroes
-    (pp_poly_list pp_dim) positives;
+    (pp_poly_list pp_dim) substituted_zeroes
+    (pp_poly_list pp_dim) substituted_positives;
 
   L.logf ~level:`trace
     "compute_cut: context is: @[%a@]@;"
     (PolyVectorContext.pp pp_dim)
     ctxt;
 
-  (* 2. Convert to polyhedron *)
-  let linear_constraints =
-    List.map (fun poly ->
-        PolyVectorConversion.poly_to_vector ctxt poly
-        |> fun v -> (`Zero, v) ) zeroes in
-  let conic_constraints =
-    List.map (fun poly ->
-        PolyVectorConversion.poly_to_vector ctxt poly
-        |> fun v -> (`Nonneg, v) ) positives in
-  let expanded_polyhedron =
+  let to_vector = PolyVectorConversion.poly_to_vector ctxt in
+  let (linear_constraints, conic_constraints) =
+    ( List.map (fun poly -> (`Zero, to_vector poly)) substituted_zeroes
+    , List.map (fun poly -> (`Nonneg, to_vector poly)) substituted_positives ) in
+  let polyhedron_to_hull =
     Polyhedron.of_constraints
       (BatList.enum (List.append linear_constraints conic_constraints)) in
+  L.logf ~level:`trace "compute_cut: polyhedron to hull: @[%a@]"
+    (Polyhedron.pp pp_dim) polyhedron_to_hull;
 
-  L.logf ~level:`trace
-    "compute_cut: expanded polyhedron@;";
-
-  (* 3. Project out the original dimensions *)
-  let (y0, ys) =
-    let dim_of mono = PolyVectorContext.dim_of (Monomial.singleton mono 1) ctxt in
-    (dim_of (fst transform.codomain_dims), List.map dim_of (snd transform.codomain_dims))
-  in
-  let ys_set = List.fold_left (fun s y -> SrkUtil.Int.Set.add y s)
-                 SrkUtil.Int.Set.empty (y0 :: ys)
-  in
-  let original_dimensions =
-    BatEnum.fold (fun l (dim, _mono) ->
-        if SrkUtil.Int.Set.mem dim ys_set then l else (dim :: l))
-      []
-      (PolyVectorContext.enum_by_dimension ctxt) in
-  let projected = Polyhedron.project original_dimensions expanded_polyhedron in
-
-  L.logf ~level:`trace
-    "compute_cut: projected out original dimensions@;";
-
-  (* 4. Substitute y_0 |-> one *)
-  let substitute_one v =
-    let entry = Linear.QQVector.coeff y0 v in
-    Linear.QQVector.of_term entry y0
-    |> Linear.QQVector.sub v
-    |> Linear.QQVector.add (Linear.QQVector.of_term entry Linear.const_dim)
-  in
-  let substituted_constraints =
-    BatEnum.fold (fun constraints (kind, v) ->
-        let u = substitute_one v in
-        match kind with
-        | `Zero -> (`Zero, u) :: constraints
-        | `Nonneg -> (`Nonneg, u) :: constraints
-        | `Pos -> failwith "compute_cut: Image of polynomial cone should not contain open faces"
-      )
-      [] (Polyhedron.enum_constraints projected)
-  in
-  let polyhedron_to_hull = Polyhedron.of_constraints (BatList.enum substituted_constraints) in
-
-  (* 5. Integer hull *)
+  (* 4. Integer hull *)
   L.logf ~level:`trace
     "compute_cut: computing integer hull...@;";
 
@@ -336,7 +308,7 @@ let compute_cut transform cone =
   L.logf ~level:`trace
     "compute_cut: computed integer hull@;";
 
-  (* 6. Substitute back *)
+  (* 5. Substitute back *)
   let (new_zeroes, new_positives) =
     BatEnum.fold (fun (zeroes, positives) (kind, v) ->
         let sub = snd transform.substitutions in
@@ -351,21 +323,11 @@ let compute_cut transform cone =
   in
 
   L.logf ~level:`trace
-    "compute_cut: original dimensions to project out: @[%a@]@;"
-    (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
-       pp_dim)
-    original_dimensions;
+    "compute_cut: polynomial cone after projection: @[%a@]@;"
+    (PolynomialCone.pp pp_dim) projected;
 
   L.logf ~level:`trace
-    "compute_cut: polyhedron before projection: @[%a@]@;"
-    (Polyhedron.pp pp_dim) expanded_polyhedron;
-
-  L.logf ~level:`trace
-    "compute_cut: polyhedron after projection: @[%a@]@;"
-    (Polyhedron.pp pp_dim) projected;
-
-  L.logf ~level:`trace
-    "compute_cut: polyhedron after y0 |-> 1: @[%a@]@;"
+    "compute_cut: polyhedron to hull: @[%a@]@;"
     (Polyhedron.pp pp_dim) polyhedron_to_hull;
 
   L.logf ~level:`trace
@@ -414,12 +376,12 @@ let cutting_plane_operator transformation_data polynomial_cone =
       (pp_poly_list pp_dim) zeroes
       (pp_poly_list pp_dim) positives;
 
-    compute_cut transformation_data polynomial_cone
-    |> (fun (linear, conic) ->
+    let (linear, conic) = compute_cut transformation_data polynomial_cone in
     L.logf ~level:`trace "cutting_plane_operator: Cut computed@;";
-    (linear, conic))
-    |> (fun (linear, conic) ->
-    PolynomialCone.add_polys_to_cone polynomial_cone linear conic)
+    let cut_polycone = PolynomialCone.add_polys_to_cone polynomial_cone linear conic in
+    L.logf ~level:`trace "cutting_plane_operator: result: @[%a@]"
+      (PolynomialCone.pp pp_dim) cut_polycone;
+    cut_polycone
 
 (**
    [regular_cutting_plane_closure L C] computes the smallest regular
