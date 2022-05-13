@@ -78,12 +78,23 @@ let extract_polynomial_constraints ctx polyhedron =
   in
   (equality_constraints, QQXs.one :: geq_zero_constraints)
 
-
-let find_implied_zero_polynomials polys =
+(* Find implied zero polynomials via double description method *)
+let _dd_find_implied_zero_polynomials polys =
   let polys = QQXs.one :: polys in
   let ctx = PVCTX.mk_context Monomial.degrevlex polys in
   let polyhedron = polyhedron_of_cone polys ctx |> Polyhedron.normalize_constraints in
   extract_polynomial_constraints ctx polyhedron
+
+let find_implied_zero_polynomials polys =
+  let polys = QQXs.one :: polys in
+  let ctx = PVCTX.mk_context Monomial.degrevlex polys in
+  let dim = PVCTX.num_dimensions ctx in
+  let linear_cone =
+    Cone.make ~lines:[] ~rays:(BatList.map (PV.poly_to_vector ctx) polys) dim
+  in
+  Cone.normalize linear_cone;
+  (List.map (PV.vector_to_poly ctx) (Cone.lines linear_cone),
+   List.map (PV.vector_to_poly ctx) (Cone.rays linear_cone))
 
 let make_enclosing_cone basis geq_zero_polys =
   (* Assuming that in the arguments geq_zero_polys are reduced w.r.t. basis. *)
