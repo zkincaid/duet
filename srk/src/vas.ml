@@ -375,7 +375,7 @@ let coprod_find_transformation s_lst1 s_lst2 =
                (*Adjust rows with offset*)
                let cohclass1, cohclass2 = (push_rows cohclass1 !offset1,
                                            push_rows cohclass2 !offset2) in
-               let (u1, u2) = Linear.intersect_rowspace cohclass1 cohclass2 in
+               let (u1, u2) = Linear.pushout cohclass1 cohclass2 in
                offset2 := (M.nb_rows cohclass2) + !offset2;
                (*If matrix 0, no new coh class formed*)
                if M.equal u1 M.zero then (r1', r2', s_lst') 

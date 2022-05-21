@@ -6,50 +6,13 @@ module VS = Linear.QQVectorSpace
 module IntSet = SrkUtil.Int.Set
 module IntMap = SrkUtil.Int.Map
 
+
+
 (* QS represents a vector space L along with a function reduce that
    maps each vector in QQ^omega to its representative in the quotient
    QQ^omega/L.  Representatives are chosen to use as few dimensions as
    possible. *)
-module QS = struct
-  type t = V.t IntMap.t
-
-  let reduce vs v =
-    V.fold (fun dim a v' ->
-        try V.add (V.scalar_mul a (IntMap.find dim vs)) v'
-        with Not_found -> V.add_term a dim v')
-      v
-      V.zero
-
-  (* Given a vector v and linear space L, find span(v union L) *)
-  let add v vs =
-    let v = reduce vs v in
-    try
-      let ((dim,a),v') = V.pop v in
-      let rhs = V.scalar_mul (QQ.negate (QQ.inverse a)) v' in
-      IntMap.map (fun u ->
-          let (b, u') = V.pivot dim u in
-          V.add (V.scalar_mul b rhs) u')
-        vs
-      |> IntMap.add dim rhs
-    with Not_found ->
-      (* v reduced to 0 *)
-      vs
-    
-  let of_list vs =
-    List.fold_left (fun m v -> add v m) IntMap.empty vs
-    
-  let neg_one = QQ.of_int (-1)
-  let binding_to_vec (i, v) = V.add_term neg_one i v
-
-  let enum vs = (IntMap.enum vs) /@ binding_to_vec
-  let to_list vs = (enum vs) |> BatList.of_enum
-
-  let join =
-    IntMap.fold (fun i rhs vs ->
-        add (binding_to_vec (i,rhs)) vs)
-
-  let empty = IntMap.empty
-end
+module QS = Linear.MakeLinearSpace(QQ)(SrkUtil.Int)(Linear.QQVector)
 
 (* A cone C is represented by a set of lines L and a set of rays R,
    with C = span(L) + cone(R), and each ray reduced w.r.t. L.  In a
@@ -88,10 +51,12 @@ let simplex generators target =
      spanned by generators *)
   let (index,vs,_) =
     Log.time "init"
-    (BatArray.fold_lefti (fun (index,vs,qs) i gen ->
-        if V.is_zero (QS.reduce qs gen) then (index,vs,qs)
-        else (i::index, gen::vs, QS.add gen qs))
-      ([], [], QS.of_list []))
+      (BatArray.fold_lefti (fun (index,vs,qs) i gen ->
+           if QS.mem qs gen then
+             (index, vs, qs)
+           else
+             (i::index, gen::vs, QS.add gen qs))
+      ([], [], QS.zero))
       generators
   in
   let tableau =
@@ -100,7 +65,7 @@ let simplex generators target =
       tbl_basis = M.of_rows (List.rev vs) }
   in
   let rec go () =
-    match _solve_primal tableau target  with
+    match _solve_primal tableau target with
     | None ->
        (* Target vector is not in the span of the cone *)
        None
@@ -187,10 +152,10 @@ let normalize cone =
 
 let lineality cone =
   normalize cone;
-  QS.to_list cone.lines
+  BatList.of_enum (QS.basis cone.lines)
     
 let make ~lines ~rays dim =
-  let basis = QS.of_list lines in
+  let basis = BatList.fold_left (fun vs v -> QS.add v vs) QS.zero lines in
   { lines = basis;
     rays = List.map (QS.reduce basis) rays;
     normal = false;
@@ -219,7 +184,7 @@ let minimize cone =
       cone.minimal <- true
     end
 
-let lines cone = QS.to_list cone.lines
+let lines cone = BatList.of_enum (QS.basis cone.lines)
 let rays cone = cone.rays
 let generators cone =
   List.fold_left (fun generators v -> v::(V.negate v)::generators) cone.rays (lines cone)
@@ -228,7 +193,7 @@ let join c d =
   if c.dim != d.dim then
     invalid_arg "Cone.join: incompatible dimensions"
   else
-    let lines = QS.join c.lines d.lines in
+    let lines = QS.sum c.lines d.lines in
     let rays = List.map (QS.reduce lines) (List.rev_append c.rays d.rays) in
     { dim = c.dim;
       lines = lines;
@@ -262,7 +227,7 @@ let apron0_of cone =
       (fun generators v ->
         Generator0.(make (lexpr_of_vec v) LINE)::generators)
       (List.map (fun v -> Generator0.(make (lexpr_of_vec v) RAY)) cone.rays)
-      (QS.enum cone.lines)
+      (QS.basis cone.lines)
   in
   let zero = (* Singleton set {0} *)
     let one = Coeff.s_of_int 1 in
@@ -284,7 +249,7 @@ let dual cone =
                   | EQ -> (QS.add vec lines, rays)
                   | SUPEQ -> (lines, vec::rays)
                   | _ -> assert false))
-      (QS.empty, [])
+      (QS.zero, [])
       (Abstract0.to_lincons_array man ap)
   in
   { dim = cone.dim
@@ -314,7 +279,7 @@ let meet c d =
                          assert (V.is_zero vec);
                          (lines, rays)
                       | _ -> assert false))
-        (QS.empty, [])
+        (QS.zero, [])
         (Abstract0.to_generator_array man (Abstract0.meet man c d))
     in
     let rays = List.map (QS.reduce lines) rays in

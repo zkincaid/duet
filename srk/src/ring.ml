@@ -34,6 +34,8 @@ module type Vector = sig
   val pop : t -> (dim * scalar) * t
   val map : (dim -> scalar -> scalar) -> t -> t
   val merge : (dim -> scalar -> scalar -> scalar) -> t -> t -> t
+  val min_support : t -> (dim * scalar)
+  val set : dim -> scalar -> t -> t
   val hash : (dim * scalar -> int) -> t -> int
   val compare : (scalar -> scalar -> int) -> t -> t -> int
   val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
