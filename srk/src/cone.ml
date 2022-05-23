@@ -72,11 +72,16 @@ let simplex generators target =
     | Some result ->
        (* If result is non-negative then we're done.  Otherwise, find
           the smallest index h such that result(h) < 0 *)
+
       let r =
         V.fold (fun i c r ->
             if QQ.lt c QQ.zero then
               match r with
-              | Some j -> Some (min i j)
+              | Some j ->
+                if tableau.tbl_index.(i) < tableau.tbl_index.(j) then
+                  Some i
+                else
+                  Some j
               | None -> Some i
             else r)
           result
