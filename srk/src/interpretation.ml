@@ -429,7 +429,6 @@ let destruct_atom_for_weak_theory srk phi =
       |`Lt -> `ArithComparisonWeak (`Lt, s, t)
       |`Leq -> `ArithComparisonWeak (`Leq, s, t)
     end
-  | `Atom (`ArrEq (a, b)) ->  `ArrEq (a, b)
   | `Atom (`IsInt s) -> `IsInt (`Pos, s)
   | `Proposition (`App (k, [])) ->
     `Literal (`Pos, `Const k)
