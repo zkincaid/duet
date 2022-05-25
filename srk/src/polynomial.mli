@@ -314,3 +314,28 @@ module Ideal : sig
      predicate. *)
   val project : (int -> bool) -> t -> t
 end
+
+(** A witness is a representation of a polynomial combination of a set of
+   generator polynomials, where each generator polynomial is represente by an
+   integer identifier.  *)
+module Witness : sig
+  include Ring.Vector with type dim = int
+                       and type scalar = QQXs.t
+end
+
+(** Polynomial rewrite systems tagged with witnesses.  Reducing a polynomial
+   [p] yields both a residue polynomial [r] and a polynomial combination of
+   generators [w], so that [p = r + w]. *)
+module RewriteWitness : sig
+  type t
+  val mk_rewrite : (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ]) ->
+    (QQXs.t * Witness.t) list ->
+    t
+  val grobner_basis : t -> t
+  val add_saturate : t -> QQXs.t -> Witness.t -> t
+  val reduce : t -> QQXs.t -> (QQXs.t * Witness.t)
+
+  (** Check if a given polynomial reduces to zero.  If so, return the witness
+     of membership. *)
+  val zero_witness : t -> QQXs.t -> Witness.t option
+end

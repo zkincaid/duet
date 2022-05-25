@@ -2,6 +2,7 @@ open Srk
 open OUnit
 open Polynomial
 open BatPervasives
+module RW = Polynomial.RewriteWitness
 
 let mk_qqx vec =
   List.fold_left
@@ -210,6 +211,23 @@ let product_ideal () =
   let r = Ideal.make [x*z + z*z; z*w; x*w; w*w] in
   assert_equal_ideal r (Ideal.product i j)
 
+let mk_rewrite_witness xs =
+  BatList.mapi
+    (fun i p -> (p, Witness.of_term (QQXs.negate QQXs.one) i))
+    xs
+  |> RW.mk_rewrite Monomial.degrevlex
+  |> RW.grobner_basis
+
+let qqxs_of_witness generators w =
+  BatEnum.fold (fun p (q, i) ->
+      QQXs.add p (QQXs.mul q (List.nth generators i)))
+    QQXs.zero
+    (Polynomial.Witness.enum w)
+
+let assert_rewrite_spec generators rewrite p =
+  let (p', w) = RW.reduce rewrite p in
+  assert_equal_qqxs p (QQXs.add p' (qqxs_of_witness generators w))
+
 let suite = "Polynomial" >::: [
     "mul" >:: test_mul;
     "compose1" >:: test_compose1;
@@ -227,4 +245,58 @@ let suite = "Polynomial" >::: [
     "intersect_ideal2" >:: intersect_ideal2;
     "intersect_ideal3" >:: intersect_ideal3;
     "product_ideal" >:: product_ideal
+
+    ; "rewrite_linear" >:: (fun () ->
+        let open QQXsInfix in
+        let x = dim 'x' in
+        let y = dim 'y' in
+        let z = dim 'z' in
+        let p = (int 2) * x + (int 2) in
+        let q = y + z in
+        let generators = [p; q] in
+        let rewrite = mk_rewrite_witness generators in
+        (match RW.zero_witness rewrite p with
+         | Some w -> assert_equal_qqxs p (qqxs_of_witness generators w);
+         | None -> assert false);
+        (match RW.zero_witness rewrite q with
+         | Some w -> assert_equal_qqxs q (qqxs_of_witness generators w);
+         | None -> assert false);
+        assert_rewrite_spec generators rewrite (x + (int 3) * z))
+
+    ; "rewrite_nonlin" >:: (fun () ->
+        let open QQXsInfix in
+        let x = dim 'x' in
+        let y = dim 'y' in
+        let z = dim 'z' in
+        let p = x - (int 1) in
+        let q = y * y - z + x + (int 1) in
+        let generators = [p; q] in
+        let rewrite = mk_rewrite_witness generators in
+        assert_rewrite_spec generators rewrite (x * x);
+        assert_rewrite_spec generators rewrite (x * x * y * y + x + y * y))
+
+    ; "rewrite_inconsistent" >:: (fun () ->
+        let open QQXsInfix in
+        let x = dim 'x' in
+        let y = dim 'y' in
+        let p = x * x - (int 7) in
+        let q = x - y in
+        let r = y * y - (int 30) in
+        let generators = [p; q; r] in
+        let rewrite = mk_rewrite_witness generators in
+        assert_rewrite_spec generators rewrite QQXs.one;
+        assert_rewrite_spec generators rewrite (p * q * r))
+
+    ; "rewrite_gb" >:: (fun () ->
+        let open QQXsInfix in
+        let x = dim 'x' in
+        let y = dim 'y' in
+        let z = dim 'z' in
+        let p = x * y - (int 1) in
+        let q = y * y - z + (int 1) in
+        let r = x * z - (y * z) in
+        let generators = [p; q; r] in
+        let rewrite = mk_rewrite_witness generators in
+        assert_rewrite_spec generators rewrite (x * x * y);
+        assert_rewrite_spec generators rewrite (x * y * z + y * z + x * z))
   ]

@@ -232,5 +232,5 @@ let mem p (ideal, cone_generators) =
 
 let is_unit p (ideal, _) =
   QQXs.equal QQXs.zero (Rewrite.reduce ideal p)
-  
+
 let is_proper cone = not (is_unit QQXs.one cone)
