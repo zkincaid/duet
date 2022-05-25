@@ -17,7 +17,7 @@ let mk_pow (base : 'a arith_term) (exp : 'a arith_term) = mk_app srk pow [base; 
 let assert_implies phi psi =
   psi |> List.iter (fun atom ->
       let not_atom =
-        rewrite srk ~down:(nnf_rewriter srk) (mk_not srk atom)
+        rewrite srk ~down:(pos_rewriter srk) (mk_not srk atom)
       in
       let wedge = Wedge.of_atoms srk (not_atom::phi) in
       Wedge.strengthen wedge;

@@ -6,8 +6,6 @@ module VS = Linear.QQVectorSpace
 module IntSet = SrkUtil.Int.Set
 module IntMap = SrkUtil.Int.Map
 
-
-
 (* QS represents a vector space L along with a function reduce that
    maps each vector in QQ^omega to its representative in the quotient
    QQ^omega/L.  Representatives are chosen to use as few dimensions as

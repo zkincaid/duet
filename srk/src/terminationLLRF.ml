@@ -36,7 +36,7 @@ let llrf_residual srk tf =
   in
   let formula = (* tf /\_x d_x = x' - x, in negation-normal form *)
     let nnf =
-      rewrite srk ~down:(nnf_rewriter srk) (TF.formula tf)
+      rewrite srk ~down:(pos_rewriter srk) (TF.formula tf)
     in
     let diff =
       List.map2 (fun (x,x') dx ->

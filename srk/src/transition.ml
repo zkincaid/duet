@@ -441,7 +441,7 @@ struct
                 :: (tr_subst tr.guard)
                 :: transform_formula)
     |> Nonlinear.linearize srk
-    |> rewrite srk ~down:(nnf_rewriter srk)
+    |> rewrite srk ~down:(pos_rewriter srk)
     |> Abstract.abstract ~exists srk man
 
   let linearize tr =

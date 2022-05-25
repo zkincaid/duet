@@ -1740,12 +1740,12 @@ module PresburgerGuard = struct
     | _ -> expr
 
   let abstract_presburger srk phi =
-    let nnf_simplify expr =
-      nnf_rewriter srk expr(*(SrkSimplify.simplify_terms_rewriter srk expr)*)
+    let pos_simplify expr =
+      pos_rewriter srk expr(*(SrkSimplify.simplify_terms_rewriter srk expr)*)
     in
     rewrite srk ~up:(idiv_to_ite srk) phi
     |> eliminate_ite srk
-    |> rewrite srk ~down:nnf_simplify ~up:(abstract_presburger_rewriter srk)
+    |> rewrite srk ~down:pos_simplify ~up:(abstract_presburger_rewriter srk)
 
   let exp srk tr_symbols loop_counter (sp, guard) =
     let module G = Iteration.PolyhedronGuard in
@@ -1837,7 +1837,7 @@ module PresburgerGuard = struct
       |> mk_not srk
       |> Quantifier.mbp srk (fun x -> x != prev_counter_sym)
       |> mk_not srk
-      |> rewrite srk ~down:(nnf_rewriter srk) ~up:(SrkSimplify.simplify_terms_rewriter srk)
+      |> rewrite srk ~down:(pos_rewriter srk) ~up:(SrkSimplify.simplify_terms_rewriter srk)
     in
 
     let guard_closure =

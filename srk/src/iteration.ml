@@ -171,7 +171,7 @@ module PolyhedronGuard = struct
   let abstract srk tf =
     let phi = Nonlinear.linearize srk (TF.formula tf) in
     let phi =
-      rewrite srk ~down:(nnf_rewriter srk) phi
+      rewrite srk ~down:(pos_rewriter srk) phi
     in
     let post_symbols = TF.post_symbols (TF.symbols tf) in
     let pre_symbols = TF.pre_symbols (TF.symbols tf) in
@@ -240,7 +240,7 @@ module LinearGuard = struct
     let phi =
       (TF.formula tf)
       |> rewrite srk ~up:(abstract_presburger_rewriter srk)
-      |> rewrite srk ~down:(nnf_rewriter srk)
+      |> rewrite srk ~down:(pos_rewriter srk)
     in
     let tr_symbols = TF.symbols tf in
     let exists = TF.exists tf in
@@ -305,7 +305,7 @@ module LinearRecurrenceInequation = struct
   let abstract srk tf =
     let phi =
       TF.formula tf
-      |> rewrite srk ~down:(nnf_rewriter srk)
+      |> rewrite srk ~down:(pos_rewriter srk)
       |> Nonlinear.linearize srk
     in
     let delta =

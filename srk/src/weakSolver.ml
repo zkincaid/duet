@@ -30,6 +30,30 @@ let rec get_quantifiers srk env phi =
     ((qt,k)::qf_pre, psi)
   | _ -> ([], substitute srk (fun (i, _) -> lookup env i) phi)
 
+let destruct_literal srk phi =
+  let sub a b = P.sub (P.of_term srk a) (P.of_term srk b) in
+  match Formula.destruct srk phi with
+  | `Atom (`Arith (`Eq, s, t)) -> `Zero (sub t s)
+  | `Atom (`Arith (`Lt, s, t)) -> `Neg (sub s t) (* x < y <=> !(0 <= x - y) *)
+  | `Atom (`Arith (`Leq, s, t)) -> `Nonneg (sub t s)
+  | `Atom (`IsInt s) -> `IsInt (P.of_term srk s)
+  | `Proposition (`App (k, [])) -> `True k
+  | `Not psi ->
+    begin match Formula.destruct srk psi with
+      | `Proposition (`App (k, [])) -> `False k
+      | `Atom (`Arith (`Eq, s, t)) -> `Nonzero (sub s t)
+      | `Atom (`Arith (`Leq, s, t)) -> `Neg (sub t s)   (* !(x <= y) <=> y - x < 0 *)
+      | `Atom (`Arith (`Lt, s, t)) -> `Nonneg (sub s t) (*  !(x < y) <=> 0 <= x - y *)
+      | `Atom (`IsInt s) -> `NonInt (P.of_term srk s)
+      | _ -> invalid_arg (Format.asprintf "destruct_literal: %a? is not recognized"
+                            (Formula.pp srk) phi)
+    end
+  | `Tru -> `Zero P.zero
+  | `Fls -> `Zero P.one
+  | _ ->
+    invalid_arg (Format.asprintf "destruct_literal: %a~ is not recognized"
+                   (Formula.pp srk) phi)
+
 
 (* Conjuctive formulas in the language of ordered rings + integer predicate +
    booleans propositions.  *)
@@ -43,29 +67,16 @@ type cube =
   ; not_zero : P.t list
   ; not_int : P.t list }
 
-let add_atom_to_cube srk atom cube =
-  let sub a b = P.sub (P.of_term srk a) (P.of_term srk b) in
-  match Interpretation.destruct_atom_for_weak_theory srk atom with
-  | `ArithComparisonWeak (`Eq, a, b) ->
-    { cube with zero = (sub b a)::cube.zero }
-  | `ArithComparisonWeak (`Neq, a, b) ->
-    { cube with not_zero = (sub b a)::cube.not_zero }
-  | `ArithComparisonWeak (`Leq, a, b) ->
-    { cube with nonneg = (sub b a)::cube.nonneg }
-  | `ArithComparisonWeak (`Lt, a, b) ->
-    (* Strict inequality a < b is represented as a <= b && a != b. *)
-    let diff = sub b a in
-    { cube with nonneg = diff::cube.nonneg; not_zero = diff::cube.not_zero }
-  | `IsInt (`Pos, s) ->
-    { cube with int = (P.of_term srk s)::cube.int }
-  | `IsInt (`Neg, s) ->
-    { cube with not_int = (P.of_term srk s)::cube.int }
-  | `Literal (`Pos, `Const k) ->
-    { cube with pos = Symbol.Set.add k cube.pos }
-  | `Literal (`Neg, `Const k) ->
-    { cube with neg = Symbol.Set.add k cube.pos }
-  | `Literal (_, `Var _) ->
-    invalid_arg "add_atom_to_cube: free variable"
+let add_literal_to_cube srk lit cube =
+  match destruct_literal srk lit with
+  | `Zero z -> { cube with zero = z::cube.zero  }
+  | `Nonneg p -> { cube with nonneg = p::cube.nonneg  }
+  | `Neg n -> { cube with not_nonneg = n::cube.not_nonneg }
+  | `Nonzero q -> { cube with not_zero = q::cube.not_zero }
+  | `IsInt m -> { cube with int = m::cube.int }
+  | `NonInt m -> { cube with not_int = m::cube.not_int }
+  | `True k -> { cube with pos = Symbol.Set.add k cube.pos }
+  | `False k -> { cube with neg = Symbol.Set.add k cube.neg }
 
 let empty_cube =
   { nonneg = []
@@ -173,18 +184,16 @@ module Model = struct
       | `Proposition _ -> invalid_arg "evaluate_formula: proposition"
       | `Quantify (_, _, _, _) -> invalid_arg "evaluate_formula: quantifier"
       | `Atom atom ->
-        let sub a b = P.sub (P.of_term srk a) (P.of_term srk b) in
         let atom = Formula.construct srk (`Atom atom) in
-        match Interpretation.destruct_atom_for_weak_theory srk atom with
-        | `ArithComparisonWeak (`Eq, a, b) -> is_zero m (sub b a)
-        | `ArithComparisonWeak (`Neq, a, b) -> not (is_zero m (sub b a))
-        | `ArithComparisonWeak (`Leq, a, b) -> is_nonneg m (sub b a)
-        | `ArithComparisonWeak (`Lt, a, b) ->
-          let diff = sub b a in
-          is_nonneg m diff && not (is_zero m diff)
-        | `IsInt (`Pos, s) -> is_int m (P.of_term srk s)
-        | `IsInt (`Neg, s) -> not (is_int m (P.of_term srk s))
-        | `Literal _ -> assert false
+        match destruct_literal srk atom with
+        | `Zero z -> is_zero m z
+        | `Nonzero p -> not (is_zero m p)
+        | `Nonneg p -> is_nonneg m p
+        | `Neg n -> not (is_nonneg m n)
+        | `IsInt q -> is_int m q
+        | `NonInt q -> not (is_int m q)
+        | `True k -> is_true_prop m k
+        | `False k -> not (is_true_prop m k)
   in
   Formula.eval srk f phi
 
@@ -241,7 +250,7 @@ module Solver = struct
 
   let propositionalize solver phi =
     let srk = solver.srk in
-    rewrite srk ~down:(nnf_rewriter_without_replacing_eq srk) phi
+    rewrite srk ~down:(nnf_rewriter srk) phi
     |> eliminate_ite srk
     |> Nonlinear.eliminate_floor_mod_div srk
     |> (rewrite
@@ -288,7 +297,7 @@ module Solver = struct
                     (symbols atom)
                     ints
                 in
-                (add_atom_to_cube srk atom cube, ints))
+                (add_literal_to_cube srk atom cube, ints))
               (empty_cube, Symbol.Set.empty)
               prop_implicant
           in

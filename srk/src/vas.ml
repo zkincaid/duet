@@ -496,7 +496,7 @@ let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (
 let abstract srk tf =
   let phi =
     TF.formula tf
-    |> rewrite srk ~down:(nnf_rewriter srk)
+    |> rewrite srk ~down:(pos_rewriter srk)
     |> Nonlinear.linearize srk
   in
   let tr_symbols = TF.symbols tf in
@@ -526,7 +526,7 @@ module Monotone = struct
   let abstract srk tf =
     let phi =
       TF.formula tf
-      |> rewrite srk ~down:(nnf_rewriter srk)
+      |> rewrite srk ~down:(pos_rewriter srk)
       |> Nonlinear.linearize srk
     in
     let tr_symbols = TF.symbols tf in

@@ -1964,7 +1964,7 @@ let is_sat srk phi =
   let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
-      ~down:(nnf_rewriter srk)
+      ~down:(pos_rewriter srk)
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
   in
@@ -2081,7 +2081,7 @@ let abstract_subwedge subwedge ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true
   let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
-      ~down:(nnf_rewriter srk)
+      ~down:(pos_rewriter srk)
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
   in
@@ -2162,7 +2162,7 @@ let abstract_subwedge_weak subwedge srk phi =
   let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
-      ~down:(nnf_rewriter srk)
+      ~down:(pos_rewriter srk)
       ~up:(Nonlinear.uninterpret_rewriter srk)
       phi
   in

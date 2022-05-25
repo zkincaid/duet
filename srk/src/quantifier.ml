@@ -273,7 +273,7 @@ let normalize srk phi =
       let k = mk_symbol srk ~name (typ :> Syntax.typ) in
       let (qf_pre, psi) = go (Env.push k env) psi in
       ((qt,k)::qf_pre, psi)
-    | _ -> ([], rewrite srk ~down:(nnf_rewriter srk) ~up:(rewriter env) phi)
+    | _ -> ([], rewrite srk ~down:(pos_rewriter srk) ~up:(rewriter env) phi)
   in
   go Env.empty phi
 
@@ -1842,7 +1842,7 @@ let mbp ?(dnf=false) srk exists phi =
   let phi =
     eliminate_ite srk phi
     |> rewrite srk
-         ~down:(nnf_rewriter srk)
+         ~down:(pos_rewriter srk)
          ~up:(SrkSimplify.simplify_terms_rewriter srk)
   in
   let project =
@@ -2256,7 +2256,7 @@ let cover_virtual_substitution srk x virtual_term phi =
 
 let mbp_cover ?(dnf=true) srk exists phi =
   let phi = eliminate_ite srk phi in
-  let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
+  let phi = rewrite srk ~down:(pos_rewriter srk) phi in
   let project =
     Symbol.Set.filter (not % exists) (symbols phi)
   in

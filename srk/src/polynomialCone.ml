@@ -207,8 +207,8 @@ let mem p (ideal, cone_generators) =
   let reduced = Rewrite.reduce ideal p in
   let ctx = PVCTX.mk_context Monomial.degrevlex cone_generators in
   let p_monos = QQXs.enum reduced in
-  (* Optimization: if a monomial appears in reduced but not cone_generators then return false
-     immediately *)
+  (* Optimization: if a monomial appears in reduced but not cone_generators
+     then return false immediately *)
   let m = PVCTX.get_mono_map ctx in
   if BatEnum.exists (fun (_, p_mono) ->
       not (MonomialMap.mem p_mono m))
@@ -218,9 +218,19 @@ let mem p (ideal, cone_generators) =
   else
      begin
       let vec_target_poly = PV.poly_to_vector ctx reduced in
-      let cone = polyhedron_of_cone cone_generators ctx in
-      Polyhedron.mem (fun i -> V.coeff i vec_target_poly) cone
+      let dim = PVCTX.num_dimensions ctx in
+      let cone =
+        let rays =
+          BatList.map
+            (fun p -> PV.poly_to_vector ctx p)
+            cone_generators
+        in
+        Cone.make ~lines:[] ~rays dim
+      in
+      Cone.mem vec_target_poly cone
     end
 
-let is_proper pc =
-  not (mem (QQXs.negate QQXs.one) pc)
+let is_unit p (ideal, _) =
+  QQXs.equal QQXs.zero (Rewrite.reduce ideal p)
+  
+let is_proper cone = not (is_unit QQXs.one cone)
