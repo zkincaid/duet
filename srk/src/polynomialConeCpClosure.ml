@@ -82,10 +82,12 @@ let polylattice_spanned_by polys : polylattice =
     IntLattice.pp lattice;
   if (List.length one <> 1)
   then
-  (* Lattice must contain 1. Since we add 1 above, this happens if there is
-     a non-integral rational in the lattice, which may lead to
-     inconsistency, e.g., if 1/2 is in the lattice, 2 (1/2) + (-1) >= 0
-     implies 1/2 + floor(-1/2) >= 0, which implies -1/2 >= 0.
+  (* Since we add 1 above, this can only happen if the Hermite normal
+     form contains 1/n for some integer n > 1.
+     In that case, the cutting plane closure is inconsistent:
+     n(1/n) - 1 >= 0 --> 1/n - 1 >= 0 --> n <= 1, a contradiction.
+     If the input polynomials have only integer coefficients,
+     this cannot happen.
    *)
     raise Invalid_lattice
   else
@@ -115,7 +117,8 @@ let in_polylattice poly polylattice =
 
 type transformation_data =
   (** Pairs are s.t. the first component is for the polynomial 1, and the second
-      component is for the rest. *)
+      component is for the rest.
+   *)
   (** The fresh dimensions/variables introduced *)
   { codomain_dims: Monomial.dim * Monomial.dim list
   (** \y_dim. y_dim -> b *)
@@ -216,39 +219,32 @@ let compute_transformation lattice ctxt : transformation_data =
    - Convert back to polynomials and do the substitution y_i |-> b_i.
  *)
 let compute_cut transform cone =
-  (* 1. Expand the polynomial cone and project it onto QQ Y. *)
-  let transform_polys = fst transform.rewrite_polys :: snd transform.rewrite_polys in
+
+  (* 1. Expand the polynomial cone and project it onto QQ{1, y_1, ..., y_m}. *)
+  let transform_polys = snd transform.rewrite_polys in
   let expanded = PolynomialCone.add_polys_to_cone cone transform_polys [] in
-  let codim_one = fst transform.codomain_dims in
+  (* Projection uses a graded elimination order with X > Y *)
   let projected = PolynomialCone.project expanded (fun x ->
-                      let codims = codim_one :: snd transform.codomain_dims in
+                      let codims = Linear.const_dim :: snd transform.codomain_dims in
                       List.mem x codims) in
+  let (linear_zeroes, linear_positives) =
+    let f = List.filter (fun p -> QQXs.degree p <= 1) in
+    ( f (Rewrite.generators (PolynomialCone.get_ideal projected))
+    , f (PolynomialCone.get_cone_generators projected)) in
 
-  (* 2. Substitute y0 |-> 1 *)
-  let (zeroes, positives) =
-    ( Rewrite.generators (PolynomialCone.get_ideal projected)
-    , PolynomialCone.get_cone_generators projected) in
-
-  let substitute_one i =
-    if i = codim_one then QQXs.one else QQXs.of_dim i
-  in
-  let (substituted_zeroes, substituted_positives) =
-    let sub = QQXs.substitute substitute_one in
-    (List.map sub zeroes, List.map sub positives) in
-
-  (* 3. Convert to polyhedron *)
+  (* 2. Convert to polyhedron *)
   let open PolynomialUtil in
   (* Conversion context to polyhedron.
-     [zeroes] and [positives] are those of the expanded cone corresponding to
+     [linear_zeroes] and [linear_positives] are those of the expanded cone corresponding to
      [transform], so the fresh y_i's are already among them.
    *)
-  let ctxt = context_of (List.concat [substituted_zeroes; substituted_positives])
+  let ctxt = context_of (List.concat [linear_zeroes; linear_positives])
   in
 
   L.logf ~level:`trace
     "compute_cut: @[zeroes: @[%a@]@;positives: @[%a@]@]@;"
-    (pp_poly_list pp_dim) substituted_zeroes
-    (pp_poly_list pp_dim) substituted_positives;
+    (pp_poly_list pp_dim) linear_zeroes
+    (pp_poly_list pp_dim) linear_positives;
 
   L.logf ~level:`trace
     "compute_cut: context is: @[%a@]@;"
@@ -257,15 +253,15 @@ let compute_cut transform cone =
 
   let to_vector = PolyVectorConversion.poly_to_vector ctxt in
   let (linear_constraints, conic_constraints) =
-    ( List.map (fun poly -> (`Zero, to_vector poly)) substituted_zeroes
-    , List.map (fun poly -> (`Nonneg, to_vector poly)) substituted_positives ) in
+    ( List.map (fun poly -> (`Zero, to_vector poly)) linear_zeroes
+    , List.map (fun poly -> (`Nonneg, to_vector poly)) linear_positives ) in
   let polyhedron_to_hull =
     Polyhedron.of_constraints
       (BatList.enum (List.append linear_constraints conic_constraints)) in
   L.logf ~level:`trace "compute_cut: polyhedron to hull: @[%a@]"
     (Polyhedron.pp pp_dim) polyhedron_to_hull;
 
-  (* 4. Integer hull *)
+  (* 3. Integer hull *)
   L.logf ~level:`trace
     "compute_cut: computing integer hull...@;";
 
@@ -273,7 +269,7 @@ let compute_cut transform cone =
   L.logf ~level:`trace
     "compute_cut: computed integer hull@;";
 
-  (* 5. Substitute back *)
+  (* 4. Substitute back *)
   let (new_zeroes, new_positives) =
     BatEnum.fold (fun (zeroes, positives) (kind, v) ->
         let sub = snd transform.substitutions in
@@ -319,12 +315,7 @@ let compute_cut transform cone =
      to C.
  *)
 let cutting_plane_operator transformation_data polynomial_cone =
-  let ideal = PolynomialCone.get_ideal polynomial_cone in
-  let is_full_ring =
-    Rewrite.reduce ideal QQXs.one
-    |> (fun p -> QQXs.equal p (QQXs.zero))
-  in
-  if is_full_ring then
+  if not (PolynomialCone.is_proper polynomial_cone) then
     (* cutting plane closure is itself; note that the else branch requires the
        ideal to be proper, so this is not just an optimization!
      *)
@@ -384,13 +375,23 @@ let regular_cutting_plane_closure polylattice polynomial_cone =
       (* The transformation is fixed for all iterations, because the lattice is fixed
        and the cutting plane closure does not introduce new monomials.
        *)
+      let num_rounds = ref 1 in
       let rec closure cone =
         let cone' = cutting_plane_operator tdata cone in
-        if PolynomialCone.equal cone' cone then cone'
-        else closure cone'
+        if PolynomialCone.equal cone' cone then
+          begin
+            L.logf "regular_cutting_plane_closure: closure took %d rounds@;" !num_rounds;
+            cone'
+          end
+        else
+          begin
+            L.logf "regular_cutting_plane_closure: closure round %d@;" !num_rounds;
+            num_rounds := !num_rounds + 1;
+            closure cone'
+          end
       in
       let final = closure polynomial_cone in
-      L.logf "regular_cutting_plane_closure: closure is:@;  @[%a@]@;"
+      L.logf "regular_cutting_plane_closure: concluded, closure is:@;  @[%a@]@;"
         (PolynomialCone.pp pp_dim)
         final;
       final
