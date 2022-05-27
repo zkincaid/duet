@@ -2,6 +2,7 @@ open Srk
 open OUnit
 open Polynomial
 open PolynomialCone
+open Test_pervasives
 
 let mk_qqx vec =
   List.fold_left
@@ -359,4 +360,18 @@ let suite = "PolynomialCone" >::: [
     "test_proper2" >:: test_proper2;
     "test_mem" >:: test_mem;
     "test_trivial" >:: test_trivial
+
+    ; "sat1" >:: (fun () ->
+        let phi =
+          let open Infix in
+          (int 0) <= x && (int 0) <= y && !((int 0) <= x + y)
+        in
+        assert_equal (WeakSolver.is_sat srk phi) `Unsat)
+
+    ; "sat2" >:: (fun () ->
+        let phi =
+          let open Infix in
+          (int 0) <= x && (int 0) <= y && !(x + y <= (int 0))
+        in
+        assert_equal (WeakSolver.is_sat srk phi) `Sat)
   ]

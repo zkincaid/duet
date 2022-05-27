@@ -31,7 +31,7 @@
   (modules bigtop)
   (modes native)
   (promote (until-clean) (into ..))
-(link_flags (:standard) (:include link_flags.sexp))
+  (link_flags (:standard) (:include link_flags.sexp))
   (libraries srk oUnit apron apron.boxMPQ apron.octMPQ apron.polkaMPQ zarith)
   (preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))
 

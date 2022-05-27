@@ -546,7 +546,7 @@ let construct solver assign_table trace =
     match trace, itp with
     | ((letter, tid)::trace, pre::itp) ->
       let letters = Letter.Set.singleton letter in
-      let pre = rewrite ctx ~down:(nnf_rewriter ctx) pre in
+      let pre = rewrite ctx ~down:(pos_rewriter ctx) pre in
       if P.compare pre post = 0 then begin
         Log.logf "Skipping transition: [#%d] %a" tid Letter.pp letter;
         let (_, lhs, rhs) = generalize tid post pre in

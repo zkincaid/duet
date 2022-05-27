@@ -27,3 +27,15 @@ module type Lattice = sig
   val equal : t -> t -> bool
   val meet : t -> t -> t
 end
+
+module type Field = sig
+  type t
+  val equal : t -> t -> bool
+  val add : t -> t -> t
+  val negate : t -> t
+  val inverse : t -> t
+  val zero : t
+  val mul : t -> t -> t
+  val one : t
+  val pp : Format.formatter -> t -> unit
+end

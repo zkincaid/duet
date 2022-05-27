@@ -11,219 +11,316 @@ module Linexpr0 = Apron.Linexpr0
 module Lincons0 = Apron.Lincons0
 module Dim = Apron.Dim
 
-module CS = CoordinateSystem
-
 module IntSet = SrkUtil.Int.Set
 
 include Log.Make(struct let name = "srk.weaksolver" end)
 
-let pp_dim srk = (fun formatter i -> Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i))
+let pp_dim srk = (fun formatter i -> pp_symbol srk formatter (symbol_of_int i))
 
 let rec get_quantifiers srk env phi =
   let phi = Formula.prenex srk phi in
+  let lookup env i =
+    try Env.find env i
+    with Not_found -> assert false
+  in
   match Formula.destruct srk phi with
   | `Quantify (qt, name, typ, psi) ->
-    let k = mk_symbol srk ~name (typ :> Syntax.typ) in
+    let k = mk_const srk (mk_symbol srk ~name (typ :> Syntax.typ)) in
     let (qf_pre, psi) = get_quantifiers srk (Env.push k env) psi in
     ((qt,k)::qf_pre, psi)
-  | _ -> ([], substitute srk (fun (i, _) -> mk_const srk (Env.find env i)) phi)
+  | _ -> ([], substitute srk (fun (i, _) -> lookup env i) phi)
 
-(* TODO: implement an incremental solver, that retains a solver object and nonlinear map.
-The current get_model just takes in a solver object which contains phi and nonlinear map. *)
-(* Get a weak theory model for a formula. Also serves as an SMT solver for weak theory. *)
+let destruct_literal srk phi =
+  let sub a b = P.sub (P.of_term srk a) (P.of_term srk b) in
+  match Formula.destruct srk phi with
+  | `Atom (`Arith (`Eq, s, t)) -> `Zero (sub t s)
+  | `Atom (`Arith (`Lt, s, t)) -> `Neg (sub s t) (* x < y <=> !(0 <= x - y) *)
+  | `Atom (`Arith (`Leq, s, t)) -> `Nonneg (sub t s)
+  | `Atom (`IsInt s) -> `IsInt (P.of_term srk s)
+  | `Proposition (`App (k, [])) -> `True k
+  | `Not psi ->
+    begin match Formula.destruct srk psi with
+      | `Proposition (`App (k, [])) -> `False k
+      | `Atom (`Arith (`Eq, s, t)) -> `Nonzero (sub s t)
+      | `Atom (`Arith (`Leq, s, t)) -> `Neg (sub t s)   (* !(x <= y) <=> y - x < 0 *)
+      | `Atom (`Arith (`Lt, s, t)) -> `Nonneg (sub s t) (*  !(x < y) <=> 0 <= x - y *)
+      | `Atom (`IsInt s) -> `NonInt (P.of_term srk s)
+      | _ -> invalid_arg (Format.asprintf "destruct_literal: %a? is not recognized"
+                            (Formula.pp srk) phi)
+    end
+  | `Tru -> `Zero P.zero
+  | `Fls -> `Zero P.one
+  | _ ->
+    invalid_arg (Format.asprintf "destruct_literal: %a~ is not recognized"
+                   (Formula.pp srk) phi)
+
+
+(* Conjuctive formulas in the language of ordered rings + integer predicate +
+   booleans propositions.  *)
+type cube =
+  { nonneg : P.t list
+  ; zero : P.t list
+  ; int : P.t list
+  ; pos :  Symbol.Set.t
+  ; neg :  Symbol.Set.t
+  ; not_nonneg : P.t list
+  ; not_zero : P.t list
+  ; not_int : P.t list }
+
+let add_literal_to_cube srk lit cube =
+  match destruct_literal srk lit with
+  | `Zero z -> { cube with zero = z::cube.zero  }
+  | `Nonneg p -> { cube with nonneg = p::cube.nonneg  }
+  | `Neg n -> { cube with not_nonneg = n::cube.not_nonneg }
+  | `Nonzero q -> { cube with not_zero = q::cube.not_zero }
+  | `IsInt m -> { cube with int = m::cube.int }
+  | `NonInt m -> { cube with not_int = m::cube.not_int }
+  | `True k -> { cube with pos = Symbol.Set.add k cube.pos }
+  | `False k -> { cube with neg = Symbol.Set.add k cube.neg }
+
+let empty_cube =
+  { nonneg = []
+  ; zero = []
+  ; int = []
+  ; pos = Symbol.Set.empty
+  ; not_nonneg = []
+  ; not_zero = []
+  ; not_int = []
+  ; neg = Symbol.Set.empty}
+
+module Model = struct
+  type t =
+    {
+      (* Regular, consistent cone containing 1, and closed under cutting plane
+         w.r.t. lattice *)
+      cone : PolynomialCone.t
+    (* Lattice of integers *)
+    ; lattice : PolynomialConeCpClosure.polylattice
+    (* Positive propositional variables *)
+    ; pos : Symbol.Set.t (* Positive propositional variables *) }
+
+  let nonnegative_cone m = m.cone
+
+  let is_int m p =
+    PolynomialConeCpClosure.in_polylattice p m.lattice
+
+  let is_nonneg m p = PolynomialCone.mem p m.cone
+
+  let is_zero m p =
+    Polynomial.Rewrite.reduce (PolynomialCone.get_ideal m.cone) p
+    |> P.equal P.zero
+
+  let is_true_prop m k = Symbol.Set.mem k m.pos
+
+  (* Find the minimal model of a cube, should one exist *)
+  let get_model srk (cube : cube) =
+    if Symbol.Set.exists (fun s -> Symbol.Set.mem s cube.pos) cube.neg then
+      None
+    else
+      let initial_ideal =
+        Polynomial.Rewrite.mk_rewrite Polynomial.Monomial.degrevlex cube.zero
+        |> Polynomial.Rewrite.grobner_basis
+      in
+      logf ~level:`trace
+        "weakSolver: Start making enclosing cone of: ideal: @[%a@] @; geqs: @[%a@]"
+        (Polynomial.Rewrite.pp (pp_dim srk))
+        initial_ideal
+        (PolynomialUtil.PrettyPrint.pp_poly_list (pp_dim srk))
+        cube.nonneg;
+
+      let pc =
+        PolynomialCone.make_enclosing_cone initial_ideal cube.nonneg
+      in
+
+      let lattice =
+        PolynomialConeCpClosure.polylattice_spanned_by cube.int
+      in
+
+      (* NK: TODO: This triggers a bug that corrupts memory, e.g., the lattice. *)
+      (*
+      logf ~level:`trace
+        "weakSolver: lattice: @[%a@],@;  initially generated by @[%a@]@;"
+        (PolynomialConeCpClosure.pp_polylattice (pp_dim srk))
+        lattice
+        (PolynomialUtil.PrettyPrint.pp_poly_list (pp_dim srk))
+        cube.int;
+       *)
+
+      logf "Enclosing cone: @[%a@]" (PolynomialCone.pp (pp_dim srk)) pc;
+
+      let contradict_int =
+        (* The IsInt relation is not closed under equality, so this is all we have
+           to check. *)
+        List.exists
+          (fun p -> PolynomialConeCpClosure.in_polylattice p lattice)
+          cube.not_int
+      in
+      if contradict_int then
+        None
+      else
+        let cut_pc =
+          PolynomialConeCpClosure.regular_cutting_plane_closure lattice pc
+        in
+        (* Provided that cut_pc is proper, model is least Z-model that satisfies
+           all positive atoms. *)
+        let model = { cone = cut_pc; lattice; pos = cube.pos } in
+        if (PolynomialCone.is_proper cut_pc
+            && (BatList.for_all (not % is_zero model) cube.not_zero)
+            && (BatList.for_all (not % is_int model) cube.not_int)
+            && (BatList.for_all (not % is_nonneg model) cube.not_nonneg))
+        then Some model
+        else None
+
+  (* Determine whether a formula holds in a given model *)
+  let evaluate_formula srk m phi =
+    let f = function
+      | `And xs -> List.for_all (fun x -> x) xs
+      | `Or xs -> List.exists (fun x -> x) xs
+      | `Tru -> true
+      | `Fls -> false
+      | `Not v -> not v
+      | `Ite (cond, bthen, belse) -> if cond then bthen else belse
+      | `Proposition (`App (k, [])) -> Symbol.Set.mem k m.pos
+      | `Proposition _ -> invalid_arg "evaluate_formula: proposition"
+      | `Quantify (_, _, _, _) -> invalid_arg "evaluate_formula: quantifier"
+      | `Atom atom ->
+        let atom = Formula.construct srk (`Atom atom) in
+        match destruct_literal srk atom with
+        | `Zero z -> is_zero m z
+        | `Nonzero p -> not (is_zero m p)
+        | `Nonneg p -> is_nonneg m p
+        | `Neg n -> not (is_nonneg m n)
+        | `IsInt q -> is_int m q
+        | `NonInt q -> not (is_int m q)
+        | `True k -> is_true_prop m k
+        | `False k -> not (is_true_prop m k)
+  in
+  Formula.eval srk f phi
+
+end
+
+module Solver = struct
+  type 'a t =
+    {
+      (* (Propositional) sat solver *)
+      sat : 'a Smt.Solver.t
+    ; srk : 'a context
+
+    (* Map atomic formulae to propositional variables *)
+    ; prop : ('a, typ_bool, 'a formula) Expr.HT.t
+
+    (* Inverse of prop *)
+    ; unprop : (symbol, 'a formula) Hashtbl.t
+
+    (* Propositional skeletons of asserted formulae.  Not necessarily in same
+       order they are asserted. *)
+    ; mutable asserts : 'a formula list }
+
+  let mk_solver srk =
+    { sat = Smt.mk_solver srk
+    ; srk = srk
+    ; prop = Expr.HT.create 991
+    ; unprop = Hashtbl.create 991
+    ; asserts = [] }
+
+  let prop_rewriter solver expr =
+    let srk = solver.srk in
+    match Expr.refine srk expr with
+    | `ArithTerm _ | `ArrTerm _ -> expr
+    | `Formula phi ->
+      match Formula.destruct srk phi with
+      | `Atom _ ->
+        let atom =
+          try
+            Expr.HT.find solver.prop phi
+          with Not_found ->
+            let prop =
+              mk_symbol
+                srk
+                ~name:(Format.asprintf "{%a}" (Expr.pp srk) expr)
+                (expr_typ srk expr)
+            in
+            let atom = mk_const srk prop in
+            Expr.HT.add solver.prop phi atom;
+            Hashtbl.add solver.unprop prop phi;
+            atom
+        in
+        (atom :> ('a, typ_fo) expr)
+      | _ -> expr
+
+  let propositionalize solver phi =
+    let srk = solver.srk in
+    rewrite srk ~down:(nnf_rewriter srk) phi
+    |> eliminate_ite srk
+    |> Nonlinear.eliminate_floor_mod_div srk
+    |> (rewrite
+          srk
+          ~up:(SrkSimplify.simplify_terms_rewriter srk % prop_rewriter solver))
+
+  let unpropositionalize solver phi =
+    substitute_const solver.srk (Hashtbl.find solver.unprop) phi
+
+  let add solver phis =
+    let propped = List.map (propositionalize solver) phis in
+    Smt.Solver.add solver.sat propped;
+    solver.asserts <- List.rev_append propped solver.asserts
+
+  let get_model solver =
+    let srk = solver.srk in
+    let rec go () =
+      match Smt.Solver.get_model solver.sat with
+      | `Unsat -> `Unsat
+      | `Unknown -> `Unknown
+      | `Sat model ->
+        (* Select a cube of the propositional skeleton *)
+        let prop_implicant =
+          List.fold_left
+            (fun implicant phi ->
+               match Interpretation.select_implicant model phi with
+               | Some xs -> List.rev_append xs implicant
+               | None -> assert false)
+            []
+            solver.asserts
+        in
+        (* Depropositionalize propositional cube, and add explicit integrality
+           propositions for int-sorted symbols *)
+        let cube =
+          let (cube, ints) =
+            List.fold_left (fun (cube, ints) prop_atom ->
+                let atom = unpropositionalize solver prop_atom in
+                let ints =
+                  Symbol.Set.fold (fun sym ints ->
+                      if Syntax.typ_symbol srk sym == `TyInt then
+                        Symbol.Set.add sym ints
+                      else
+                        ints)
+                    (symbols atom)
+                    ints
+                in
+                (add_literal_to_cube srk atom cube, ints))
+              (empty_cube, Symbol.Set.empty)
+              prop_implicant
+          in
+          { cube with int =
+                        Symbol.Set.fold (fun sym xs ->
+                            (P.of_dim (int_of_symbol sym))::xs)
+                          ints
+                          cube.int }
+        in
+        match Model.get_model srk cube with
+        | Some m -> `Sat m
+        | None ->
+          (* Block propositional implicant *)
+          Smt.Solver.add solver.sat [mk_not srk (mk_and srk prop_implicant)];
+          go ()
+    in
+    go ()
+end
+
 let get_model srk phi =
-  Z3.set_global_param "model.completion" "true";
-  let phi = eliminate_ite srk phi in
-  let phi = SrkSimplify.simplify_terms srk phi in
-  (* Get the quantifiers and the ground formula. The weak theory only supports existentials. *)
-  let quantifiers, phi = get_quantifiers srk Env.empty phi in
-
-  logf "getting model for formula: %a" (Formula.pp srk) phi;
-  let phi = Nonlinear.eliminate_floor_mod_div srk phi in
-  let phi = SrkSimplify.simplify_terms srk phi in
-  logf "weakSolver: eliminated floor, mod, div: %a" (Formula.pp srk) phi;
-
-  assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false)
-            quantifiers = true);
-  (* QF_LRA, QF_UF *)
-  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
-
-  let declared_ints =
-    Symbol.Set.fold
-      (fun sym l ->
-        match Syntax.typ_symbol srk sym with
-        | `TyInt ->
-           (* logf ~level:`trace "%s : fun" (Syntax.show_symbol srk sym); *)
-           (sym :: l)
-        | `TyReal
-          | `TyBool
-          | `TyArr -> l
-        | `TyFun (_args, _range_typ) ->
-           (* if args = [] && range_typ = `TyInt then
-             (sym :: l)
-           else *)
-           l
-      )
-      (Syntax.symbols phi)
-      []
-  in
-
-  let new_is_ints =
-    List.map
-      (fun sym ->
-        Syntax.mk_const srk sym
-        |> Syntax.ArithTerm.arith_term_of srk
-        |> mk_is_int srk)
-      declared_ints in
-  let phi_with_ints = Syntax.mk_and srk (phi :: new_is_ints) in
-  logf "weakSolver: added is_ints: %a" (Formula.pp srk) phi_with_ints;
-
-  let (prop_skeleton, unprop_map) =
-    rewrite srk
-      ~down:(nnf_rewriter_without_replacing_eq srk)
-      phi_with_ints
-    |> SrkSimplify.propositionalize srk
-  in
-  let unprop fml =
-    Syntax.substitute_const srk
-      (fun sym ->
-        try
-          Symbol.Map.find sym unprop_map
-        with Not_found ->
-          Syntax.mk_const srk sym
-      )
-      fml
-  in
-  logf ~level:`trace "weakSolver: unprop_map: @[%a@]"
-    (fun _fmt unprop_map ->
-      BatEnum.iter (fun (sym, expr) ->
-          logf "(%a, %a)@;" (Syntax.pp_symbol srk) sym (Syntax.Expr.pp srk) expr)
-        (Symbol.Map.enum unprop_map))
-    unprop_map;
-
-  Smt.Solver.add solver [prop_skeleton];
-
-  (* TODO: adding lemmas. Using preduce in Groebner basis to get a subset of
-     atoms whose conjunction is unsat. *)
-  let rec go () =
-    logf ~level:`trace "weakSolver: solver is: %s ===" (Smt.Solver.to_string solver);
-    match Smt.Solver.get_model solver with
-    | `Unsat -> `Unsat
-    | `Unknown -> `Unknown
-    | `Sat model ->
-       logf ~level:`trace "weakSolver: successfully getting model";
-    (* match Interpretation.select_implicant model lin_phi with *)
-       match Interpretation.select_implicant model prop_skeleton with
-       | None -> assert false
-       | Some implicant ->
-          logf ~level:`trace "weakSolver: got implicant";
-          let () = BatList.iter (fun f ->
-                       logf ~level:`trace "weakSolver: Selected implicant atom: %a"
-                         (Formula.pp srk) f) implicant in
-          (* The implicant should be atomic, should be able to destruct to get t < c, t <= c, t = c *)
-          (* let implicant = List.map (fun imp -> replace_defs imp) implicant in *)
-          logf ~level:`trace "weakSolver: Unpropping...";
-          let atoms = List.map unprop implicant in
-          logf ~level:`trace "weakSolver: Unpropped";
-
-          let rec process_atoms l geqs eqs ineqs lat_members lat_nonmembers =
-            match l with
-            | [] -> logf ~level:`trace "weakSolver: list of atoms left is empty";
-                    (geqs, eqs, ineqs, lat_members, lat_nonmembers)
-            | h :: t ->
-               logf ~level:`trace "weakSolver: Processing atom: %a" (Formula.pp srk) h;
-               match (Interpretation.destruct_atom_for_weak_theory srk h) with
-                 `ArithComparisonWeak (`Eq, a, b) ->
-                  process_atoms t geqs ((mk_sub srk a b) :: eqs) ineqs lat_members lat_nonmembers
-               | `ArithComparisonWeak (`Neq, a, b) ->
-                  let diff = mk_sub srk a b in
-                  process_atoms t geqs eqs (diff :: ineqs) lat_members lat_nonmembers
-               | `ArithComparisonWeak (`Leq, a, b) ->
-                  process_atoms t ((mk_sub srk b a) :: geqs) eqs ineqs lat_members lat_nonmembers
-               | `ArithComparisonWeak (`Lt, a, b) ->
-                  (* Strict inequality a < b is represented as a <= b && a != b. *)
-                  let diff = mk_sub srk b a in
-                  process_atoms t (diff :: geqs) eqs (diff :: ineqs) lat_members lat_nonmembers
-               | `IsInt (sign, s) when sign = `Pos ->
-                  process_atoms t geqs eqs ineqs (s :: lat_members) lat_nonmembers
-               | `IsInt (sign, s) when sign = `Neg ->
-                  process_atoms t geqs eqs ineqs lat_members (s :: lat_nonmembers)
-               | `Literal _ -> process_atoms t geqs eqs ineqs lat_members lat_nonmembers
-               | _ -> failwith "Weak theory does not support arr expressions."
-          in
-          let geqs, eqs, ineqs2, lat_members, lat_nonmembers =
-            process_atoms atoms [] [] [] [] [] in
-          let geqs = BatList.map (fun expr -> P.of_term srk expr) geqs in
-          let eqs = BatList.map (fun expr -> P.of_term srk expr) eqs in
-          let ineqs = BatList.map (fun expr -> P.of_term srk expr) ineqs2 in
-          let is_ints = BatList.map (fun expr -> P.of_term srk expr) lat_members in
-          let not_ints = BatList.map (fun expr -> P.of_term srk expr) lat_nonmembers in
-          BatList.iter
-            (fun f -> logf ~level:`trace "weakSolver: checking inequations: %a"
-                        (Syntax.ArithTerm.pp srk) f)
-            ineqs2;
-          let initial_ideal =
-            Polynomial.Rewrite.mk_rewrite Polynomial.Monomial.degrevlex eqs
-            |> Polynomial.Rewrite.grobner_basis
-          in
-          logf ~level:`trace
-            "weakSolver: Start making enclosing cone of: ideal: @[%a@] @; geqs: @[%a@]"
-            (Polynomial.Rewrite.pp (pp_dim srk))
-            initial_ideal
-            (PolynomialUtil.PrettyPrint.pp_poly_list (pp_dim srk))
-            geqs;
-
-          let pc = PolynomialCone.make_enclosing_cone initial_ideal geqs in
-          let lattice = PolynomialConeCpClosure.polylattice_spanned_by is_ints in
-
-          (* NK: TODO: This triggers a bug that corrupts memory, e.g., the lattice. *)
-          logf
-            "weakSolver: lattice: @[%a@],@;  initially generated by @[%a@]@;"
-            (PolynomialConeCpClosure.pp_polylattice (pp_dim srk))
-            lattice
-            (PolynomialUtil.PrettyPrint.pp_poly_list (pp_dim srk))
-            is_ints;
-
-          logf "weakSolver: enclosing cone: @[%a@]"
-            (PolynomialCone.pp (pp_dim srk)) pc;
-
-          let continue () =
-            let f = (mk_not srk (mk_and srk implicant)) in
-            logf "weakSolver: adding formula to solver: %a" (Formula.pp srk) f;
-            Smt.Solver.add solver [f]; go ()
-          in
-
-          let contradict_int =
-            (* The IsInt relation is not closed under equality, so this is all we have
-               to check.
-             *)
-            List.exists (fun p -> PolynomialConeCpClosure.in_polylattice p lattice)
-              not_ints
-          in
-          if contradict_int then
-            continue ()
-          else
-            let cut_pc = PolynomialConeCpClosure.regular_cutting_plane_closure lattice pc in
-            logf ~level:`trace "weakSolver: Finish making enclosing cone";
-            (* Check if induced equalities contradict with strict inequalities
-             as required by the formula.  *)
-            let ideal = PolynomialCone.get_ideal cut_pc in
-            let contradict_inequations =
-              BatList.exists (fun nonzero ->
-                  let t = Polynomial.Rewrite.reduce ideal nonzero in
-                  Polynomial.QQXs.equal t Polynomial.QQXs.zero
-                ) ineqs in
-            logf "weakSolver: Strict inequations cannot be satisfied: %b" contradict_inequations;
-
-            (* If the polynomial cone is not proper then the model is no longer consistent. *)
-            if (PolynomialCone.is_proper cut_pc)
-               && not contradict_inequations && not contradict_int then
-              let () = logf "weakSolver: Got a model represented as polynomial cone: %a"
-                         (PolynomialCone.pp (pp_dim srk)) cut_pc in
-              `Sat (model, cut_pc)
-            else continue ()
-  in
-  go ()
+  let solver = Solver.mk_solver srk in
+  Solver.add solver [phi];
+  Solver.get_model solver
 
 let is_sat srk phi =
   match get_model srk phi with
@@ -231,64 +328,50 @@ let is_sat srk phi =
   | `Unsat -> `Unsat
   | `Unknown -> `Unknown
 
-(* projecting down to only linear consequences distributes through intersection, so could
-   do project first then compute intersection, which could be cheaper *)
-
-(* Finding all equations and inequalities implied by a formula according to the weak theory. *)
-let find_consequences srk orig_phi =
-  let phi_symbols = Syntax.symbols orig_phi in
-  let phi = eliminate_ite srk orig_phi in
-  let phi = SrkSimplify.simplify_terms srk phi in
-  let quantifiers, phi = get_quantifiers srk Env.empty phi in
-  logf "Finding consequences for formula: %a" (Formula.pp srk) phi;
-  assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false) quantifiers = true);
-  (* let existential_vars = BatSet.of_list *)
-  (*     (BatList.filter_map *)
-  (*        (fun quant -> match quant with `Exists, x -> logf "exists %a" (Syntax.pp_symbol srk) x; Some x | _ -> None) *)
-  (*        quantifiers) *)
-  (* in *)
-  let pc = PolynomialCone.trivial in
-  let rec go current_pc formula =
-    (* logf "current formula: %a" (Formula.pp srk) formula; *)
-    logf "getting model in find conseq";
-    match get_model srk formula with
-      `Sat (_, poly_cone) ->
-      begin
-        logf "got model poly cone: %a" (PolynomialCone.pp (pp_dim srk)) poly_cone;
-        (* let existential_vars = BatList.fold (fun s sym -> BatSet.add sym s) existential_vars new_symbols in *)
-        let projected_pc = PolynomialCone.project
-            poly_cone
-            (fun i -> let s =  Syntax.symbol_of_int i in Syntax.Symbol.Set.mem s phi_symbols)
-        in
-        logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc;
-        let new_pc = PolynomialCone.intersection current_pc projected_pc in
-        logf "intersection: %a" (PolynomialCone.pp (pp_dim srk)) new_pc;
-        let term_of_dim dim = mk_const srk (symbol_of_int dim) in
-        let blocking_clause = PolynomialCone.to_formula srk term_of_dim new_pc |> mk_not srk in
-        (* logf "adding blocking clause: %a" (Formula.pp srk) blocking_clause; *)
-        let augmented_formula = mk_and srk [formula; blocking_clause] in
-        go new_pc augmented_formula
-      end
-    | `Unsat -> logf "Found consequence: %a" (PolynomialCone.pp (pp_dim srk)) current_pc; current_pc
-    | `Unknown -> failwith "Cannot find a model for the current formula"
+(* Given a operator cl mapping cones to cones such that (1) cl distributes
+   over intersection and projection, (2) cl is extensive, find the closure of
+   the non-negative cone of phi *)
+let abstract cl srk phi = 
+  let project =
+    let phi_symbols = Syntax.symbols phi in
+    fun i -> Syntax.Symbol.Set.mem (Syntax.symbol_of_int i) phi_symbols
   in
-  go pc phi
+  let quantifiers, phi = get_quantifiers srk Env.empty phi in
+  let term_of_dim dim = mk_const srk (symbol_of_int dim) in
+  assert (BatList.for_all (fun (quant, _) -> quant == `Exists) quantifiers);
+  let solver = Solver.mk_solver srk in
+  let block pc =
+    let blocking_clause =PolynomialCone.to_formula srk term_of_dim pc |> mk_not srk in
+    logf "Block: %a" (Formula.pp srk) blocking_clause;
+    Solver.add solver [blocking_clause]
+  in
+  let rec go current_pc =
+    match Solver.get_model solver with
+    | `Unsat -> current_pc
+    | `Unknown -> assert false
+    | `Sat m ->
+      let poly_cone = cl (Model.nonnegative_cone m) in
+      let projected_pc = PolynomialCone.project poly_cone project in
+      let new_pc = PolynomialCone.intersection current_pc projected_pc in
+      block new_pc;
+      go new_pc
+  in
+  Solver.add solver [phi];
+  go PolynomialCone.trivial
+
+let find_consequences srk phi = abstract (fun x -> x) srk phi
 
 let filter_polys_linear_in_dims dims polys =
   let polys_linear_in_dx = BatList.filter_map
-      (fun poly -> let lin, higher = Polynomial.QQXs.split_linear poly in
+      (fun poly -> let lin, higher = P.split_linear poly in
         let higher_contains_dx =
           BatEnum.exists
             (fun (_, mono) ->
                BatEnum.exists
-                 (fun (dim, _) ->
-                    if BatSet.Int.mem dim dims then
-                      true
-                    else false
-                 )
+                 (fun (dim, _) -> BatSet.Int.mem dim dims)
                  (Polynomial.Monomial.enum mono)
             )
-            (Polynomial.QQXs.enum higher)
+            (P.enum higher)
         in
         if higher_contains_dx then None else Some (lin, higher)
       )
@@ -301,9 +384,9 @@ let filter_polys_linear_in_dims dims polys =
           (V.enum lin)
       in
       let linterm_of_only_dx = V.of_enum linterm_of_only_dx_enum in
-      let p = Polynomial.QQXs.of_vec linterm_of_only_dx in
+      let p = P.of_vec linterm_of_only_dx in
       let other_linterm = V.sub lin linterm_of_only_dx in
-      let other_poly = Polynomial.QQXs.of_vec other_linterm in
+      let other_poly = P.of_vec other_linterm in
       if V.is_zero linterm_of_only_dx then None else Some (P.add p (P.add other_poly higher))
     )
     polys_linear_in_dx
@@ -319,41 +402,4 @@ let project_down_to_linear pc lin_dims =
   PolynomialCone.make_enclosing_cone new_ideal lin_cone
 
 let find_linear_consequences srk phi lin_dims =
-  let phi = eliminate_ite srk phi in
-  let phi = SrkSimplify.simplify_terms srk phi in
-  let quantifiers, phi = get_quantifiers srk Env.empty phi in
-  logf "Finding consequences for formula: %a" (Formula.pp srk) phi;
-  assert (BatList.for_all (fun quant -> match quant with `Exists, _ -> true | _ -> false) quantifiers = true);
-  let existential_vars = BatSet.of_list
-      (BatList.filter_map
-         (fun quant -> match quant with `Exists, x -> logf "exists %a" (Syntax.pp_symbol srk) x; Some x | _ -> None)
-         quantifiers)
-  in
-  let pc = PolynomialCone.trivial in
-  let rec go current_pc formula =
-    (* logf "current formula: %a" (Formula.pp srk) formula; *)
-    logf "getting model in find conseq";
-    match get_model srk formula with
-      `Sat (_, poly_cone) ->
-      begin
-        logf "got model poly cone: %a" (PolynomialCone.pp (pp_dim srk)) poly_cone;
-        let projected_pc = PolynomialCone.project
-            poly_cone
-            (fun i -> let s = Syntax.symbol_of_int i in not (BatSet.mem s existential_vars))
-        in
-        logf "projected poly cone: %a" (PolynomialCone.pp (pp_dim srk)) projected_pc;
-        let projected_pc = project_down_to_linear projected_pc lin_dims in
-        let new_pc = PolynomialCone.intersection current_pc projected_pc in
-        let new_pc = project_down_to_linear new_pc lin_dims in
-        logf "intersection: %a" (PolynomialCone.pp (pp_dim srk)) new_pc;
-        let term_of_dim dim = mk_const srk (symbol_of_int dim) in
-        let blocking_clause = PolynomialCone.to_formula srk term_of_dim new_pc |> mk_not srk in
-        (* logf "adding blocking clause: %a" (Formula.pp srk) blocking_clause; *)
-        let augmented_formula = mk_and srk [formula; blocking_clause] in
-        go new_pc augmented_formula
-      end
-    | `Unsat ->
-      logf "Found consequence: %a" (PolynomialCone.pp (pp_dim srk)) current_pc; current_pc
-    | `Unknown -> failwith "Cannot find a model for the current formula"
-  in
-  go pc phi
+  abstract (fun cone -> project_down_to_linear cone lin_dims) srk phi

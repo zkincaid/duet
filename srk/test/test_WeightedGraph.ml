@@ -127,7 +127,7 @@ let pathexpr_naive wg src tgt =
 
 let assert_post tr phi =
   let not_post =
-    rewrite srk ~down:(nnf_rewriter srk) (Ctx.mk_not phi)
+    rewrite srk ~down:(pos_rewriter srk) (Ctx.mk_not phi)
   in
   let pathcond =
     T.guard (T.mul tr (T.assume not_post))
@@ -139,7 +139,7 @@ let assert_post tr phi =
 
 let assert_not_post tr phi =
   let not_post =
-    rewrite srk ~down:(nnf_rewriter srk) (Ctx.mk_not phi)
+    rewrite srk ~down:(pos_rewriter srk) (Ctx.mk_not phi)
   in
   let pathcond =
     T.guard (T.mul tr (T.assume not_post))

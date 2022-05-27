@@ -905,7 +905,7 @@ let omega_algebra = function
 (* Raise universal quantifiers to top-level.  *)
 let lift_universals srk phi =
   let open Syntax in
-  let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
+  let phi = rewrite srk ~down:(pos_rewriter srk) phi in
   let rec quantify_universals (nb, phi) =
     if nb > 0 then
       quantify_universals (nb - 1, mk_forall srk `TyInt phi)

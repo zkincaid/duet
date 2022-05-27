@@ -72,11 +72,3 @@ val destruct_atom : 'a context ->
   [ `ArithComparison of ([`Lt | `Leq | `Eq] * 'a arith_term * 'a arith_term)
   | `Literal of ([ `Pos | `Neg ] * [ `Const of symbol | `Var of int ])
   | `ArrEq of ('a arr_term * 'a arr_term) ]
-
-val destruct_atom_for_weak_theory : 'a context ->
-  'a formula ->
-  [ `ArithComparisonWeak of ([`Neq | `Lt | `Leq | `Eq] * 'a arith_term * 'a arith_term)
-  | `IsInt of ([`Pos | `Neg]) * 'a arith_term
-  | `Literal of ([ `Pos | `Neg ] * [ `Const of symbol | `Var of int ])
-  | `ArrEq of ('a arr_term * 'a arr_term)
-  ]

@@ -25,6 +25,7 @@ module QQVector : sig
   val pp_term : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
   val show : t -> string
   val hash : t -> int
+  val split_leading : t -> (dim * scalar * t) option
 end
 
 (** Sparse matrix with rational entries. *)
@@ -63,10 +64,6 @@ val vector_right_mul : QQMatrix.t -> QQVector.t -> QQVector.t
 
 (** [vector_left_mul v m] computes [(v^t)*m] *)
 val vector_left_mul : QQVector.t -> QQMatrix.t -> QQVector.t
-
-(** Given two matrices [A] and [B], compute matrices [C] and [D] such that [CA
-    = DB] is a basis for the intersection of the rowspaces of [A] and [B]. *)
-val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
 (** Given two matrices [A] and [B], compute matrices [C] and [D] such
    that [CA = DB], and for any [E] and [F] such that [EA = FB], there
@@ -110,6 +107,8 @@ val jordan_chain : QQMatrix.t -> QQ.t -> QQVector.t -> QQVector.t list
 module QQVectorSpace : sig
   (** Vector spaces are represented by a list of basis vectors *)
   type t = QQVector.t list
+
+  val pp : Format.formatter -> t -> unit
 
   val equal : t -> t -> bool
 
@@ -156,6 +155,119 @@ module QQVectorSpace : sig
 
   (** Find the dimension of the given vector space *)
   val dimension : t -> int
+end
+
+(** {2 Rewriting} *)
+
+module type SparseArray = sig
+  type scalar
+  type dim
+  type t
+  val zero : t
+  val split_leading : t -> (dim * scalar * t) option
+  val add : t -> t -> t
+  val add_term : scalar -> dim -> t -> t
+  val scalar_mul : scalar -> t -> t
+  val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
+  val pp : Format.formatter -> t -> unit
+end
+
+
+(** Finite-dimensional (sub)spaces of sparse arays *)
+module MakeLinearSpace
+    (K : Algebra.Field)
+    (D : Map.OrderedType)
+    (V : SparseArray with type dim = D.t
+                      and type scalar = K.t) : sig
+  type t
+
+  (** Logical equality *)
+  val equal : t -> t -> bool
+
+  (** [subspace a b] checks whether [a] is a subspace of [b] *)
+  val subspace : t -> t -> bool
+
+  (** Linear space containing only zero *)
+  val zero : t
+
+  (** Check whether a given space is {0}. *)
+  val is_zero : t -> bool
+
+  (** Check membership of vector within a linear space *)
+  val mem : t -> V.t -> bool
+
+  (** Intersect two spaces *)
+  val intersect : t -> t -> t
+
+  (** Given spaces U and V, compute a basis for the direct sum
+      [{ u+v : u in U, v in V }] *)
+  val sum : t -> t -> t
+
+  (** Given spaces U and V, compute a basis for a space W such that
+      [sum (diff U V) W = U].  NOTE: this vector space is not unique. *)
+  val diff : t -> t -> t
+
+  (** Retrieve an ordered basis for a space *)
+  val basis : t -> V.t BatEnum.t
+
+  (** Find the dimension of the given space *)
+  val dimension : t -> int
+
+  (** [add v U] computes the space [{ av + u : a in K, u in U }] *)
+  val add : V.t -> t -> t
+
+  (** [reduce v S] compute a representative of v in the quotient space
+     [V/S]. *)
+  val reduce : t -> V.t -> V.t
+
+  (** Smallest vector space that contains all vectors in the given
+     enumeration. *)
+  val span : V.t BatEnum.t -> t
+end
+
+(** {2 Linear maps} *)
+
+(** Linear maps from a subspace of S into T. *)
+module MakeLinearMap
+    (K : Algebra.Field)
+    (D : Map.OrderedType)
+    (S : SparseArray with type dim = D.t
+                      and type scalar = K.t)
+    (T : sig
+       type scalar = K.t
+       type t
+       val zero : t
+       val is_zero : t -> bool
+       val add : t -> t -> t
+       val scalar_mul : scalar -> t -> t
+       val pp : Format.formatter -> t -> unit
+     end) : sig
+  type t
+
+  (** The map from the zero space to T *)
+  val empty : t
+
+  (** [apply f x] applies [f] to [x] if [x] belongs to [f]'s domain,
+     otherwise gives [None] *)
+  val apply : t -> S.t -> T.t option
+
+  (** [add x y f] extends [f] with the binding [x -> y], provided that [f x]
+     is either undefined or equal to [y], otherwise gives [None]. *)
+  val add : S.t -> T.t -> t -> t option
+
+  (** [add x y f] extends [f] with the binding [x -> y], provided [x] is not
+      already in the domain of [f], otherwise raises [Invalid_argument]. *)
+  val add_exn : S.t -> T.t -> t -> t
+
+  (** [may_add x y f] extends [f] with the binding [x -> y], provided [x] is
+     not already in the domain of [f], otherwise gives [f]. *)
+  val may_add : S.t -> T.t -> t -> t
+
+  (** Retrieve an enumeration of bindings that defines the linear map *)
+  val enum : t -> (S.t * T.t) BatEnum.t
+
+  (** As [enum], but with the order reversed. *)
+  val reverse : t -> (S.t * T.t) BatEnum.t
 end
 
 (** {2 Affine terms} *)

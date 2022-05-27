@@ -52,7 +52,7 @@ let n = Ctx.mk_const (V.symbol_of "n")
 
 let assert_post tr phi =
   let not_post =
-    rewrite srk ~down:(nnf_rewriter srk) (Ctx.mk_not phi)
+    rewrite srk ~down:(pos_rewriter srk) (Ctx.mk_not phi)
   in
   let pathcond =
     T.guard (T.mul tr (T.assume not_post))

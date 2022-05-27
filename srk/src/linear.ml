@@ -45,6 +45,14 @@ module QQVector = struct
   let show = SrkUtil.mk_show pp
   let compare = compare QQ.compare
   let hash = hash (fun (k,v) -> Hashtbl.hash (k, QQ.hash v))
+
+  let split_leading v =
+    try
+      let (d, b) = min_support v in
+      let v' = set d QQ.zero v in
+      Some (d, b, v')
+    with Not_found ->
+      None
 end
 
 module QQMatrix = struct
@@ -94,135 +102,313 @@ end
 
 exception No_solution
 
-let row_eschelon_form mat b_column =
-  let rec reduce finished mat =
-    if QQMatrix.equal mat QQMatrix.zero then
-      finished
-    else
-      let (row_num, _) = QQMatrix.min_row mat in
-      let (next_row, mat') = QQMatrix.pivot row_num mat in
-      let column =
-        try BatEnum.find (fun (_, i) -> i != b_column) (QQVector.enum next_row) |> snd
-        with Not_found -> raise No_solution
-      in
-      let (cell, next_row') = QQVector.pivot column next_row in
-      let next_row' =
-        QQVector.scalar_mul (QQ.negate (QQ.inverse cell)) next_row'
-      in
-      let f row =
-        let (coeff, row') = QQVector.pivot column row in
-        QQVector.add
-          row'
-          (QQVector.scalar_mul coeff next_row')
-      in
-      reduce ((column,next_row')::finished) (QQMatrix.map_rows f mat')
-  in
-  reduce [] mat
+module type SparseArray = sig
+  type scalar
+  type dim
+  type t
+  val zero : t
+  val split_leading : t -> (dim * scalar * t) option
+  val add : t -> t -> t
+  val add_term : scalar -> dim -> t -> t
+  val scalar_mul : scalar -> t -> t
+  val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
+  val pp : Format.formatter -> t -> unit
+end
 
-let nullspace mat dimensions =
-  let open QQMatrix in
-  let columns = column_set mat in
-  let b_column =
-    1 + (IntSet.fold max columns (List.fold_left max 0 dimensions))
-  in
-  let rr = row_eschelon_form mat b_column in
-  let rec backprop soln = function
-    | [] -> soln
-    | ((lhs, rhs)::rest) ->
-      backprop (QQVector.add_term (QQVector.dot soln rhs) lhs soln) rest
-  in
-  let free_dimensions =
-    List.filter (fun x ->
-        not (List.exists (fun (y, _) -> x = y) rr))
-      dimensions
-  in
-  free_dimensions |> List.map (fun d ->
-      let start = QQVector.of_term QQ.one d in
-      backprop start rr)
+module MakeRewrite
+    (K : Algebra.Field)
+    (D : Map.OrderedType)
+    (V : SparseArray with type dim = D.t
+                       and type scalar = K.t) =
+struct
+  module M = BatMap.Make(D)
+  type t = V.t M.t
+
+  let reduce rewrite v =
+    let rec go rest v =
+      match V.split_leading v with
+      | None -> V.add rest v
+      | Some (d, a, v') ->
+        match M.find_opt d rewrite with
+        | Some rhs ->
+          go rest (V.add v' (V.scalar_mul (K.negate a) rhs))
+        | None ->
+          go (V.add_term a d rest) v'
+    in
+    go V.zero v
+
+  let reducep rewrite v =
+    let rec go rest provenance v =
+      match V.split_leading v with
+      | None -> (V.add rest v, provenance)
+      | Some (d, a, v') ->
+        match M.find_opt d rewrite with
+        | Some rhs ->
+          let provenance = V.add_term a d provenance in
+          go rest provenance (V.add v' (V.scalar_mul (K.negate a) rhs))
+        | None ->
+          go (V.add_term a d rest) provenance v'
+    in
+    go V.zero V.zero v
+
+  let rec reduce_leading rewrite v =
+    match V.split_leading v with
+    | None -> v
+    | Some (d, a, v') ->
+      match M.find_opt d rewrite with
+      | Some rhs ->
+        reduce_leading rewrite (V.add v' (V.scalar_mul (K.negate a) rhs))
+      | None -> v
+
+  let add v rewrite =
+    let v = reduce_leading rewrite v in
+    match V.split_leading v with
+    | Some (dim, a, v') ->
+      let rhs = V.scalar_mul (K.inverse a) v' in
+      `I (M.add dim rhs rewrite)
+    | None -> `D v
+
+  let add_drop v rewrite =
+    let v = reduce_leading rewrite v in
+    match V.split_leading v with
+    | Some (dim, a, v') ->
+      let rhs = V.scalar_mul (K.inverse a) v' in
+      M.add dim rhs rewrite
+    | None -> rewrite
+
+  let binding_to_vec (dim, v) = V.add_term K.one dim v
+  let basis rewrite = (M.enum rewrite) /@ binding_to_vec
+  let rev_basis rewrite = (M.backwards rewrite) /@ binding_to_vec
+  let empty = M.empty
+
+  let join x y =
+    BatEnum.fold
+      (fun rewrite v -> add_drop v rewrite)
+      x
+      (basis y)
+
+  (* Compute the sum of acc and vec[dim -> transform(dim)] *)
+  let rec subst transform acc vec =
+    match V.split_leading vec with
+    | Some (dim, coeff, vec') ->
+      begin
+        match M.find_opt dim transform with
+        | Some rhs ->
+          let acc' = V.add acc (V.scalar_mul coeff rhs) in
+          subst transform acc' vec'
+        | None -> assert false
+      end
+    | None -> acc
+
+  let meet rewrite1 rewrite2 =
+    let transform =
+      M.mapi (fun dim v -> V.add_term K.one dim v) rewrite1
+    in
+    let (_, _, meet) =
+      BatEnum.fold (fun (join, transform, meet) vec ->
+          let (vec', provenance) = reducep join vec in
+          match V.split_leading vec' with
+          | Some (dim, a, v') ->
+            let m = K.inverse a in
+            let r = subst transform V.zero (V.scalar_mul (K.negate m) provenance) in
+            (M.add dim (V.scalar_mul m v') join,
+             M.add dim r transform,
+             meet)
+          | None ->
+            (* vec is a linear combination of vectors in rewrite1 and rewrite2.
+                 a_1 v_1 + ... + a_n v_n + b_1 u_1 + ... + b_i u_i = vec.
+                 So a_1 v_1 + ... + a_n v_n belongs to the intersection *)
+            let v = subst transform vec' provenance in
+            (join, transform, add_drop v meet))
+        (rewrite1, transform, empty)
+        (basis rewrite2)
+    in
+    meet
+
+  let is_leading dim rewrite = M.mem dim rewrite
+end
+
+module MakeLinearSpace
+    (K : Algebra.Field)
+    (D : Map.OrderedType)
+    (V : SparseArray with type dim = D.t
+                      and type scalar = K.t) =
+struct
+  module R = MakeRewrite(K)(D)(V)
+  type t = R.t
+  let zero = R.empty
+  let sum = R.join
+  let intersect = R.meet
+  let is_zero vs = R.M.is_empty vs
+  let mem vs v =
+    match V.split_leading (R.reduce_leading vs v) with
+    | Some _ -> false
+    | None -> true
+  let dimension vs = R.M.cardinal vs
+  let basis = R.basis
+  let rev_basis = R.rev_basis
+  let is_leading = R.is_leading
+  let subspace vs1 vs2 =
+    BatEnum.for_all (mem vs2) (basis vs1)
+  let equal vs1 vs2 = subspace vs1 vs2 && subspace vs2 vs1
+  let add v vs = R.add_drop v vs
+  let diff vs1 vs2 =
+    BatEnum.fold (fun (diff, sum) v ->
+        if mem sum v then (diff, sum)
+        else (add v diff, add v sum))
+      (zero, vs2)
+      (basis vs1)
+    |> fst
+  let reduce = R.reduce
+  let span vectors = BatEnum.fold (fun vs v -> add v vs) zero vectors
+end
+
+module MakeLinearMap
+    (K : Algebra.Field)
+    (D : Map.OrderedType)
+    (S : SparseArray with type dim = D.t
+                      and type scalar = K.t)
+    (T : sig
+       type scalar = K.t
+       type t
+       val zero : t
+       val is_zero : t -> bool
+       val add : t -> t -> t
+       val scalar_mul : scalar -> t -> t
+       val pp : Format.formatter -> t -> unit
+     end) : sig
+  type t
+  val empty : t
+  val apply : t -> S.t -> T.t option
+  val add : S.t -> T.t -> t -> t option
+  val add_exn : S.t -> T.t -> t -> t
+  val may_add : S.t -> T.t -> t -> t
+  val enum : t -> (S.t * T.t) BatEnum.t
+  val reverse : t -> (S.t * T.t) BatEnum.t
+end = struct
+  module R = MakeRewrite(K)(D)(struct
+      type t = S.t * T.t
+      type scalar = K.t
+      type dim = S.dim
+      let split_leading (left, right) =
+        match S.split_leading left with
+        | Some (dim, coeff, left') -> Some (dim, coeff, (left', right))
+        | None -> None
+      let zero = (S.zero, T.zero)
+      let add (left1, right1) (left2, right2) =
+        (S.add left1 left2, T.add right1 right2)
+      let scalar_mul a (left, right) =
+        (S.scalar_mul a left, T.scalar_mul a right)
+      let add_term a dim (left, right) = (S.add_term a dim left, right)
+      let pp fmt (left, right) =
+        Format.fprintf fmt "%a = %a" S.pp left T.pp right
+      let fold f (v, _) a = S.fold f v a
+    end)
+  type t = R.t
+  let empty = R.empty
+  let neg_one = (K.negate K.one)
+
+  let add src tgt map =
+    match R.add (src, T.scalar_mul neg_one tgt) map with
+    | `I map' -> Some map'
+    | `D (_, tgt) ->
+      if T.is_zero tgt then Some map
+      else None
+
+  let may_add src tgt map =
+    match R.add (src, T.scalar_mul neg_one tgt) map with
+    | `I map' -> map'
+    | `D (_, _) -> map
+
+  let add_exn src tgt map =
+    match add src tgt map with
+    | Some map' -> map'
+    | None -> invalid_arg "Cannot add binding to linear map: already in domain"
+
+  let apply map vec =
+    let (v', result) = R.reduce map (vec, T.zero) in
+    match S.split_leading v' with
+    | None -> Some result
+    | Some _ -> None
+
+  let reverse = R.rev_basis
+  let enum = R.basis
+end
+
+module QQVS = MakeLinearSpace(QQ)(SrkUtil.Int)(QQVector)
+
+module QQMap = MakeLinearMap(QQ)(SrkUtil.Int)(QQVector)(QQVector)
+
+module QQFun = MakeLinearMap(QQ)(SrkUtil.Int)(QQVector)(struct
+    include QQ
+    type scalar = QQ.t
+    let scalar_mul = QQ.mul
+    let is_zero = QQ.equal QQ.zero
+  end)
+
 
 let solve_exn mat b =
-  let open QQMatrix in
-  logf ~level:`trace "Solving system:@\nM:  %a@\nb:  %a" pp mat QQVector.pp b;
-  let columns = column_set mat in
-  let b_column = 1 + (IntSet.fold max columns 0) in
-  let mat = add_column b_column b mat in
-  let rr = row_eschelon_form mat b_column in
-  let rec backprop soln = function
-    | [] -> soln
-    | ((lhs, rhs)::rest) ->
-      backprop (QQVector.add_term (QQVector.dot soln rhs) lhs soln) rest
+  (* Verify that every non-zero row of b is also non-zero in m *)
+  QQVector.enum b |> BatEnum.iter (fun (_, d) ->
+      if QQVector.is_zero (QQMatrix.row d mat) then
+        raise No_solution);
+
+  (* For each row i, map mat_i -> b_i.  If no such map exists, the system is
+     inconsistent.  *)
+  let rref =
+    BatEnum.fold (fun eqs (i, row) ->
+        match QQFun.add row (QQ.negate (QQVector.coeff i b)) eqs with
+        | Some eqs -> eqs
+        | None -> raise No_solution)
+      QQFun.empty
+      (QQMatrix.rowsi mat)
   in
-  let res =
-    backprop (QQVector.of_term QQ.one b_column) rr
-    |> QQVector.pivot b_column
-    |> snd
-    |> QQVector.negate
-  in
-  logf ~level:`trace "Solution: %a" QQVector.pp res;
-  res
+
+  (* Back propagate.  Basis takes the form
+      [ d_1 + v_1 -> a_1, ..., d_n + v_n -> a_n ]
+     where each d_i is the leading term of (d_i + v_i), and
+     d_1 < ... < d_n (so if i < j, then d_i doesn't not appear in v_j).
+     A solution can be computed as
+          r_{n+1} = 0
+            r_{i} = r_{i+1} [ d_{i} -> a_{i} - v_{i} . r_{i+1} ]
+  *)
+  BatEnum.fold (fun soln (v,a) ->
+      let (d, b) = QQVector.min_support v in
+      assert (QQ.equal b QQ.one);
+      let result = QQ.sub a (QQVector.dot soln v) in
+      QQVector.add_term result d soln)
+    QQVector.zero
+    (QQFun.reverse rref)
 
 let solve mat b =
   try Some (solve_exn mat b)
   with No_solution -> None
 
+let solve mat v =
+  Log.time "Solve" (solve mat) v
+
+let nullspace mat dimensions =
+  let rref =
+    BatEnum.fold
+      (fun rowspace (_, row) -> QQVS.add row rowspace)
+      QQVS.zero
+      (QQMatrix.rowsi mat)
+  in
+  let backprop init =
+    BatEnum.fold (fun soln v ->
+        let (d, b) = QQVector.min_support v in
+        assert (QQ.equal QQ.one b);
+        let result = QQ.negate (QQVector.dot soln v) in
+        QQVector.add_term result d soln)
+      init
+      (QQVS.rev_basis rref)
+  in
+  dimensions
+  |> List.filter (fun x -> not (QQVS.is_leading x rref))
+  |> List.map (fun d -> backprop (QQVector.of_term QQ.one d))
+
 let vector_right_mul = QQMatrix.vector_right_mul
 let vector_left_mul = QQMatrix.vector_left_mul
-
-let intersect_rowspace a b =
-  (* Create a system lambda_1*A - lambda_2*B = 0.  lambda_1's occupy even
-     columns and lambda_2's occupy odd. *)
-  let mat_a =
-    BatEnum.fold
-      (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i) k mat)
-      QQMatrix.zero
-      (QQMatrix.entries a)
-  in
-  let mat =
-    ref (BatEnum.fold
-           (fun mat (i, j, k) -> QQMatrix.add_entry j (2*i + 1) (QQ.negate k) mat)
-           mat_a
-           (QQMatrix.entries b))
-  in
-  let c = ref QQMatrix.zero in
-  let d = ref QQMatrix.zero in
-  let c_rows = ref 0 in
-  let d_rows = ref 0 in
-  let mat_rows =
-    ref (BatEnum.fold (fun m (i, _) -> max m i) 0 (QQMatrix.rowsi (!mat)) + 1)
-  in
-
-  (* Loop through the columns col of A/B, trying to find a vector in the
-     intersection of the row spaces of A and B and which has 1 in col's entry.
-     If yes, add it the linear combinations to C/D, and add a constraint to
-     mat that (in all future rows of CA), col's entry is 0.  This ensures that
-     the rows of CA are linearly independent. *)
-  (* to do: repeatedly solving super systems of the same system of equations
-       -- can be made more efficient *)
-  (QQMatrix.rowsi (!mat))
-  |> (BatEnum.iter (fun (col, _) ->
-      let mat' =
-        QQMatrix.add_row
-          (!mat_rows)
-          (QQMatrix.row col mat_a)
-          (!mat)
-      in
-      match solve mat' (QQVector.of_term QQ.one (!mat_rows)) with
-      | Some solution ->
-        let (c_row, d_row) =
-          BatEnum.fold (fun (c_row, d_row) (entry, i) ->
-              if i mod 2 = 0 then
-                (QQVector.add_term entry (i/2) c_row, d_row)
-              else
-                (c_row, QQVector.add_term entry (i/2) d_row))
-            (QQVector.zero, QQVector.zero)
-            (QQVector.enum solution)
-        in
-        c := QQMatrix.add_row (!c_rows) c_row (!c);
-        d := QQMatrix.add_row (!d_rows) d_row (!d);
-        mat := mat';
-        incr c_rows; incr d_rows; incr mat_rows
-      | None -> ()));
-  (!c, !d)
 
 (* pushout in the category of rational vector spaces.  [pushout A B]
    Consists of a pair of matrices [C] and [D] such that [CA = DB] and
@@ -248,16 +434,20 @@ let pushout mA mB =
     pairs
 
 let divide_right a b =
-  try
-    let b_tr = QQMatrix.transpose b in
-    let div =
-      BatEnum.fold (fun div (i, row) ->
-          QQMatrix.add_row i (solve_exn b_tr row) div)
-        QQMatrix.zero
-        (QQMatrix.rowsi a)
-    in
-    Some div
-  with No_solution -> None
+  (* Map the ith row to ith unit vector.  Applying to_row_comb expresses its input
+     as a linear combination of the rows of b (if possible) *)
+  let to_row_comb =
+    BatEnum.fold (fun map (i, row) ->
+        QQMap.may_add row (QQVector.of_term QQ.one i) map)
+      QQMap.empty
+      (QQMatrix.rowsi b)
+  in
+  SrkUtil.fold_opt (fun div (i, row) ->
+      BatOption.map
+        (fun soln -> QQMatrix.add_row i soln div)
+        (QQMap.apply to_row_comb row))
+    QQMatrix.zero
+    (QQMatrix.rowsi a)
 
 let divide_left a b =
   match divide_right (QQMatrix.transpose a) (QQMatrix.transpose b) with
@@ -342,10 +532,18 @@ module QQVectorSpace = struct
 
   let of_matrix mM = BatList.of_enum (QQMatrix.rowsi mM /@ snd)
 
+  let vs_of vU =
+    BatList.fold_left
+      (fun rewrite v -> QQVS.add v rewrite)
+      QQVS.zero
+      vU
+
+  let of_vs rewrite =
+    BatList.of_enum (QQVS.basis rewrite)
+
   let intersect vU vV =
-    let (mU, mV) = (matrix_of vU, matrix_of vV) in
-    let (mC, _) = intersect_rowspace mU mV in
-    of_matrix (QQMatrix.mul mC mU)
+    let vv = vs_of vV in
+    of_vs (QQVS.intersect (vs_of vU) vv)
 
   let sum vU vV =
     List.fold_left (fun vR v ->
@@ -401,6 +599,8 @@ module QQVectorSpace = struct
         QQVector.scalar_mul (QQ.of_zz common_denom) vec)
 
   let dimension = List.length
+
+  let pp = SrkUtil.pp_print_list QQVector.pp
 end
 
 (* Affine expressions over constant symbols.  dim_of_sym, const_dim, and
