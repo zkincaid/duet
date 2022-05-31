@@ -80,7 +80,7 @@ let rec eval alg ast =
       | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
 
       | (OP_STORE, [a; i; v]) -> alg (`Store (a, i, v))
-      | (OP_SELECT, [a; i]) -> alg (`Binop(`Select, a, i))
+      | (OP_SELECT, [a; i]) -> alg (`Binop (`Select, a, i))
 
       | (OP_TRUE, []) -> alg `Tru
       | (OP_FALSE, []) -> alg `Fls
@@ -98,6 +98,19 @@ let rec eval alg ast =
       | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
       | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
       | (OP_IS_INT, [s]) -> alg (`IsInt [s])
+      | (OP_XOR, xs) ->
+        let rec exclusive acc = function
+          | y::ys ->
+            exclusive
+              (List.fold_left
+                 (fun acc z -> alg (`Not (alg (`And [y; z])))::acc)
+                 acc
+                 ys)
+              ys
+          | [] -> acc
+        in
+        alg (`And (exclusive [alg (`Or xs)] xs))
+
       | (_, _) -> invalid_arg ("eval: unknown application: "
                                ^ (Expr.to_string ast))
     end

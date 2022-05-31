@@ -283,21 +283,18 @@ let select_implicant interp ?(env=Env.empty) phi =
     | `Fls -> None
     | `Or disjuncts ->
       (* Find satisfied disjunct *)
-      let f disjunct phi =
-        match disjunct with
-        | None -> formula phi
-        | _ -> disjunct
-      in
-      List.fold_left f None disjuncts
+      BatList.find_map_opt formula disjuncts
     | `And conjuncts ->
       (* All conjuncts must be satisfied *)
-      let f phi =
-        match formula phi with
-        | Some x -> x
-        | None -> raise Not_found
+      let rec loop implicant = function
+        | [] -> Some implicant
+        | phi::conjuncts ->
+          match formula phi with
+          | Some phi_implicant ->
+            loop (BatList.rev_append phi_implicant implicant) conjuncts
+          | None -> None
       in
-      (try Some (BatList.concat (List.map f conjuncts))
-       with Not_found -> None)
+      loop [] conjuncts
     | `Atom (`Arith (op, s, t)) ->
       let (s_term, s_impl) = term s in
       let (t_term, t_impl) = term t in
@@ -349,7 +346,11 @@ let select_implicant interp ?(env=Env.empty) phi =
             | _ ->
               invalid_arg "select_implicant: ill-typed propositional variable"
           end
-        | _ -> invalid_arg "select_implicant: negation"
+        | `Fls -> Some []
+        | `Tru -> None
+        | _ ->
+          invalid_arg (Format.asprintf "select_implicant: negation (%a)"
+                         (Formula.pp srk) psi)
       end
     | `Ite (cond, bthen, belse) ->
       begin match formula cond with

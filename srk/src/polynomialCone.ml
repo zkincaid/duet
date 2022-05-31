@@ -230,7 +230,5 @@ let mem p (ideal, cone_generators) =
       Cone.mem vec_target_poly cone
     end
 
-let is_unit p (ideal, _) =
-  QQXs.equal QQXs.zero (Rewrite.reduce ideal p)
-
-let is_proper cone = not (is_unit QQXs.one cone)
+let is_proper (ideal, _) =
+  not (QQXs.equal QQXs.zero (Rewrite.reduce ideal QQXs.one))

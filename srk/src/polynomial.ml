@@ -1194,7 +1194,21 @@ module RewriteWitness = struct
     match p with
     | [] -> Some w
     | _  -> None
+
+  let reducew rewrite (p, w) =
+    let (p, w) = reduce rewrite (OP.of_qqxs rewrite.order p, w) in
+    (OP.qqxs_of p, w)
+
   let reduce rewrite p =
     let (p, w) = reduce rewrite (OP.of_qqxs rewrite.order p, Witness.zero) in
     (OP.qqxs_of p, w)
+
+  let generators rewrite =
+    generators rewrite
+    |> List.map (fun (p, m) -> (OP.qqxs_of p, m))
+
+  let forget rewrite =
+    Rewrite.mk_rewrite
+      rewrite.order
+      (List.map fst (generators rewrite))
 end

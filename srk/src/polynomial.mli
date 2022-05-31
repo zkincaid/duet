@@ -209,6 +209,8 @@ module QQXs : sig
     (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ]) ->
     t ->
     (QQ.t * Monomial.t * t)
+
+  val degree : t -> int
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system
@@ -338,4 +340,7 @@ module RewriteWitness : sig
   (** Check if a given polynomial reduces to zero.  If so, return the witness
      of membership. *)
   val zero_witness : t -> QQXs.t -> Witness.t option
+  val reducew : t -> (QQXs.t * Witness.t) -> (QQXs.t * Witness.t)
+  val generators : t -> (QQXs.t * Witness.t) list
+  val forget : t -> Rewrite.t
 end
