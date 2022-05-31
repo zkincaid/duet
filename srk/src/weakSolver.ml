@@ -433,16 +433,9 @@ module Solver = struct
       in
       add int [] |> add zero |> add nonneg
     in
-    let* _ =
-      not_int |> check_all (fun (p, lit) ->
-          let (p', _) = RR.reduce rewrite p in
-          if PolynomialConeCpClosure.in_polylattice p' lattice
-          then `Unsat (lit :: positive_atoms)
-          else ok)
-    in
     let (cut_pc, lattice) =
       PolynomialConeCpClosure.regular_cutting_plane_closure
-        pc (BatDynArray.to_list int)
+        pc (List.map fst (BatDynArray.to_list int))
     in
     if PolynomialCone.is_proper cut_pc then
       (* Model is least Z-model that satisfies all positive atoms. *)
