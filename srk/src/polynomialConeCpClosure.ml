@@ -4,7 +4,7 @@ open PolynomialUtil
 
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 
-(* let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace *)
+let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace
 
 module MonomialSet = BatSet.Make(Monomial)
 
@@ -41,7 +41,9 @@ let ideal_of polylattice = polylattice.ideal
 
 let pp_polylattice pp_dim fmt polylattice =
   Format.fprintf fmt
-    "@[<v 0>{ affine_basis: @[<v 0>%a@]@; ideal: @[<v 0>%a@]}@]"
+    "{ affine_basis: @[<v 0>%a@]@;
+       ideal: @[<v 0>%a@]
+     }"
     (pp_poly_list pp_dim) polylattice.affine_basis
     (Rewrite.pp pp_dim) polylattice.ideal
 
@@ -71,12 +73,13 @@ let polylattice_spanned_by ideal affine_polys : polylattice option =
           (Linear.const_linterm (QQ.of_zz denominator)))
       basis
   in
-  L.logf "polylattice_spanned_by: input affine polynomials: @[%a@]@;"
-    (PolynomialUtil.PrettyPrint.pp_poly_list pp_dim) affine_polys;
-  L.logf "polylattice_spanned_by: transformed vectors: @[%a@]@;"
-    (pp_vectors Linear.QQVector.pp)
-    vectors;
-  L.logf "polylattice_spanned_by: lattice: @[%a@]@;"
+  L.logf "polylattice_spanned_by:
+          @[input affine polynomials: @[%a@] @]@;
+          @[transformed vectors: @[%a@] @]@;
+          @[lattice: @[%a@] @]@;
+          "
+    (PolynomialUtil.PrettyPrint.pp_poly_list pp_dim) affine_polys
+    (pp_vectors Linear.QQVector.pp) vectors
     IntLattice.pp lattice;
 
   let result =
@@ -145,10 +148,12 @@ let pp_transformation_data pp_dim fmt transformation_data =
 let compute_transformation affine_basis ctxt : transformation_data =
   let fresh_start = Option.value ~default:0 (PolyVectorContext.max_variable ctxt) + 1 in
 
-  L.logf ~level:`trace "compute_transformation: transformation context: @[%a@]@;"
-    (PolyVectorContext.pp pp_dim)
-      ctxt;
-  L.logf ~level:`trace "compute_transformation: fresh variables range from %d to %d@;"
+  L.logf ~level:`trace
+    "compute_transformation:
+     @[transformation context: @[%a@]@]@;
+     @[fresh variables range from %d to %d@]@;
+     "
+    (PolyVectorContext.pp pp_dim) ctxt
     fresh_start (fresh_start + List.length affine_basis);
 
   let transformation_poly dim basis_poly =
@@ -213,6 +218,13 @@ let compute_cut transform cone =
     ( f (Rewrite.generators (PolynomialCone.get_ideal projected))
     , f (PolynomialCone.get_cone_generators projected)) in
 
+  L.logf ~level:`trace
+    "compute_cut:
+     @[zeroes: @[%a@]@]@;
+     @[positives: @[%a@]@]@;"
+    (pp_poly_list pp_dim) linear_zeroes
+    (pp_poly_list pp_dim) linear_positives;
+
   (* 2. Convert to polyhedron *)
   let open PolynomialUtil in
   (* Conversion context to polyhedron.
@@ -223,12 +235,7 @@ let compute_cut transform cone =
   in
 
   L.logf ~level:`trace
-    "compute_cut: @[zeroes: @[%a@]@;positives: @[%a@]@]@;"
-    (pp_poly_list pp_dim) linear_zeroes
-    (pp_poly_list pp_dim) linear_positives;
-
-  L.logf ~level:`trace
-    "compute_cut: context is: @[%a@]@;"
+    "compute_cut: conversion context for Y's is: @[%a@]@;"
     (PolyVectorContext.pp pp_dim)
     ctxt;
 
@@ -239,16 +246,16 @@ let compute_cut transform cone =
   let polyhedron_to_hull =
     Polyhedron.of_constraints
       (BatList.enum (List.append linear_constraints conic_constraints)) in
-  L.logf ~level:`trace "compute_cut: polyhedron to hull: @[%a@]"
+
+  L.logf ~level:`trace "compute_cut: polyhedron to hull: @[%a@]@;
+                        computing integer hull...@;"
     (Polyhedron.pp pp_dim) polyhedron_to_hull;
 
   (* 3. Integer hull *)
-  L.logf ~level:`trace
-    "compute_cut: computing integer hull...@;";
-
   let hull = Polyhedron.integer_hull polyhedron_to_hull in
   L.logf ~level:`trace
-    "compute_cut: computed integer hull@;";
+    "compute_cut: computed integer hull: @[%a@]@;"
+    (Polyhedron.pp pp_dim) hull;
 
   (* 4. Substitute back *)
   let (new_zeroes, new_positives) =
@@ -265,19 +272,9 @@ let compute_cut transform cone =
   in
 
   L.logf ~level:`trace
-    "compute_cut: polynomial cone after projection: @[%a@]@;"
-    (PolynomialCone.pp pp_dim) projected;
-
-  L.logf ~level:`trace
-    "compute_cut: polyhedron to hull: @[%a@]@;"
-    (Polyhedron.pp pp_dim) polyhedron_to_hull;
-
-  L.logf ~level:`trace
-    "compute_cut: integer hull: @[%a@]@;"
-    (Polyhedron.pp pp_dim) hull;
-
-  L.logf ~level:`trace
-    "compute_cut: @[zeroes: @[%a@]@;positives: @[%a@]@];"
+    "compute_cut: result is:
+     @[zeroes: @[%a@]@]@;
+     @[positives: @[%a@]@]@;"
     (pp_poly_list pp_dim) new_zeroes
     (pp_poly_list pp_dim) new_positives;
 
@@ -325,7 +322,9 @@ let cutting_plane_operator polynomial_cone polylattice =
  *)
 let regular_cutting_plane_closure polynomial_cone lattice_polys =
 
-  L.logf "regular_cutting_plane_closure: CP closure of:@;@[<v 0>@[%a@]@;  with respect to @[%a@]@]@;"
+  L.logf "regular_cutting_plane_closure:
+          @[CP closure of: @[<v 0>%a@] @]@;
+          @[  with respect to @[%a@] @]@;"
     (PolynomialCone.pp pp_dim) polynomial_cone
     (pp_poly_list pp_dim) lattice_polys;
 

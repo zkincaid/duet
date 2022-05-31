@@ -163,26 +163,29 @@ let basis t =
 
 let pp fmt t =
   match t with
-  | EmptyLattice -> Format.fprintf fmt
-                      "@[<empty>@]"
+  | EmptyLattice -> Format.fprintf fmt "{empty lattice}"
   | Lattice lat ->
      Format.fprintf fmt
-       "@[<v 0>{ denominator: %a@;; basis: %a }@]"
+       "@[<v 0>
+        { denominator: %a@;
+        ; basis: %a 
+        }@]"
        ZZ.pp lat.denominator
        (SrkUtil.pp_print_list Linear.ZZVector.pp)
        lat.sparse_rep
 
+(*
 let pp_term pp_dim fmt t =
   match t with
-  | EmptyLattice -> Format.fprintf fmt
-                      "@[<empty>@]"
+  | EmptyLattice -> Format.fprintf fmt "{empty lattice}"
   | Lattice lat ->
      Format.fprintf fmt
-       "@[<v 0>{denominator: %a; @[basis: %a@]}@]"
+       "{denominator: %a; basis: %a}"
        ZZ.pp lat.denominator
        (Format.pp_print_list ~pp_sep:Format.pp_print_cut
           (Linear.ZZVector.pp_term pp_dim))
        lat.sparse_rep
+ *)
 
 let _flint_member v t =
   match t with

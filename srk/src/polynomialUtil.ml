@@ -99,9 +99,9 @@ module PolyVectorContext = struct
       (ord: Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt ])
       polys =
     let monos = BatList.concat_map (fun poly ->
-        (BatList.of_enum (QQXs.enum poly) |>
-        BatList.map (fun (_, mono) -> mono)))
-       polys in
+                    (BatList.of_enum (QQXs.enum poly) |>
+                       BatList.map (fun (_, mono) -> mono)))
+                  polys in
     context ~increasing ord monos
 
 
