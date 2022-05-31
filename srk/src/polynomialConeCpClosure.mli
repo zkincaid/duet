@@ -4,42 +4,33 @@ open Polynomial
     of arithmetic.
 *)
 
+(** A polynomial lattice L is of the form I + ZZ B,
+    where I is an ideal and B is a finite set of polynomials that include 1
+    and are reduced with respect to I.
+*)
 type polylattice
 
-(** [polylattice_spanned_by polys] is the lattice spanned by [polys]
-    AND the polynomial 1.
- *)
-val polylattice_spanned_by : QQXs.t list -> polylattice
+val affine_generators : polylattice -> QQXs.t list
+
+val ideal_of : polylattice -> Rewrite.t
+
+val in_polylattice : QQXs.t -> polylattice -> bool
 
 val pp_polylattice : (Format.formatter -> int -> unit)
                      -> Format.formatter -> polylattice -> unit
 
-val in_polylattice : QQXs.t -> polylattice -> bool
-
-(** [regular_cutting_plane_closure lattice cone]
-    computes the smallest regular polynomial cone that contains [cone] and
-    is closed under CP-INEQ with respect to [lattice].
-
-    A polynomial cone C is closed under CP-INEQ w.r.t. L
-    if for all f in L, integers n, m with n > 0,
-    whenever nf + m is in C, f + floor(m/n) is in C.
-    It is regular if C \cap (-C) is an ideal.
-
-    Models of the theory are polynomial cones C that are consistent
-    (the ideal is proper), regular,
-    closed under CP-INEQ, and closed under CP-EQ (not done here).
+(** [regular_cutting_plane_closure cone lattice]
+    computes a coherent (C, L) such that C is the smallest
+    regular polynomial cone that contains [cone] and is
+    closed under CP-INEQ with respect to [lattice].
+    L is (C \cap -C) + [lattice].
  *)
 val regular_cutting_plane_closure :
-  polylattice -> PolynomialCone.t -> PolynomialCone.t
-
-(** Raised if there is a non-integral rational in the lattice.
-    E.g., If 1/2 is in the lattice, 2 (1/2) + (-1) >= 0
-    implies 1/2 + floor(-1/2) >= 0, which implies -1/2 >= 0.
- *)
-exception Invalid_lattice
+  PolynomialCone.t -> QQXs.t list -> PolynomialCone.t * polylattice
 
 (* Export temporarily for testing *)
 
+(*
 open Polynomial
 open PolynomialUtil
 
@@ -52,6 +43,7 @@ type transformation_data =
 val pp_transformation_data : (Format.formatter -> int -> unit)
                              -> Format.formatter -> transformation_data -> unit
 
-val compute_transformation : polylattice -> PolyVectorContext.t -> transformation_data
+val compute_transformation : QQXs.t list -> PolyVectorContext.t -> transformation_data
 
 val compute_cut : transformation_data -> PolynomialCone.t -> (QQXs.t list * QQXs.t list)
+ *)
