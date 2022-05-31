@@ -4,7 +4,7 @@ open PolynomialUtil
 
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 
-let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace
+(* let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace *)
 
 module MonomialSet = BatSet.Make(Monomial)
 
@@ -45,10 +45,19 @@ let pp_polylattice pp_dim fmt polylattice =
     (pp_poly_list pp_dim) polylattice.affine_basis
     (Rewrite.pp pp_dim) polylattice.ideal
 
-exception Invalid_lattice
+let empty_polylattice ideal =
+  { ideal
+  ; affine_basis = []
+  ; lattice_context = context_of []
+  ; int_lattice = IntLattice.lattice_of []
+  }
 
-let polylattice_spanned_by ideal affine_polys : polylattice =
-  let affine_polys = List.map (Rewrite.reduce ideal) (QQXs.one :: affine_polys) in
+let polylattice_spanned_by ideal affine_polys : polylattice option =
+  let affine_polys = BatList.filter_map
+                       (fun p -> let p' = Rewrite.reduce ideal p in
+                                 if QQXs.equal p' QQXs.zero then None
+                                 else Some p')
+                       (QQXs.one :: affine_polys) in
   let ctxt = context_of affine_polys in
   let open PolynomialUtil in
   let vectors =
@@ -69,28 +78,31 @@ let polylattice_spanned_by ideal affine_polys : polylattice =
     vectors;
   L.logf "polylattice_spanned_by: lattice: @[%a@]@;"
     IntLattice.pp lattice;
-  if (List.length one <> 1)
-  then
-  (* Since we add 1 above, this can only happen if the Hermite normal
+
+  let result =
+    if (List.length one <> 1)
+    then
+      (* Since we add 1 above, this can only happen if the Hermite normal
      form contains 1/n for some integer n > 1.
      In that case, the cutting plane closure will be inconsistent:
      n(1/n) - 1 >= 0 --> 1/n - 1 >= 0 --> n <= 1, a contradiction.
      If the input polynomials have only integer coefficients,
      this cannot happen.
-   *)
-    raise Invalid_lattice
-  else
-    ();
-  let affine_basis =
-    List.map (fun v ->
-        zzvector_to_qqvector v
-        |> Linear.QQVector.scalar_mul (QQ.inverse (QQ.of_zz denominator))
-        |> PolyVectorConversion.vector_to_poly ctxt) others in
-  { affine_basis
-  ; ideal
-  ; lattice_context = ctxt
-  ; int_lattice = lattice
-  }
+       *)
+      None
+    else
+      let affine_basis =
+        List.map (fun v ->
+            zzvector_to_qqvector v
+            |> Linear.QQVector.scalar_mul (QQ.inverse (QQ.of_zz denominator))
+            |> PolyVectorConversion.vector_to_poly ctxt) others in
+      Some { affine_basis
+           ; ideal
+           ; lattice_context = ctxt
+           ; int_lattice = lattice
+        }
+  in
+  result
 
 let in_polylattice poly polylattice =
   let open PolynomialUtil in
@@ -273,17 +285,14 @@ let compute_cut transform cone =
 
 
 (**
-   [regular_cp C L], where (C, L) is a coherent cone-lattice pair,
+   [cutting_plane_operator C L], where (C, L) is a coherent cone-lattice pair,
    computes one round of (cutting plane closure + regular closure),
    and returns the new coherent (C', L').
  *)
 let cutting_plane_operator polynomial_cone polylattice =
   if (not (PolynomialCone.is_proper polynomial_cone)) || polylattice.affine_basis = []
   then
-    begin
-      L.logf ~level:`trace "cutting_plane_operator: ideal improper or lattice is trivial";
-      (polynomial_cone, polylattice)
-    end
+    (polynomial_cone, polylattice)
   else
     let (zeroes, positives) =
       ( Rewrite.generators (PolynomialCone.get_ideal polynomial_cone)
@@ -300,7 +309,12 @@ let cutting_plane_operator polynomial_cone polylattice =
     let new_lattice =
       polylattice_spanned_by (PolynomialCone.get_ideal cut_polycone) polylattice.affine_basis
     in
-    (cut_polycone, new_lattice)
+    match new_lattice with
+    | Some polylattice ->
+       (cut_polycone, polylattice)
+    | None ->
+       let full_ring = PolynomialCone.trivial in
+       (full_ring, empty_polylattice (PolynomialCone.get_ideal full_ring))
 
 (**
    [regular_cutting_plane_closure C L] computes the smallest regular
@@ -311,7 +325,7 @@ let cutting_plane_operator polynomial_cone polylattice =
  *)
 let regular_cutting_plane_closure polynomial_cone lattice_polys =
 
-  L.logf "regular_cutting_plane_closure: CP closure of:@;@[<v 0>@[%a@]@; with respect to @[%a@]@]@;"
+  L.logf "regular_cutting_plane_closure: CP closure of:@;@[<v 0>@[%a@]@;  with respect to @[%a@]@]@;"
     (PolynomialCone.pp pp_dim) polynomial_cone
     (pp_poly_list pp_dim) lattice_polys;
 
@@ -334,7 +348,13 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
       end
   in
   let polylattice = polylattice_spanned_by (PolynomialCone.get_ideal polynomial_cone) lattice_polys in
-  let (final_cone, final_lattice) = closure polynomial_cone polylattice in
+  let (final_cone, final_lattice) =
+    match polylattice with
+    | Some polylattice -> closure polynomial_cone polylattice
+    | None ->
+       let full_ring = PolynomialCone.trivial in
+       (full_ring, empty_polylattice (PolynomialCone.get_ideal full_ring))
+  in
   L.logf "regular_cutting_plane_closure: concluded, closure is:@;  @[%a@]@;"
     (PolynomialCone.pp pp_dim)
     final_cone;

@@ -127,7 +127,8 @@ let hermite_normal_form matrix =
 let rev_compare x y = - Int.compare x y
 
 let lattice_of ?(ordering=rev_compare) vectors =
-  if vectors = [] then EmptyLattice
+  if List.for_all (Linear.QQVector.equal Linear.QQVector.zero) vectors
+  then EmptyLattice
   else
     let (dimensions, lcm) = dims_and_lcm_denoms vectors in
     let (bijection, length) = assign_indices ordering dimensions in
