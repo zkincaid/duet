@@ -19,5 +19,3 @@ val basis : t -> ZZ.t * Linear.ZZVector.t list
 val member : Linear.QQVector.t -> t -> bool
 
 val pp : Format.formatter -> t -> unit
-
-val pp_term : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit

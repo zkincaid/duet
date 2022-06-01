@@ -127,7 +127,8 @@ let hermite_normal_form matrix =
 let rev_compare x y = - Int.compare x y
 
 let lattice_of ?(ordering=rev_compare) vectors =
-  if vectors = [] then EmptyLattice
+  if List.for_all (Linear.QQVector.equal Linear.QQVector.zero) vectors
+  then EmptyLattice
   else
     let (dimensions, lcm) = dims_and_lcm_denoms vectors in
     let (bijection, length) = assign_indices ordering dimensions in
@@ -162,26 +163,29 @@ let basis t =
 
 let pp fmt t =
   match t with
-  | EmptyLattice -> Format.fprintf fmt
-                      "@[<empty>@]"
+  | EmptyLattice -> Format.fprintf fmt "{empty lattice}"
   | Lattice lat ->
      Format.fprintf fmt
-       "@[<v 0>{ denominator: %a@;; basis: %a }@]"
+       "@[<v 0>
+        { denominator: %a@;
+        ; basis: %a 
+        }@]"
        ZZ.pp lat.denominator
        (SrkUtil.pp_print_list Linear.ZZVector.pp)
        lat.sparse_rep
 
+(*
 let pp_term pp_dim fmt t =
   match t with
-  | EmptyLattice -> Format.fprintf fmt
-                      "@[<empty>@]"
+  | EmptyLattice -> Format.fprintf fmt "{empty lattice}"
   | Lattice lat ->
      Format.fprintf fmt
-       "@[<v 0>{denominator: %a; @[basis: %a@]}@]"
+       "{denominator: %a; basis: %a}"
        ZZ.pp lat.denominator
        (Format.pp_print_list ~pp_sep:Format.pp_print_cut
           (Linear.ZZVector.pp_term pp_dim))
        lat.sparse_rep
+ *)
 
 let _flint_member v t =
   match t with
