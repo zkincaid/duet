@@ -1374,35 +1374,42 @@ let mk_exists_const srk = quantify_const srk `Exists
 let mk_forall_const srk = quantify_const srk `Forall
 
 let quantify_consts srk qt p phi =
-  let nb_vars = ref 0 in
+  let subst_map = Hashtbl.create 97 in
   let varinfo = ref [] in
-  let subst =
-    Memo.memo (fun sym ->
-        if p sym then
-          mk_const srk sym
+  let nb_vars =
+    Symbol.Set.fold (fun sym nb ->
+        if p sym then nb
         else
-          let i = !nb_vars in
           let typ =
             match typ_symbol srk sym with
             | #typ_fo as x -> x
             | `TyFun _ ->
-               begin match qt with
-               | `Forall ->
+              begin match qt with
+                | `Forall ->
                   invalid_arg "mk_forall_consts: not a first-order constant"
-               | `Exists ->
+                | `Exists ->
                   invalid_arg "mk_exists_consts: not a first-order constant"
-               end
+              end
           in
-          incr nb_vars;
           varinfo := (show_symbol srk sym, typ)::(!varinfo);
-          mk_var srk i typ)
+          Hashtbl.add subst_map sym (mk_var srk nb typ);
+          nb + 1)
+      (symbols phi)
+      0
+  in
+  let phi_dec = decapture srk 0 nb_vars phi in
+  let subst sym =
+    BatHashtbl.find_default
+      subst_map
+      sym
+      (mk_const srk sym)
   in
   let quantify =
     match qt with
     | `Forall -> mk_forall srk
     | `Exists -> mk_exists srk
   in
-  let matrix = substitute_const srk subst phi in
+  let matrix = substitute_const srk subst phi_dec in
   List.fold_right
     (fun (name, typ) phi -> quantify ~name typ phi)
     (!varinfo)
