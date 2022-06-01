@@ -289,7 +289,134 @@ module LinearGuard = struct
     && Smt.equiv srk guard.postcondition guard'.postcondition = `Yes
 end
 
-module LinearRecurrenceInequation = struct
+module GuardedTranslation = struct
+  type 'a t =
+    { simulation : 'a arith_term array;
+      translation : QQ.t array;
+
+      (* Guard is expressed over free variables 0..n, where n is
+         dimension of the translation (minus 1). *)
+      guard : 'a formula
+    }
+
+  let pp srk _ formatter gt =
+    Format.fprintf formatter "@[<v 0>";
+    gt.simulation |> Array.iteri (fun i t ->
+        Format.fprintf formatter "%a += %a@;"
+          (ArithTerm.pp srk) t
+          QQ.pp gt.translation.(i));
+    Format.fprintf formatter "@;when @[<v 0>%a@]"
+      (Formula.pp srk)
+      (substitute srk (fun (i, _) -> gt.simulation.(i)) gt.guard);
+    Format.fprintf formatter "@]"
+
+  let abstract srk tf =
+    let zz_symbols = (* int-sorted transition symbols *)
+      List.filter (fun (s,s') ->
+          typ_symbol srk s = `TyInt
+          && typ_symbol srk s' = `TyInt)
+        (TF.symbols tf)
+    in
+    (* [1, x0' - x0, ..., xn' - xn] *)
+    let delta =
+      [mk_one srk]
+      @(List.map (fun (s,s') ->
+            mk_sub srk (mk_const srk s') (mk_const srk s))
+          zz_symbols)
+      |> Array.of_list
+    in
+    let (simulation, translation) =
+      let pre_symbols =
+        List.map (fun (s,_) -> mk_const srk s) zz_symbols
+        |> BatArray.of_list
+      in
+      List.fold_left (fun (sim,tr) vec ->
+          (* Scale vec so that it has integer coefficients. *)
+          let common_denom =
+            (BatEnum.fold
+               (fun lcm (coeff, _) -> ZZ.lcm lcm (QQ.denominator coeff))
+               ZZ.one
+               (V.enum vec))
+          in
+          let vec = V.scalar_mul (QQ.of_zz common_denom) vec in
+          let (const, functional) = V.pivot 0 vec in
+          (Linear.term_of_vec srk (fun i -> pre_symbols.(i-1)) functional::sim,
+           const::tr))
+        ([], [])
+        (Abstract.vanishing_space srk (TF.formula tf) delta)
+    in
+    (* exists x,x'. F(x,x') /\ Sx = y *)
+    let guard =
+      let fresh_symbols =
+        List.map (fun _ -> mk_symbol srk `TyInt) simulation
+      in
+      let sym_to_var =
+        BatList.fold_lefti (fun m i s ->
+            Symbol.Map.add s (mk_var srk i `TyInt) m)
+          Symbol.Map.empty
+          fresh_symbols
+      in
+      let sx_eq_y =
+        List.map2 (fun s t -> mk_eq srk (mk_const srk s) t) fresh_symbols simulation
+      in
+      Quantifier.mbp
+        srk
+        (fun x -> Symbol.Map.mem x sym_to_var)
+        (mk_and srk ((TF.formula tf)::sx_eq_y))
+      |> substitute_map srk sym_to_var
+    in
+    { simulation = Array.of_list simulation;
+      translation = Array.of_list translation;
+      guard = guard }
+
+  let exp_translation srk term_of_dim loop_counter gt =
+    BatList.init
+      (Array.length gt.simulation)
+      (fun i ->
+        mk_eq srk (term_of_dim i)
+          (mk_mul srk [mk_real srk gt.translation.(i);
+                       loop_counter]))
+    |> mk_and srk
+
+  let exp srk tr_symbols loop_counter gt =
+    let post_map = (* map pre-state vars to post-state vars *)
+      TF.post_map srk tr_symbols
+    in
+    let postify =
+      let subst sym =
+        if Symbol.Map.mem sym post_map then
+          Symbol.Map.find sym post_map
+        else
+          mk_const srk sym
+      in
+      substitute_const srk subst
+    in
+    (* forall subcounter. 0 <= subcounter < loop_counter ==> G(Sx + t*subcounter) *)
+    let subcounter = mk_symbol srk `TyInt in
+    let subcounter_term = mk_const srk subcounter in
+    let guard =
+      let cf = (* Sx + t*subcounter *)
+        Array.mapi (fun i t ->
+            mk_add srk [t; mk_mul srk [subcounter_term; mk_real srk gt.translation.(i)]])
+          gt.simulation
+      in
+      mk_if srk
+        (mk_and srk [mk_leq srk (mk_int srk 0) subcounter_term;
+                     mk_lt srk subcounter_term loop_counter])
+        (substitute srk (fun (i,_) -> cf.(i)) gt.guard)
+      |> mk_not srk
+      |> Quantifier.mbp srk (fun x -> x != subcounter)
+      |> mk_not srk
+    in
+    let delta i =
+      mk_sub srk (postify gt.simulation.(i)) (gt.simulation.(i))
+    in
+    mk_and srk
+      [guard;
+       exp_translation srk delta loop_counter gt]
+end
+
+module LossyTranslation = struct
   type 'a t = ('a arith_term * [ `Geq | `Eq ] * QQ.t) list
 
   let pp srk _ formatter lr =
@@ -960,7 +1087,7 @@ let phase_graph srk tf candidates algebra =
 
 let phase_mp srk candidate_predicates tf nonterm =
   let star tf =
-    let module E = LinearRecurrenceInequation in
+    let module E = LossyTranslation in
     let k = mk_symbol srk `TyInt in
     let exists x = x != k && (TF.exists tf) x in
     TF.make ~exists

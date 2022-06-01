@@ -853,16 +853,16 @@ module Expr = struct
   let arith_term_of _srk sexpr =
     match sexpr.obj with
     | Node (_, _, `TyInt)
-      | Node (_, _, `TyReal) -> sexpr
+    | Node (_, _, `TyReal) -> sexpr
     | Node (_, _, `TyArr)
-      | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not an arithmetic term"
+    | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not an arithmetic term"
 
   let arr_term_of _srk sexpr =
     match sexpr.obj with
     | Node (_, _, `TyArr) -> sexpr
     | Node (_, _, `TyInt)
-      | Node (_, _, `TyReal)
-      | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not an array term"
+    | Node (_, _, `TyReal)
+    | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not an array term"
 
   let formula_of _srk sexpr =
     match sexpr.obj with
@@ -872,6 +872,11 @@ module Expr = struct
     | Node (_, _, `TyBool) -> sexpr
 
   let pp = pp_expr
+
+  let destruct_sexpr _srk { obj=Node (label, children, _); _ } =
+    (label, children)
+
+  let construct_sexpr _srk label children = _srk.mk label children
 
   module HT = struct
     module HT = BatHashtbl.Make(Inner)

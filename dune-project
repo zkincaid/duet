@@ -13,7 +13,7 @@
   (depends
     batteries
     ppx_deriving
-    gmp
+    mlgmpidl
     camlidl
     apron
     z3

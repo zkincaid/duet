@@ -335,64 +335,116 @@ struct
   let transform tr = M.enum tr.transform
   let guard tr = tr.guard
 
+  let rec destruct_and srk phi =
+    match Formula.destruct srk phi with
+    | `And xs -> List.concat_map (destruct_and srk) xs
+    | _ -> [phi]
+
   let interpolate trs post =
     let trs =
       trs |> List.map (fun tr ->
-          let fresh_skolem =
-            Memo.memo (fun sym ->
-                match Var.of_symbol sym with
-                | Some _ -> mk_const srk sym
-                | None ->
-                  let name = show_symbol srk sym in
-                  let typ = typ_symbol srk sym in
-                  mk_const srk (mk_symbol srk ~name typ))
-          in
-          { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
-            guard = substitute_const srk fresh_skolem tr.guard })
+                 let fresh_skolem =
+                   Memo.memo (fun sym ->
+                       match Var.of_symbol sym with
+                       | Some _ -> mk_const srk sym
+                       | None ->
+                          let name = show_symbol srk sym in
+                          let typ = typ_symbol srk sym in
+                          mk_const srk (mk_symbol srk ~name typ))
+                 in
+                 { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
+                   guard = substitute_const srk fresh_skolem tr.guard })
     in
-    let unsubscript_tbl = Hashtbl.create 991 in
+    (* Break guards into conjunctions, associate each conjunct with an indicator *)
+    let guards =
+      List.map (fun tr ->
+          List.map
+            (fun phi -> (mk_symbol srk `TyBool, phi))
+            (destruct_and srk tr.guard))
+        trs
+    in
+    let indicators =
+      List.concat_map (List.map (fun (s, _) -> mk_const srk s)) guards
+    in
     let subscript_tbl = Hashtbl.create 991 in
     let subscript sym =
       try
         Hashtbl.find subscript_tbl sym
       with Not_found -> mk_const srk sym
     in
-    let unsubscript sym =
-      try
-        Hashtbl.find unsubscript_tbl sym
-      with Not_found -> mk_const srk sym
-    in
     (* Convert tr into a formula, and simultaneously update the subscript
        table *)
-    let to_ss_formula tr =
+    let to_ss_formula tr guards =
+      let ss_guards =
+        List.map (fun (indicator, guard) ->
+            mk_if srk
+              (mk_const srk indicator)
+              (substitute_const srk subscript guard))
+          guards
+      in
       let (ss, phis) =
         M.fold (fun var term (ss, phis) ->
             let var_sym = Var.symbol_of var in
             let var_ss_sym = mk_symbol srk (Var.typ var :> typ) in
             let var_ss_term = mk_const srk var_ss_sym in
             let term_ss = substitute_const srk subscript term in
-            Hashtbl.add unsubscript_tbl var_ss_sym (mk_const srk var_sym);
             ((var_sym, var_ss_term)::ss,
              mk_eq srk var_ss_term term_ss::phis))
           tr.transform
-          ([], [substitute_const srk subscript tr.guard])
+          ([], ss_guards)
       in
       List.iter (fun (k, v) -> Hashtbl.add subscript_tbl k v) ss;
       mk_and srk phis
     in
-    let seq =
-      List.fold_left
-        (fun subscripted tr ->
-           (to_ss_formula tr)::subscripted)
-        []
-        trs
-    in
-    let ss_post = substitute_const srk subscript (mk_not srk post) in
-    match SrkZ3.interpolate_seq srk (List.rev (ss_post::seq)) with
-    | `Sat _ -> `Invalid
+    let solver = Smt.mk_solver srk in
+    List.iter2 (fun tr guard ->
+        Smt.Solver.add solver [to_ss_formula tr guard])
+      trs
+      guards;
+    Smt.Solver.add solver [substitute_const srk subscript (mk_not srk post)];
+    match Smt.Solver.get_unsat_core solver indicators with
+    | `Sat -> `Invalid
     | `Unknown -> `Unknown
-    | `Unsat itp ->
-      `Valid (List.map (substitute_const srk unsubscript) itp)
+    | `Unsat core ->
+       let core_symbols =
+         List.fold_left (fun core phi ->
+             match Formula.destruct srk phi with
+             | (`Proposition (`App (s, []))) -> Symbol.Set.add s core
+             | _ -> assert false)
+           Symbol.Set.empty
+           core
+       in
+       let (itp, _) =
+         List.fold_right2 (fun tr guard (itp, post) ->
+             let subst sym =
+               match Var.of_symbol sym with
+               | Some var ->
+                  if M.mem var tr.transform then
+                    M.find var tr.transform
+                  else
+                    mk_const srk sym
+               | None -> mk_const srk sym
+             in
+             let post' = substitute_const srk subst post in
+             let reduced_guard =
+               List.filter_map (fun (indicator, guard) ->
+                   if Symbol.Set.mem indicator core_symbols then
+                     Some (mk_not srk guard)
+                   else
+                     None)
+                 guard
+             in
+             let wp =
+               (mk_not srk (mk_or srk (post'::reduced_guard)))
+               |> Quantifier.mbp srk (fun s -> Var.of_symbol s != None)
+               |> mk_not srk
+             in
+             (wp::itp, wp))
+           trs
+           guards
+           ([post], post)
+       in
+       `Valid (List.tl itp)
 
   let valid_triple phi path post =
     let path_not_post = List.fold_right mul path (assume (mk_not srk post)) in

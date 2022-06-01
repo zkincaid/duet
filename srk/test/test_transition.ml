@@ -304,6 +304,20 @@ let interpolate2 () =
     check_interpolant path itp
   | _ -> assert_failure "Invalid post-condition"
 
+let interpolate_havoc () =
+  let path =
+    let open Infix in
+    [T.assign "x" (int 0);
+     T.assign "y" v; (* havoc *)
+     T.assume (x <= y);
+     T.assume (y < (int 0))]
+  in
+  let post = Ctx.mk_false in
+  match T.interpolate path post with
+  | `Valid itp ->
+    check_interpolant path itp
+  | _ -> assert_failure "Invalid post-condition"
+
 let negative_eigenvalue () =
   let tr =
     let open Infix in
@@ -332,9 +346,8 @@ let suite = "Transition" >::: [
     "split" >:: split;
     "split2" >:: split2;
     "equal1" >:: equal1;
-(*
     "interpolate1" >:: interpolate1;
     "interpolate2" >:: interpolate2;
-*)
+    "interpolate_havoc" >:: interpolate_havoc;
     "negative_eigenvalue" >:: negative_eigenvalue;
   ]

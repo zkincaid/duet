@@ -8,7 +8,7 @@ module Q = Quantifier
 module TF = TransitionFormula
 module Int = SrkUtil.Int
 module Accelerate =
-  Iteration.MakeDomain(Iteration.Product(Iteration.LinearRecurrenceInequation)
+  Iteration.MakeDomain(Iteration.Product(Iteration.LossyTranslation)
                          (Iteration.PolyhedronGuard))
 include Log.Make(struct let name = "srk.vass" end)
 

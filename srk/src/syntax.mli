@@ -87,6 +87,31 @@ type 'a term = ('a, typ_term) expr
 type 'a arith_term = ('a, typ_arith) expr
 type 'a arr_term = ('a, typ_arr) expr
 type 'a formula = ('a, typ_bool) expr
+type label =
+  | True
+  | False
+  | And
+  | Or
+  | Not
+  | Exists of string * typ_fo
+  | Forall of string * typ_fo
+  | Eq
+  | Leq
+  | Lt
+  | ArrEq
+  | App of symbol
+  | Var of int * typ_fo
+  | Add
+  | Mul
+  | Div
+  | Mod
+  | Floor
+  | Neg
+  | Real of QQ.t
+  | Ite
+  | Store
+  | Select
+  | IsInt
 
 val compare_expr : ('a,'typ) expr -> ('a,'typ) expr -> int
 val compare_formula : 'a formula -> 'a formula -> int
@@ -225,9 +250,17 @@ module Expr : sig
      expression is not an arith_term. *)
   val arith_term_of : 'a context -> ('a, typ_fo) expr -> 'a arith_term
 
-(** Convert an expression to an arr_term.  Raise [Invalid_arg] if the
-     expression is not an arith_term. *)
+  (** Convert an expression to an arr_term.  Raise [Invalid_arg] if
+     the expression is not an arr_term. *)
   val arr_term_of : 'a context -> ('a, typ_fo) expr -> 'a arr_term
+
+  (** Destruct an expression as an s-expression, consisting of a label
+     and a list of children. *)
+  val destruct_sexpr : 'a context -> ('a, typ_fo) expr -> label * (('a, typ_fo) expr list)
+
+  (** Construct an expression from a label and list of children.
+     Inverse of [destruct_sexpr]. *)
+  val construct_sexpr : 'a context -> label -> (('a, typ_fo) expr list) -> ('a, typ_fo) expr
 
   module HT : sig
     type ('a, 'typ, 'b) t

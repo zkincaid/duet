@@ -5,7 +5,6 @@ open Test_pervasives
 
 module V = Linear.QQVector
 
-         
 let mk_polyhedron halfspaces =
   BatList.enum halfspaces
   /@ (fun (v, a) -> (`Nonneg,

@@ -29,6 +29,12 @@ module WAT = struct
   let star srk tf = closure (abstract srk tf)
 end
 
+module GT = struct
+  include Iteration.MakeDomain(Iteration.GuardedTranslation)
+  let star srk tf = closure (abstract srk tf)
+end
+
+
 let assert_implies_nonlinear phi psi =
   match Wedge.is_sat srk (mk_and srk [phi; mk_not srk psi]) with
   | `Unsat -> ()
@@ -480,6 +486,28 @@ let algebraic2 () =
   let closure = DLTS.star srk phi in
   assert_implies_nonlinear closure (x' <= x + (int 2))
 
+let guarded_translation1 () =
+  let phi =
+    TransitionFormula.make
+      Infix.(x' = x + (int 1)
+             && y' = y
+             && (x < y || y < x))
+      tr_symbols
+  in
+  let closure = GT.star srk phi in
+  assert_implies closure Infix.(y < x || x' <= y)
+
+let guarded_translation2 () =
+  let phi =
+    TransitionFormula.make
+      Infix.(x' = x - (int 2)
+             && ((int 0) < x || x < (int 0))
+             && ((int 1) < x || x < (int 1)))
+      tr_symbols
+  in
+  let closure = GT.star srk phi in
+  assert_implies closure Infix.(x < (int 0) || (int 0) <= x')
+
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;
     "simple_induction" >:: simple_induction;
@@ -505,4 +533,6 @@ let suite = "Iteration" >::: [
     "dlts_one" >:: dlts_one;
     "algebraic1" >:: algebraic1;
     "algebraic2" >:: algebraic2;
+    "guarded_translation1" >:: guarded_translation1;
+    "guarded_translation2" >:: guarded_translation2;
   ]
