@@ -9,7 +9,7 @@ Building
 
 Duet depends on several software packages.  The following dependencies need to be installed manually.
 
- + [opam](http://opam.ocaml.org) (version >= 2, with OCaml >= 4.08 & native compiler)
+ + [opam](http://opam.ocaml.org) (version >= 2, with OCaml >= 4.10 & native compiler)
    - If you have an older version of opam installed, you can install opam2 using `opam install opam-devel`
  + GMP and MPFR
  + [NTL](http://www.shoup.net/ntl/): number theory library
