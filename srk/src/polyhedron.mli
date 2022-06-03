@@ -69,6 +69,9 @@ val local_project : (int -> QQ.t) -> int list -> t -> t
 (** Fourier-Motzkin elimination. *)
 val project : int list -> t -> t
 
+(** Project using the double-description method *)
+val project_dd : int list -> t -> t
+
 (** Apply Fourier-Motzkin elimination to the subset of symbols that appear
     linearly and are "easy" to eliminate.  Symbols that do not appear linearly
     are not projected.  *)

@@ -403,6 +403,20 @@ let of_apron0 man abstract0 =
     P.top
     (Abstract0.to_lincons_array man abstract0)
 
+let project_dd xs polyhedron =
+  let open Apron in
+  let man = Polka.manager_alloc_loose () in
+  let dim = 1 + max_constrained_dim polyhedron in
+  let polyhedron =
+    List.fold_left (project_one 10) polyhedron xs
+  in
+  Abstract0.forget_array
+    man
+    (apron0_of man dim polyhedron)
+    (Array.of_list xs)
+    false
+  |> of_apron0 man
+
 let normalize_constraints polyhedron =
   let man = Polka.manager_alloc_loose () in
   let dim = 1 + max_constrained_dim polyhedron in

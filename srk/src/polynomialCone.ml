@@ -130,7 +130,9 @@ let project_cone cone_generators f =
                          (fun (d, _) -> f d)
                          (Monomial.enum monomial)
                     ) |> BatList.of_enum in
-  let projected_polyhedron = Polyhedron.project elim_dims polyhedron_rep_of_cone in
+  let projected_polyhedron =
+    Polyhedron.project_dd elim_dims polyhedron_rep_of_cone
+  in
   cone_of_polyhedron projected_polyhedron ctx
 
 let monomial_over pred monomial =
