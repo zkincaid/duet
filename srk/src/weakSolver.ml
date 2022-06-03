@@ -307,7 +307,7 @@ module Solver = struct
               W.add (combine_witness positive u) (combine_witness positive v)
             in
             (* If line is a non-zero constant, the cone is trivial. *)
-            if not (P.equal P.zero line_poly && P.degree line_poly == 0) then
+            if not (P.equal P.zero line_poly) && P.degree line_poly == 0 then
               `Unsat (core_of_witness srk witness)
             else
               (* Allocate an new proposition for line: it is supported by the
