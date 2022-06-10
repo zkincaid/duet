@@ -287,6 +287,19 @@ let suite = "Polynomial" >::: [
         assert_rewrite_spec generators rewrite QQXs.one;
         assert_rewrite_spec generators rewrite (p * q * r))
 
+    ; "rewrite_linear_inconsistent" >:: (fun () ->
+        let open QQXsInfix in
+        let x = dim 'x' in
+        let y = dim 'y' in
+        let p = (int 2) * x + (int 2) in
+        let q = x + y in
+        let r = y + (int 3) in
+        let generators = [p; q; r] in
+        let rewrite = mk_rewrite_witness generators in
+        assert_rewrite_spec generators rewrite QQXs.one;
+        assert_rewrite_spec generators rewrite (p * x))
+
+
     ; "rewrite_gb" >:: (fun () ->
         let open QQXsInfix in
         let x = dim 'x' in

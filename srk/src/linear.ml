@@ -228,6 +228,25 @@ struct
   let is_leading dim rewrite = M.mem dim rewrite
 end
 
+module type LinearSpace = sig
+  type t
+  type scalar
+  type vector
+  val equal : t -> t -> bool
+  val subspace : t -> t -> bool
+  val zero : t
+  val is_zero : t -> bool
+  val mem : t -> vector -> bool
+  val intersect : t -> t -> t
+  val sum : t -> t -> t
+  val diff : t -> t -> t
+  val basis : t -> vector BatEnum.t
+  val dimension : t -> int
+  val add : vector -> t -> t
+  val reduce : t -> vector -> vector
+  val span : vector BatEnum.t -> t
+end
+
 module MakeLinearSpace
     (K : Algebra.Field)
     (D : Map.OrderedType)
@@ -236,6 +255,8 @@ module MakeLinearSpace
 struct
   module R = MakeRewrite(K)(D)(V)
   type t = R.t
+  type scalar = K.t
+  type vector = V.t
   let zero = R.empty
   let sum = R.join
   let intersect = R.meet
