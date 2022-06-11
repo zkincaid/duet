@@ -103,9 +103,11 @@ let sparsify idx_to_dim arr =
  *)
 let hermite_normal_form matrix =
   let level = `trace in
-  let verbose = if Log.level_leq (!Log.verbosity_level) level
-                   || Log.level_leq (!L.my_verbosity_level) level
-                then true else false in
+  let verbose =
+    if
+      (* Log.level_leq (!Log.verbosity_level) level || *)
+      Log.level_leq (!L.my_verbosity_level) level
+    then true else false in
   if verbose then Flint.set_debug true else ();
   let mat = Flint.new_matrix matrix in
   L.logf ~level "hermite_normal_form: testing new matrix@;";
