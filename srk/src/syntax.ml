@@ -147,6 +147,38 @@ module Env = struct
        find_tree x.tree i x.size
     | x::env -> find env (i - x.size)
 
+  let rec update_tree tree i f size =
+    match tree with
+    | Leaf x when i = 0 -> Leaf (f x)
+    | Leaf _ -> assert false
+    | Node (x, left, right) ->
+       let halfsize = size / 2 in
+       if i = 0 then
+         Node (f x, left, right)
+       else if i <= halfsize then
+         update_tree left (i - 1) f halfsize
+       else
+         update_tree right (i - halfsize - 1) f halfsize
+
+  let rec update (env : 'a t) (i : int) (f : 'a -> 'a) : 'a t =
+    match env with
+    | [] -> raise Not_found
+    | x::env when i < x.size ->
+      let elt =
+        { tree = update_tree x.tree i f x.size
+        ; size = x.size }
+      in
+      elt::env
+    | x::env -> x::(update env (i - x.size) f)
+
+  let map f env =
+    let rec map_tree = function
+      | Leaf x -> Leaf (f x)
+      | Node (x, left, right) ->
+        Node (f x, map_tree left, map_tree right)
+    in
+    List.map (fun elt -> { elt with tree = map_tree elt.tree }) env
+
   let empty = []
 
   let rec make_enum rest size =
