@@ -256,7 +256,7 @@ module Expr : sig
 
   (** Destruct an expression as an s-expression, consisting of a label
      and a list of children. *)
-  val destruct_sexpr : 'a context -> ('a, typ_fo) expr -> label * (('a, typ_fo) expr list)
+  val destruct_sexpr : 'a context -> ('a, 'b) expr -> label * (('a, typ_fo) expr list)
 
   (** Construct an expression from a label and list of children.
      Inverse of [destruct_sexpr]. *)

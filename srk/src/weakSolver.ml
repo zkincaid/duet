@@ -33,29 +33,19 @@ let rec get_quantifiers srk env phi =
     ((qt,k)::qf_pre, psi)
   | _ -> ([], substitute srk (fun (i, _) -> lookup env i) phi)
 
-let destruct_literal srk phi =
+let destruct_atom srk phi =
   let sub a b = P.sub (P.of_term srk a) (P.of_term srk b) in
   match Formula.destruct srk phi with
-  | `Atom (`Arith (`Eq, s, t)) -> `Zero (sub t s)
-  | `Atom (`Arith (`Lt, s, t)) -> `Neg (sub s t) (* x < y <=> !(0 <= x - y) *)
-  | `Atom (`Arith (`Leq, s, t)) -> `Nonneg (sub t s)
-  | `Atom (`IsInt s) -> `IsInt (P.of_term srk s)
-  | `Proposition (`App (k, [])) -> `True k
-  | `Not psi ->
-    begin match Formula.destruct srk psi with
-      | `Proposition (`App (k, [])) -> `False k
-      | `Atom (`Arith (`Eq, s, t)) -> `Nonzero (sub t s)
-      | `Atom (`Arith (`Leq, s, t)) -> `Neg (sub t s)   (* !(x <= y) <=> y - x < 0 *)
-      | `Atom (`Arith (`Lt, s, t)) -> `Nonneg (sub s t) (*  !(x < y) <=> 0 <= x - y *)
-      | `Atom (`IsInt s) -> `NonInt (P.of_term srk s)
-      | _ -> invalid_arg (Format.asprintf "destruct_literal: %a is not recognized"
-                            (Formula.pp srk) phi)
-    end
-  | `Tru -> `Zero P.zero
-  | `Fls -> `Zero P.one
-  | _ ->
-    invalid_arg (Format.asprintf "destruct_literal: %a is not recognized"
-                   (Formula.pp srk) phi)
+  | `Atom (`Arith (`Eq, s, t)) -> Some (`Zero (sub t s))
+  | `Atom (`Arith (`Leq, s, t)) -> Some (`Nonneg (sub t s))
+  | `Atom (`IsInt s) -> Some (`IsInt (P.of_term srk s))
+  | `Atom (`Arith (`Lt, _, _)) ->
+    (* x < y should be replaced by x <= y /\ x != y. *)
+    assert false
+  | `Proposition (`App (k, [])) -> Some (`Prop k)
+  | `Tru -> Some (`Zero P.zero)
+  | `Fls -> Some (`Zero P.one)
+  | _ -> None
 
 (* Polynomial combination of proposition identifiers *)
 module W = Polynomial.Witness
@@ -67,12 +57,16 @@ let core_of_witness srk witness =
     []
     (W.enum witness)
 
+type 'a literal =
+  { atom : 'a
+  ; polarity : [`Pos | `Neg] }
+
 let destruct_prop_literal srk lit =
   match Formula.destruct srk lit with
-  | `Proposition (`App (k, [])) -> (false, k)
+  | `Proposition (`App (k, [])) -> { atom = k; polarity = `Pos }
   | `Not phi ->
     begin match Formula.destruct srk phi with
-      | `Proposition (`App (k, [])) -> (true, k)
+      | `Proposition (`App (k, [])) -> { atom = k; polarity = `Neg }
       | _ -> invalid_arg "destruct_prop_literal: not a propositional literal"
     end
   | _ -> invalid_arg "destruct_prop_literal: not a propositional literal"
@@ -118,19 +112,26 @@ module Model = struct
       | `Quantify (_, _, _, _) -> invalid_arg "evaluate_formula: quantifier"
       | `Atom atom ->
         let atom = Formula.construct srk (`Atom atom) in
-        match destruct_literal srk atom with
-        | `Zero z -> is_zero m z
-        | `Nonzero p -> not (is_zero m p)
-        | `Nonneg p -> is_nonneg m p
-        | `Neg n -> not (is_nonneg m n)
-        | `IsInt q -> is_int m q
-        | `NonInt q -> not (is_int m q)
-        | `True k -> is_true_prop m k
-        | `False k -> not (is_true_prop m k)
+        match destruct_atom srk atom with
+        | Some (`Zero z) -> is_zero m z
+        | Some (`Nonneg p) -> is_nonneg m p
+        | Some (`IsInt q) -> is_int m q
+        | Some (`Prop k) -> is_true_prop m k
+        | None -> assert false
   in
   Formula.eval srk f phi
 
 end
+
+let mk_atom srk prop =
+  let term_of_dim dim = mk_const srk (symbol_of_int dim) in
+  let term_of = P.term_of srk term_of_dim in
+  let zero = mk_zero srk in
+  match prop with
+  | `Zero p -> mk_eq srk zero (term_of p)
+  | `Nonneg p -> mk_leq srk zero (term_of p)
+  | `IsInt p -> mk_is_int srk (term_of p)
+  | `Prop k -> mk_const srk k
 
 module Solver = struct
   type 'a t =
@@ -143,7 +144,10 @@ module Solver = struct
     ; prop : ('a, typ_bool, 'a formula) Expr.HT.t
 
     (* Inverse of prop *)
-    ; unprop : (symbol, 'a formula) Hashtbl.t
+    ; unprop : (symbol, [`Zero of P.t
+                        | `Nonneg of P.t
+                        | `IsInt of P.t ]) Hashtbl.t
+
 
     (* Propositional skeletons of asserted formulae.  Not necessarily in same
        order they are asserted. *)
@@ -171,37 +175,53 @@ module Solver = struct
             ~name:(Format.asprintf "{%a}" (Expr.pp srk) expr)
             (expr_typ srk expr)
         in
-        let atom = mk_const srk prop in
-        Expr.HT.add solver.prop phi atom;
-        Hashtbl.add solver.unprop prop phi;
-        atom
+        let prop_atom = mk_const srk prop in
+        let atom =
+          match destruct_atom srk phi with
+          | Some (`Zero z) -> `Zero z
+          | Some (`Nonneg p) -> `Nonneg p
+          | Some (`IsInt q) -> `IsInt q
+          | Some (`Prop _) -> assert false
+          | None -> assert false
+        in
+        Expr.HT.add solver.prop phi prop_atom;
+        Hashtbl.add solver.unprop prop atom;
+        prop_atom
     in
     match Expr.refine srk expr with
     | `ArithTerm _ | `ArrTerm _ -> expr
     | `Formula phi ->
       let term_of_dim dim = mk_const srk (symbol_of_int dim) in
       let term_of = P.term_of srk term_of_dim in
-      match Formula.destruct srk phi with
-      | `Atom _ ->
-        let prop =
-          match destruct_literal srk phi with
-          | `Zero p -> prop_of_atom (mk_eq srk zero (term_of p))
-          | `Nonneg p -> prop_of_atom (mk_leq srk zero (term_of p))
-          | `Neg p -> mk_not srk (prop_of_atom (mk_leq srk zero (term_of p)))
-          | `Nonzero p -> mk_not srk (prop_of_atom (mk_leq srk zero (term_of p)))
-          | `IsInt p -> prop_of_atom (mk_is_int srk (term_of p))
-          | `NonInt p -> mk_not srk (prop_of_atom (mk_is_int srk (term_of p)))
-          | `True k -> mk_const srk k
-          | `False k -> mk_not srk (mk_const srk k)
-        in
-        (prop :> ('a, typ_fo) expr)
-      | _ -> expr
+      let phi' =
+        match destruct_atom srk phi with
+        | Some (`Zero p) -> prop_of_atom (mk_eq srk zero (term_of p))
+        | Some (`Nonneg p) -> prop_of_atom (mk_leq srk zero (term_of p))
+        | Some (`IsInt p) -> prop_of_atom (mk_is_int srk (term_of p))
+        | Some (`Prop k) -> mk_const srk k
+        | None -> phi
+      in
+      (phi' :> ('a, typ_fo) expr)
+
+  (* Replace s < t with s <= t /\ s != t. *)
+  let lt_rewriter srk (expr : ('a, typ_fo) expr) =
+    match destruct srk expr with
+    | `Not phi ->
+      begin
+        match Formula.destruct srk phi with
+        | `Atom (`Arith (`Lt, s, t)) ->
+          (mk_or srk [mk_not srk (mk_leq srk s t); mk_eq srk s t] :> ('a, typ_fo) expr)
+        | _ -> expr
+      end
+    | `Atom (`Arith (`Lt, s, t)) ->
+      (mk_and srk [mk_leq srk s t; mk_not srk (mk_eq srk s t)] :> ('a, typ_fo) expr)
+    | _ -> expr
 
   let propositionalize solver phi =
     let srk = solver.srk in
     eliminate_ite srk phi
     |> Nonlinear.eliminate_floor_mod_div srk
-    |> rewrite srk ~down:(nnf_rewriter srk) ~up:(prop_rewriter solver)
+    |> rewrite srk ~down:(nnf_rewriter srk % lt_rewriter srk) ~up:(prop_rewriter solver)
 
   let propositionalize_atom solver phi =
     match Expr.refine solver.srk (prop_rewriter solver (phi :> ('a, typ_fo) expr)) with
@@ -210,7 +230,7 @@ module Solver = struct
 
   let unpropositionalize solver phi =
     let unprop symbol =
-      try Hashtbl.find solver.unprop symbol
+      try mk_atom solver.srk (Hashtbl.find solver.unprop symbol)
       with Not_found -> mk_const solver.srk symbol
     in
     substitute_const solver.srk unprop phi
@@ -317,7 +337,7 @@ module Solver = struct
                   (mk_eq srk (mk_zero srk) (term_of line_poly))
               in
               let line_prop_id =
-                int_of_symbol (snd (destruct_prop_literal srk line_prop))
+                int_of_symbol (destruct_prop_literal srk line_prop).atom
               in
               Smt.Solver.add solver.sat [mk_if srk
                                            (mk_and srk (core_of_witness srk witness))
@@ -348,6 +368,20 @@ module Solver = struct
     | Some w -> `Unsat (core_of_witness srk w)
     | None -> `Sat (zero, positive)
 
+  let regularize solver zero positive =
+    Log.time "Regularize" (regularize solver zero) positive
+
+  let fold_qqxs_symbols f acc poly =
+    BatEnum.fold
+      (fun acc (_, m) ->
+         BatEnum.fold
+           (fun acc (var, _) ->
+              f acc (symbol_of_int var))
+           acc
+           (Monomial.enum m))
+      acc
+      (P.enum poly)
+
   (* Depropositionalize a propositional cube and compute a minimal model, if
      possible.  Assumes prop_cube is propositionally satisfiable. *)
   let model_of_prop_cube solver prop_cube =
@@ -360,30 +394,39 @@ module Solver = struct
     let not_nonneg = BatDynArray.create () in
     let int_symbols = ref Symbol.Set.empty in
     let srk = solver.srk in
-
+    let add_poly arr p w =
+      fold_qqxs_symbols (fun () sym ->
+          if Syntax.typ_symbol srk sym == `TyInt then
+            int_symbols := Symbol.Set.add sym (!int_symbols))
+        ()
+        p;
+      BatDynArray.add arr (p, w)
+    in
     (* 1 is nonnegative without need for a witness *)
     BatDynArray.add nonneg (P.one, W.zero);
 
-    prop_cube |> List.iter (fun prop_lit ->
-        let lit = unpropositionalize solver prop_lit in
-        let (_, sym) = destruct_prop_literal srk prop_lit in
-        symbols lit |> Symbol.Set.iter (fun sym ->
-            if Syntax.typ_symbol srk sym == `TyInt then
-              int_symbols := Symbol.Set.add sym (!int_symbols));
+    logf "Cube:@.  @[<v 0>%a@]"
+      (SrkUtil.pp_print_enum_nobox
+         (fun formatter p ->
+            unpropositionalize solver p
+            |> Formula.pp srk formatter))
+      (BatList.enum prop_cube);
 
+    prop_cube |> List.iter (fun prop_lit ->
+        let (polarity, sym) = destruct_prop_literal srk prop_lit in
         let w = W.of_list [(P.one, int_of_symbol sym)] in
-        match destruct_literal srk lit with
-        | `Zero z -> BatDynArray.add zero (z, w)
-        | `Nonneg p -> BatDynArray.add nonneg (p, w)
-        | `IsInt m -> BatDynArray.add int (m, w)
-        | `Neg n -> BatDynArray.add not_nonneg (n, prop_lit)
-        | `Nonzero q -> BatDynArray.add not_zero (q, prop_lit)
-        | `NonInt m -> BatDynArray.add not_int (m, prop_lit)
-        | `True k -> pos := Symbol.Set.add k (!pos)
-        | `False _ ->
-          (* Since prop_cube is propositionally satisfiable, we can simply
-             ignore negative propositions *)
-          ());
+        match BatHashtbl.find_option solver.unprop sym, polarity with
+        | Some (`Zero p), false -> add_poly zero p w
+        | Some (`IsInt p), false -> add_poly int p w
+        | Some (`Nonneg p), false -> add_poly nonneg p w
+        | Some (`Zero p), true -> add_poly not_zero p prop_lit
+        | Some (`IsInt p), true -> add_poly not_int p prop_lit
+        | Some (`Nonneg p), true -> add_poly not_nonneg p prop_lit
+        | None, false -> pos := Symbol.Set.add sym (!pos)
+
+        (* Since prop_cube is propositionally satisfiable, we can simply
+           ignore negative propositions *)
+        | None, true -> ());
 
     (* Add integrality constraints for int-sorted symbols *)
     (!int_symbols) |> Symbol.Set.iter (fun sym ->
@@ -463,6 +506,7 @@ module Solver = struct
       `Unsat positive_atoms
 
   let get_model solver =
+    logf "Getting model...";
     let srk = solver.srk in
     let rec go () =
       match Log.time "SAT solving" Smt.Solver.get_model solver.sat with
@@ -481,9 +525,16 @@ module Solver = struct
         in
         match model_of_prop_cube solver prop_implicant with
         | `Sat m -> `Sat m
-        | `Unsat cube ->
-          Smt.Solver.add solver.sat [mk_not srk (mk_and srk cube)];
-          go ()
+        | `Unsat cube -> begin
+            logf "Unsat core:@.  @[<v 0>%a@]"
+              (SrkUtil.pp_print_enum_nobox
+                 (fun formatter p ->
+                    unpropositionalize solver p
+                    |> Formula.pp srk formatter))
+              (BatList.enum cube);
+            Smt.Solver.add solver.sat [mk_not srk (mk_and srk cube)];
+            go ()
+          end
     in
     go ()
 end

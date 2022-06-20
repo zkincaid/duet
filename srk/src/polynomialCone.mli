@@ -51,3 +51,5 @@ val equal: t -> t -> bool
 
 (** Compute a (finite) formula representation of a polynomial cone. *)
 val to_formula : 'a context -> (int -> 'a arith_term) -> t -> 'a formula
+
+val leq : t -> t -> bool

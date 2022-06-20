@@ -182,18 +182,6 @@ let intersection (i1, c1) (i2, c2) =
   let cone = project_cone reduced (fun x -> x = fresh_var) in
   (ideal2, cone)
 
-
-let equal (i1, c1) (i2, c2) =
-  Rewrite.equal i1 i2
-  && (let rewritten_c2 = List.map (Rewrite.reduce i1) c2 in
-      try
-        let pvutil = PVCTX.mk_context Monomial.degrevlex rewritten_c2 in
-        (
-          Polyhedron.equal
-            (polyhedron_of_cone c1 pvutil)
-            (polyhedron_of_cone rewritten_c2 pvutil))
-      with PVCTX.Not_in_context -> false)
-
 let to_formula srk term_of_dim (ideal, cone_generators) =
   let open Syntax in
   let ideal_eq_zero = BatList.map (fun p -> mk_eq srk (mk_real srk QQ.zero) (QQXs.term_of srk term_of_dim p))
@@ -232,5 +220,14 @@ let mem p (ideal, cone_generators) =
       Cone.mem vec_target_poly cone
     end
 
+let leq (z1, p1) (z2, p2) =
+  Rewrite.subset z1 z2
+  && List.for_all (fun p -> mem p (z2, p2)) p1
+
+let equal (z1, p1) (z2, p2) =
+  Rewrite.equal z1 z2
+  && List.for_all (fun p -> mem p (z2, p2)) p1
+  && List.for_all (fun p -> mem p (z1, p1)) p2
+  
 let is_proper (ideal, _) =
   not (QQXs.equal QQXs.zero (Rewrite.reduce ideal QQXs.one))
