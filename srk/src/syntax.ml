@@ -1333,52 +1333,63 @@ module Formula = struct
     go phi
 
   let prenex srk phi =
+    let nb_vars = ref (-1) in
+    let fresh () =
+      incr nb_vars;
+      !nb_vars
+    in
     let negate_prefix =
       List.map (function
-          | `Exists (name, typ) -> `Forall (name, typ)
-          | `Forall (name, typ) -> `Exists (name, typ))
+          | (`Exists, name, typ, i) -> (`Forall, name, typ, i)
+          | (`Forall, name, typ, i) -> (`Exists, name, typ, i))
     in
-    let combine phis =
-      let f (qf_pre0, phi0) (qf_pre, phis) =
-        let depth = List.length qf_pre in
-        let depth0 = List.length qf_pre0 in
-        let phis = List.map (decapture srk depth depth0) phis in
-        (qf_pre0@qf_pre, (decapture srk 0 depth phi0)::phis)
-      in
-      List.fold_right f phis ([], [])
+    let rec go env sexpr =
+      let (Node (label, children, _)) = sexpr.obj in
+      match label, children with
+      | Var (i, _), [] ->
+        (try ([], Env.find env i)
+         with Not_found -> invalid_arg "Prenex conversion: free variable")
+      | Forall (name, typ), [phi] ->
+        let id = fresh () in
+        let env = Env.push (mk_var srk id typ) env in
+        let (qf_pre, psi) = go env phi in
+        ((`Forall, name, typ, id)::qf_pre, psi)
+      | Exists (name, typ), [phi] ->
+        let id = fresh () in
+        let env = Env.push (mk_var srk id typ) env in
+        let (qf_pre, psi) = go env phi in
+        ((`Exists, name, typ, id)::qf_pre, psi)
+      | Not, [phi] ->
+        let (qf_pre, phi') = go env phi in
+        (negate_prefix qf_pre, mk_not srk phi')
+      | _ ->
+        let (qf_pre, children) =
+          List.fold_right (fun child (qf_pre, children) ->
+              let (qf_pre', child') = go env child in
+              (qf_pre' @ qf_pre, child'::children))
+            children
+            ([], [])
+        in
+        (qf_pre, srk.mk label children)
     in
-    let alg = function
-      | `Tru -> ([], mk_true srk)
-      | `Fls -> ([], mk_false srk)
-      | `Atom c -> ([], construct srk (`Atom c))
-      | `And conjuncts ->
-        let (qf_pre, conjuncts) = combine conjuncts in
-        (qf_pre, mk_and srk conjuncts)
-      | `Or disjuncts ->
-        let (qf_pre, disjuncts) = combine disjuncts in
-        (qf_pre, mk_or srk disjuncts)
-      | `Quantify (`Exists, name, typ, (qf_pre, phi)) ->
-        (`Exists (name, typ)::qf_pre, phi)
-      | `Quantify (`Forall, name, typ, (qf_pre, phi)) ->
-        (`Forall (name, typ)::qf_pre, phi)
-      | `Not (qf_pre, phi) -> (negate_prefix qf_pre, mk_not srk phi)
-      | `Proposition (`Var i) -> ([], mk_var srk i `TyBool)
-      | `Proposition (`App (p, args)) -> ([], mk_app srk p args)
-      | `Ite (cond, bthen, belse) ->
-        begin match combine [cond; bthen; belse] with
-          | (qf_pre, [cond; bthen; belse]) ->
-            (qf_pre, mk_ite srk cond bthen belse)
-          | _ -> assert false
-        end
+    let (qf_pre, phi) = go Env.empty phi in
+    let subst =
+      BatList.fold_lefti
+        (fun subst i (_, _, typ, j) ->
+           SrkUtil.Int.Map.add j (mk_var srk ((!nb_vars) - i) typ) subst)
+        SrkUtil.Int.Map.empty
+        qf_pre
     in
-    let (qf_pre, matrix) = eval srk alg phi in
+    let phi =
+      substitute srk (fun (i, _) -> SrkUtil.Int.Map.find i subst) phi
+    in
     List.fold_right
       (fun qf phi ->
          match qf with
-         | `Exists (name, typ) -> mk_exists srk ~name typ phi
-         | `Forall (name, typ) -> mk_forall srk ~name typ phi)
+         | (`Exists, name, typ, _) -> mk_exists srk ~name typ phi
+         | (`Forall, name, typ, _) -> mk_forall srk ~name typ phi)
       qf_pre
-      matrix
+      phi
 end
 
 let quantify_const srk qt sym phi =
