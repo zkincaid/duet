@@ -62,11 +62,11 @@ let exp x k =
 
 let floor x =
   let (num, den) = to_zzfrac x in
-  ZZ.div num den
+  ZZ.fdiv num den
 
 let ceiling x =
   let (num, den) = to_zzfrac x in
-  ZZ.div (ZZ.sub (ZZ.add num den) ZZ.one) den
+  ZZ.fdiv (ZZ.sub (ZZ.add num den) ZZ.one) den
 
 (* Truncated continued fraction *)
 let rec nudge ?(accuracy=(!opt_default_accuracy)) x =

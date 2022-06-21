@@ -21,7 +21,6 @@ include Log.Make(struct let name = "srk.weaksolver" end)
 let pp_dim srk = (fun formatter i -> pp_symbol srk formatter (symbol_of_int i))
 
 let rec get_quantifiers srk env phi =
-  let phi = Formula.prenex srk phi in
   let lookup env i =
     try Env.find env i
     with Not_found -> assert false
@@ -564,6 +563,7 @@ let abstract cl srk phi =
     let phi_symbols = Syntax.symbols phi in
     fun i -> Syntax.Symbol.Set.mem (Syntax.symbol_of_int i) phi_symbols
   in
+  let phi = Formula.prenex srk phi in
   let quantifiers, phi = get_quantifiers srk Env.empty phi in
   let term_of_dim dim = mk_const srk (symbol_of_int dim) in
   assert (BatList.for_all (fun (quant, _) -> quant == `Exists) quantifiers);
