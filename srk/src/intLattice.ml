@@ -111,7 +111,7 @@ let hermite_normal_form matrix =
   if verbose then Flint.set_debug true else ();
   let mat = Flint.new_matrix matrix in
   L.logf ~level "hermite_normal_form: testing new matrix@;";
-  let (denom, m) =  Flint.zz_denom_matrix_of_rational_matrix mat in
+  let (denom, m) =  Flint.denom_matrix_of_rational_matrix mat in
   L.logf ~level "hermite_normal_form: new matrix: @[denom: %a@;matrix: %a@]"
     Mpzf.print denom
     pp_zz_matrix m;
@@ -119,7 +119,7 @@ let hermite_normal_form matrix =
   Flint.hermitize mat;
   let rank = Flint.rank mat in
   let basis =
-    Flint.zz_denom_matrix_of_rational_matrix mat
+    Flint.denom_matrix_of_rational_matrix mat
     |> snd
     |> BatList.take rank (* The rows after rank should be all zeros *)
   in
@@ -208,7 +208,7 @@ let _flint_member v t =
                |> (fun arr -> Flint.new_matrix [Array.to_list arr])
                |> Flint.transpose in
      let (denom, preimage) = Flint.matrix_multiply inv vec
-                             |> Flint.zz_denom_matrix_of_rational_matrix in
+                             |> Flint.denom_matrix_of_rational_matrix in
      let preimage_vector = List.concat preimage in
      let (prefix, suffix) = BatList.takedrop rank preimage_vector in
      (* The unique solution to B^T y = v must have all zeroes in the extended
@@ -216,8 +216,8 @@ let _flint_member v t =
         and then have ZZ entries to be within the ZZ-span of the lattice.
       *)
      let (transposed_denom, transposed_matrix) =
-       Flint.zz_denom_matrix_of_rational_matrix transposed in
-     let (target_denom, target_vector) = Flint.zz_denom_matrix_of_rational_matrix vec in
+       Flint.denom_matrix_of_rational_matrix transposed in
+     let (target_denom, target_vector) = Flint.denom_matrix_of_rational_matrix vec in
      L.logf
        "@[<v 0>Lattice: %a
         @; embedding dimension: %d | rank: %d

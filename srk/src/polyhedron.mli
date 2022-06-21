@@ -97,7 +97,7 @@ val minimal_faces : t -> (V.t * ((constraint_kind * V.t) BatEnum.t)) BatEnum.t
 (** [integer_hull p] computes the convex hull of the integer points contained
     in p.
  *)
-val integer_hull : t -> t
+val integer_hull : [`GomoryChvatal | `Normaliz] -> t -> t
 
 val gomory_chvatal : t -> t
 

@@ -4,7 +4,7 @@ open PolynomialUtil
 
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 
-let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace
+(* let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace *)
 
 module MonomialSet = BatSet.Make(Monomial)
 
@@ -252,7 +252,8 @@ let compute_cut transform cone =
     (Polyhedron.pp pp_dim) polyhedron_to_hull;
 
   (* 3. Integer hull *)
-  let hull = Polyhedron.integer_hull polyhedron_to_hull in
+  (* let hull = Polyhedron.integer_hull polyhedron_to_hull in *)
+  let hull = Polyhedron.gomory_chvatal polyhedron_to_hull in
   L.logf ~level:`trace
     "compute_cut: computed integer hull: @[%a@]@;"
     (Polyhedron.pp pp_dim) hull;

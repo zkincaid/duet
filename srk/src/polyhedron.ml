@@ -703,11 +703,10 @@ module NormalizCone = struct
           | `Pos -> invalid_arg "normaliz_cone_of: open faces not supported yet")
         ([], [])
         normalized_constraints in
-    let cone =
-      let c1 = Normaliz.add_equalities Normaliz.empty_cone equalities in
-      let c2 = Normaliz.add_inequalities (Result.get_ok c1) inequalities in
-      Result.get_ok c2
-      |> Normaliz.new_cone
+    let cone = Normaliz.empty_cone
+               |> Normaliz.add_equalities equalities |> Result.get_ok
+               |> Normaliz.add_inequalities inequalities |> Result.get_ok
+               |> Normaliz.new_cone
     in
     (cone, bij)
 
@@ -726,7 +725,6 @@ module NormalizCone = struct
 
     let dehomogenized = Normaliz.dehomogenize cone in
     logf ~level:`trace "polyhedron: integer_hull: dehomogenized cone, computing integer hull...@;";
-    (* Normaliz.set_debug true; *)
     Normaliz.hull dehomogenized;
     logf ~level:`trace "polyhedron: integer_hull: computed integer hull@;";
     let cut_ineqs = Normaliz.get_int_hull_inequalities dehomogenized in
@@ -752,9 +750,9 @@ module NormalizCone = struct
     let dimensions = collect_dimensions vectors in
     let (bij, _cardinality) = assign_indices dimensions in
     let rays = BatEnum.fold (fun rays v -> densify bij v :: rays) [] vectors in
-    let cone =
-      Result.get_ok (Normaliz.add_rays Normaliz.empty_cone rays)
-      |> Normaliz.new_cone in
+    let cone = Normaliz.empty_cone
+               |> Normaliz.add_rays rays |> Result.get_ok
+               |> Normaliz.new_cone in
     let hilbert_basis = Normaliz.hilbert_basis cone
                         |> List.map (sparsify bij) in
     logf ~level:`trace "polyhedron: hilbert basis: @[%a@]"
@@ -764,14 +762,10 @@ module NormalizCone = struct
     
   let cut_face vertex defining =
     let basis =
-      defining
-      //@ (function
-           (* TODO: Require cone to be pointed for now because of uncertainty 
-            with Normaliz with regards to Hilbert bases for non-pointed cones;
-            may have to separately compute MaximalSubspace and extend.
-            *)
-           | (`Zero, _) -> assert false
-           | (`Nonneg, v) -> Some v)
+      BatEnum.concat_map (function
+          | (`Zero, v) -> BatList.enum [v ; Linear.QQVector.negate v]
+          | (`Nonneg, v) -> BatList.enum [v])
+        defining
       /@ (non_constant % (normalize (fun dim -> dim <> Linear.const_dim)))
       |> hilbert_basis
     in
@@ -807,6 +801,11 @@ module NormalizCone = struct
 
 end
 
-let integer_hull = NormalizCone.integer_hull
+let integer_hull = function
+  | `GomoryChvatal -> NormalizCone.gomory_chvatal
+  | `Normaliz -> NormalizCone.integer_hull
+
 let gomory_chvatal = NormalizCone.gomory_chvatal
 
+
+                       
