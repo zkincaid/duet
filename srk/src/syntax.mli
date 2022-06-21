@@ -16,6 +16,8 @@ module Env : sig
   val empty : 'a t
   val push : 'a -> 'a t -> 'a t
   val find : 'a t -> int -> 'a
+  val update : 'a t -> int -> ('a -> 'a) -> 'a t
+  val map : ('a -> 'b) -> 'a t -> 'b t
   val enum : 'a t -> 'a BatEnum.t
 end
 
