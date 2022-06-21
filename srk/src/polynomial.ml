@@ -657,6 +657,9 @@ module OrderedPolynomial = struct
   let add_term order c m p = add order [(c,m)] p
 
   let zero = []
+  let is_zero = function
+    | [] -> true
+    | _ -> false
 end
 
 module MakeRewrite
@@ -989,7 +992,6 @@ module MakeRewrite
   let add_saturate rewrite p =
     Log.time "Buchberger" (add_saturate rewrite) p
 
-
   let pp pp_dim formatter rewrite =
     SrkUtil.pp_print_enum_nobox
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@;")
@@ -1028,7 +1030,6 @@ module MakeRewrite
     logf ~level:`trace "Grobner basis:@\n@[<v 0>%a@]"
       (pp pp_dim) grobner;
     grobner
-
 
   module type LinearSpace = Linear.LinearSpace
     with type scalar = K.t
@@ -1179,14 +1180,13 @@ module Rewrite = struct
       (OP.of_qqxs (R.get_monomial_ordering rewrite) p, P.empty)
       |> R.reduce rewrite
     in
-    p' = []
+    OP.is_zero p'
 
   let subset j k =
     BatList.for_all
       (fun q ->
-         match R.reduce k q with
-         | ([], _) -> true
-         | _ -> false)
+         let (p, _) = R.reduce k q in
+         OP.is_zero p)
       (R.generators j)
 
   let equal j k = subset j k && subset k j
@@ -1311,9 +1311,7 @@ module RewriteWitness = struct
     add_saturate rewrite (OP.of_qqxs rewrite.order p, w)
   let zero_witness rewrite p =
     let (p, w) = reduce rewrite (OP.of_qqxs rewrite.order p, Witness.zero) in
-    match p with
-    | [] -> Some w
-    | _  -> None
+    if OP.is_zero p then Some w else None
 
   let reducew rewrite (p, w) =
     let (p, w) = reduce rewrite (OP.of_qqxs rewrite.order p, w) in

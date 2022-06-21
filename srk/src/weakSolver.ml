@@ -303,6 +303,8 @@ module Solver = struct
     | Some witness -> `Unsat (core_of_witness srk witness)
     | None -> `Sat rewrite
 
+  let proper_ideal srk zero = Log.time "Proper ideal" (proper_ideal srk) zero
+
   (* Compute smallest regular cone containing positive and the ideal generated
      by zero.  Returns an unsat core if the resulting regular cone is trivial.
      This procedure may allocate additional propositions that represent
@@ -310,17 +312,18 @@ module Solver = struct
      added to the solver.  *)
   let regularize solver zero positive =
     let srk = solver.srk in
-    let* rewrite = proper_ideal srk zero in
+    let* rewrite = proper_ideal srk (BatDynArray.to_list zero) in
     let term_of_dim dim = mk_const srk (symbol_of_int dim) in
     let term_of = P.term_of srk term_of_dim in
     let lineality positive =
       let (ctx, rays) = vectorize positive in
       let dim = PVCTX.num_dimensions ctx in
       let linear_cone = Cone.make ~lines:[] ~rays:(Array.to_list rays) dim in
+      let cs = Cone.Solver.make rays in
       Cone.normalize linear_cone;
       Cone.lines linear_cone
       |> rev_mapm (fun line ->
-          match Cone.simplex rays line, Cone.simplex rays (V.negate line) with
+          match Cone.Solver.solve cs line, Cone.Solver.solve cs (V.negate line) with
           | Some u, Some v ->
             let line_poly = PV.vector_to_poly ctx line in
             let witness =
@@ -413,27 +416,27 @@ module Solver = struct
       (BatList.enum prop_cube);
 
     prop_cube |> List.iter (fun prop_lit ->
-        let (polarity, sym) = destruct_prop_literal srk prop_lit in
-        let w = W.of_list [(P.one, int_of_symbol sym)] in
-        match BatHashtbl.find_option solver.unprop sym, polarity with
-        | Some (`Zero p), false -> add_poly zero p w
-        | Some (`IsInt p), false -> add_poly int p w
-        | Some (`Nonneg p), false -> add_poly nonneg p w
-        | Some (`Zero p), true -> add_poly not_zero p prop_lit
-        | Some (`IsInt p), true -> add_poly not_int p prop_lit
-        | Some (`Nonneg p), true -> add_poly not_nonneg p prop_lit
-        | None, false -> pos := Symbol.Set.add sym (!pos)
+        let lit = destruct_prop_literal srk prop_lit in
+        let w = W.of_list [(P.one, int_of_symbol lit.atom)] in
+        match BatHashtbl.find_option solver.unprop lit.atom, lit.polarity with
+        | Some (`Zero p), `Pos -> add_poly zero p w
+        | Some (`IsInt p), `Pos -> add_poly int p w
+        | Some (`Nonneg p), `Pos -> add_poly nonneg p w
+        | Some (`Zero p), `Neg -> add_poly not_zero p prop_lit
+        | Some (`IsInt p), `Neg -> add_poly not_int p prop_lit
+        | Some (`Nonneg p), `Neg -> add_poly not_nonneg p prop_lit
+        | None, `Pos -> pos := Symbol.Set.add lit.atom (!pos)
 
         (* Since prop_cube is propositionally satisfiable, we can simply
            ignore negative propositions *)
-        | None, true -> ());
+        | None, `Neg -> ());
 
     (* Add integrality constraints for int-sorted symbols *)
     (!int_symbols) |> Symbol.Set.iter (fun sym ->
         (* No witness required, since int constraint is implicit *)
         BatDynArray.add int (P.of_dim (int_of_symbol sym), W.zero));
 
-    let* (rewrite, positive) = regularize solver (BatDynArray.to_list zero) nonneg in
+    let* (rewrite, positive) = regularize solver zero nonneg in
     let* _ =
       (* Test for unsatisfied disequality *)
       not_zero |> check_all (fun (p, lit) ->
@@ -441,13 +444,15 @@ module Solver = struct
           | Some w -> `Unsat (lit :: (core_of_witness srk w))
           | None -> ok)
     in
+
     let* _ =
       (* Test for unsatisfied negative inequality *)
       let (ctx, rays) = vectorize positive in
+      let cs = Cone.Solver.make rays in
       not_nonneg |> check_all (fun (p, lit) ->
           try
             let (p', w) = RR.reduce rewrite p in
-            match Cone.simplex rays (PV.poly_to_vector ctx p') with
+            match Cone.Solver.solve cs (PV.poly_to_vector ctx p') with
             | Some u ->
               let w = W.add w (combine_witness positive u) in
               `Unsat (lit :: (core_of_witness srk w))
@@ -457,6 +462,7 @@ module Solver = struct
                positive cone, and so does not belong to the cone *)
             ok)
     in
+
     let pc =
       PolynomialCone.make_cone
         (RR.forget rewrite)

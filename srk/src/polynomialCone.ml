@@ -228,6 +228,6 @@ let equal (z1, p1) (z2, p2) =
   Rewrite.equal z1 z2
   && List.for_all (fun p -> mem p (z2, p2)) p1
   && List.for_all (fun p -> mem p (z1, p1)) p2
-  
+
 let is_proper (ideal, _) =
   not (QQXs.equal QQXs.zero (Rewrite.reduce ideal QQXs.one))

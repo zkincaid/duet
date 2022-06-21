@@ -274,6 +274,10 @@ module MakeLinearMap
 
   (** As [enum], but with the order reversed. *)
   val reverse : t -> (S.t * T.t) BatEnum.t
+
+  (** Compose a map with a linear map on the target space.  The function must
+     be linear for the composition to be well-defined. *)
+  val compose : t -> (T.t -> T.t) -> t
 end
 
 (** {2 Affine terms} *)

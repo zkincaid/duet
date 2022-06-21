@@ -306,6 +306,7 @@ module MakeLinearMap
   val may_add : S.t -> T.t -> t -> t
   val enum : t -> (S.t * T.t) BatEnum.t
   val reverse : t -> (S.t * T.t) BatEnum.t
+  val compose : t -> (T.t -> T.t) -> t
 end = struct
   module R = MakeRewrite(K)(D)(struct
       type t = S.t * T.t
@@ -354,6 +355,7 @@ end = struct
 
   let reverse = R.rev_basis
   let enum = R.basis
+  let compose m f = R.M.map (fun (x, y) -> (x, f y))  m
 end
 
 module QQVS = MakeLinearSpace(QQ)(SrkUtil.Int)(QQVector)
