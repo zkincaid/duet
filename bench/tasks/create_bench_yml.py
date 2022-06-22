@@ -31,10 +31,17 @@ def main():
                             r = re.search("set-info\s+:status\s+(sat|unsat|unknown)", line)
                             if r:
                                 status = r.group(1)
-                                name = os.path.splitext(file)[0]
-                                str = template.safe_substitute(fname = file, verdict = status)
-                                with open(os.path.join(root, name + '.yml'), 'w') as out:
-                                    out.write(str)
+                                if status == 'unsat':
+                                    v = 'false'
+                                elif status == 'sat':
+                                    v = 'true'
+                                else:
+                                    v = 'unknown'
+                                if status == 'unsat':
+                                    name = os.path.splitext(file)[0]
+                                    str = template.safe_substitute(fname = file, verdict = v)
+                                    with open(os.path.join(root, name + '.yml'), 'w') as out:
+                                        out.write(str)
                                 break
 
 
