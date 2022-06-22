@@ -6,7 +6,7 @@
   <rundefinition>
 
     <tasks name="QFNRATest">
-      <includesfile>../tasks/</includesfile>
+      <includesfile>../tasks/qfnra_test.set</includesfile>
       <propertyfile>../tasks/properties/sat.prp</propertyfile>
     </tasks>
    

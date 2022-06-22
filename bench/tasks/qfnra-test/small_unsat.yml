@@ -4,5 +4,5 @@ format_version: '1.0'
 input_files: 'small_unsat.smt2'
 
 properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: unsat
+  - property_file: ../properties/sat.prp
+    expected_verdict: false

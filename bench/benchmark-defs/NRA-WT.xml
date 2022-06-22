@@ -4,9 +4,9 @@
            displayName="WT-QFNRA"
            timelimit="15min">
   <rundefinition>
-
+	<option name="-weaktheorysat" />
     <tasks name="QFNRATest">
-      <includesfile>../tasks/</includesfile>
+      <includesfile>../tasks/qfnra_test.set</includesfile>
       <propertyfile>../tasks/properties/sat.prp</propertyfile>
     </tasks>
    
