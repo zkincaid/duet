@@ -11,6 +11,8 @@ type generator_kind = [`Vertex | `Ray | `Line]
 
 include Log.Make(struct let name = "srk.polyhedron" end)
 
+let _ = Log.set_verbosity_level "srk.polyhedron" `trace
+
 (* Replace x with replacement in term. *)
 let replace_term x replacement term =
   let (a, t) = V.pivot x term in
@@ -512,7 +514,7 @@ let invertible_image mM polyhedron =
 
 let conical_hull polyhedron =
   let dim = (max_constrained_dim polyhedron + 1) in
-  dual_cone dim polyhedron 
+  dual_cone dim polyhedron
   |> enum_generators dim
   |> BatEnum.filter_map (function
          | `Vertex, vec ->
@@ -577,7 +579,7 @@ let of_generators dim generators =
 let pp_constraint fmt = function
   | (`Zero, v) -> Format.fprintf fmt "%a = 0" Linear.QQVector.pp v
   | (`Nonneg, v) -> Format.fprintf fmt "%a >= 0" Linear.QQVector.pp v
-  | (`Pos, v) -> Format.fprintf fmt "%a > 0" Linear.QQVector.pp v                
+  | (`Pos, v) -> Format.fprintf fmt "%a > 0" Linear.QQVector.pp v
 
 let minimal_faces polyhedron =
   let dim = 1 + max_constrained_dim polyhedron in
@@ -599,7 +601,9 @@ let minimal_faces polyhedron =
       Linear.QQVector.pp v
       (fun fmt constraints ->
         BatEnum.iter (Format.fprintf fmt "%a@;" pp_constraint) constraints)
-      defining in      
+      defining in
+  logf "@[minimal_face: minimal faces of polyhedron @[%a@]@]"
+    (pp (fun fmt i -> Format.fprintf fmt ":%d" i)) polyhedron;
   enum_generators dim polyhedron
   //@ (function
        | (`Vertex, v) -> Some v
@@ -612,6 +616,9 @@ let minimal_faces polyhedron =
 module NormalizCone = struct
 
   open Normalizffi
+
+  let pp_vectors = Format.pp_print_list ~pp_sep:Format.pp_print_cut
+                     Linear.QQVector.pp    
 
   let map_over_constraint f = function
     | (`Zero, v) -> (`Zero, f v)
@@ -640,28 +647,31 @@ module NormalizCone = struct
        ; idx_to_dim = SrkUtil.Int.Map.empty },
        0)
 
-  (* Rescale vector such that the selected coefficients are integral and 
+  (* Rescale vector such that the selected coefficients are integral and
      relatively prime *)
   let normalize pred v =
     let d = Linear.QQVector.fold
               (fun dim coeff c ->
                 if pred dim then QQ.gcd c coeff else c) v QQ.one in
-    Linear.QQVector.fold
-      (fun dim coeff vector ->
-        Linear.QQVector.add_term (QQ.div coeff d) dim vector)
-      v Linear.QQVector.zero
+    let r = Linear.QQVector.fold
+              (fun dim coeff vector ->
+                Linear.QQVector.add_term (QQ.div coeff d) dim vector)
+              v Linear.QQVector.zero in
+    r
 
   let collect_dimensions vectors =
-    let vectors = BatEnum.clone vectors in
     let module S = SrkUtil.Int.Set in
-    BatEnum.fold
+    BatList.fold
       (fun dims v ->
         BatEnum.fold (fun dims (_coeff, dim) -> S.add dim dims)
           dims (Linear.QQVector.enum v))
       S.empty vectors
 
   let densify bij vector =
-    let lookup i = SrkUtil.Int.Map.find i bij.dim_to_idx in
+    let lookup i =
+      let j = SrkUtil.Int.Map.find i bij.dim_to_idx in
+      j
+    in
     BatEnum.fold (fun arr (coeff, dim) ->
         Array.set arr (lookup dim) (Option.get (QQ.to_zz coeff));
         arr)
@@ -682,20 +692,21 @@ module NormalizCone = struct
       let normalize = normalize (fun _dim -> true) in
       enum_constraints polyhedron
       /@ (map_over_constraint normalize)
-      |> (* add 1 >= 0 explicitly to make Normaliz cone pointed and 
+      |> (* add 1 >= 0 explicitly to make Normaliz cone pointed and
             ready for dehomogenization *)
         (fun enum ->
           BatEnum.push enum (`Nonneg, Linear.const_linterm (QQ.of_int 1)); enum)
-    in    
+      |> BatList.of_enum
+    in
     let dimensions =
-      collect_dimensions
-        (BatEnum.map (fun (_, v) -> v) normalized_constraints) in
-
+      List.map (fun (_, v) -> v) normalized_constraints
+      |> collect_dimensions
+    in
     let (bij, _cardinality) = assign_indices dimensions in
     (* The constant dimension must be present and be the first coordinate *)
     assert (SrkUtil.Int.Map.find Linear.const_dim bij.dim_to_idx = 0);
     let (equalities, inequalities) =
-      BatEnum.fold
+      List.fold_left
         (fun (equalities, inequalities) (kind, v) ->
           match kind with
           | `Zero -> (densify bij v :: equalities, inequalities)
@@ -703,12 +714,14 @@ module NormalizCone = struct
           | `Pos -> invalid_arg "normaliz_cone_of: open faces not supported yet")
         ([], [])
         normalized_constraints in
-    let cone = Normaliz.empty_cone
-               |> Normaliz.add_equalities equalities |> Result.get_ok
-               |> Normaliz.add_inequalities inequalities |> Result.get_ok
-               |> Normaliz.new_cone
-    in
-    (cone, bij)
+    try
+      let cone = Normaliz.empty_cone
+                 |> Normaliz.add_equalities equalities |> Result.get_ok
+                 |> Normaliz.add_inequalities inequalities |> Result.get_ok
+                 |> Normaliz.new_cone
+      in
+      (cone, bij)
+    with Invalid_argument s -> logf "here"; invalid_arg s
 
   let polyhedron_of (equalities, inequalities, bijection) =
     let to_constraint kind v = (kind, sparsify bijection v) in
@@ -746,40 +759,60 @@ module NormalizCone = struct
       v Linear.QQVector.zero
 
   let hilbert_basis vectors =
+    Normaliz.set_debug true;
     let module S = SrkUtil.Int.Set in
+    let vectors = BatList.of_enum vectors in
     let dimensions = collect_dimensions vectors in
     let (bij, _cardinality) = assign_indices dimensions in
-    let rays = BatEnum.fold (fun rays v -> densify bij v :: rays) [] vectors in
+    let rays = BatList.fold (fun rays v -> (Mpzf.of_int 0 :: densify bij v) :: rays)
+                 [] vectors in
     let cone = Normaliz.empty_cone
                |> Normaliz.add_rays rays |> Result.get_ok
                |> Normaliz.new_cone in
-    let hilbert_basis = Normaliz.hilbert_basis cone
-                        |> List.map (sparsify bij) in
-    logf ~level:`trace "polyhedron: hilbert basis: @[%a@]"
-      (Format.pp_print_list ~pp_sep:Format.pp_print_cut
-         Linear.QQVector.pp) hilbert_basis;
-    BatList.enum hilbert_basis
-    
-  let cut_face vertex defining =
-    let basis =
-      BatEnum.concat_map (function
-          | (`Zero, v) -> BatList.enum [v ; Linear.QQVector.negate v]
-          | (`Nonneg, v) -> BatList.enum [v])
-        defining
-      /@ (non_constant % (normalize (fun dim -> dim <> Linear.const_dim)))
-      |> hilbert_basis
+    let (pointed_hilbert_basis, lineality_basis) =
+      (Normaliz.hilbert_basis cone,  Normaliz.get_lineality_space cone)
+      |> (fun (l1, l2) ->
+        let drop_constant_dimensions = List.map List.tl in
+        (drop_constant_dimensions l1, drop_constant_dimensions l2))
+      |> (fun (l1, l2) ->
+        let sparsify = List.map (sparsify bij) in
+        (sparsify l1, sparsify l2))
     in
-    basis /@
-      (fun vector ->
-        let constant_term = QQ.negate (Linear.QQVector.dot vector vertex)
-                            |> QQ.floor |> QQ.of_zz
-        in
-        let new_constraint = Linear.QQVector.add vector
-                               (Linear.const_linterm constant_term) in
-        logf ~level:`trace "cut_face: rounded: %a, new_constraint: %a@;"
-          QQ.pp constant_term
-          Linear.QQVector.pp new_constraint;
-        (`Nonneg, new_constraint))
+    logf ~level:`trace "@[<v 0>Hilbert basis: vector_input: @[<v 0>%a@]@;"
+      pp_vectors vectors;
+    logf ~level:`trace "Hilbert basis of cone: @[<v 0>%a@]@;"
+      Normaliz.pp_hom cone;
+    logf ~level:`trace "pointed HB: @[<v 0>%a@]@; linear HB: @[<v 0>%a@]@]"
+      pp_vectors pointed_hilbert_basis
+      pp_vectors lineality_basis;
+    BatList.enum (pointed_hilbert_basis
+                  @ lineality_basis
+                  @ List.map Linear.QQVector.negate lineality_basis)
+
+  let cut_face vertex defining =
+    if is_integral vertex then
+      defining
+    else
+      let basis =
+        BatEnum.concat_map (function
+            | (`Zero, v) -> BatList.enum [v ; Linear.QQVector.negate v]
+            | (`Nonneg, v) -> BatList.enum [v]
+            | (`Pos, _v) -> assert false)
+          defining
+        /@ (non_constant % (normalize (fun dim -> dim <> Linear.const_dim)))
+        |> hilbert_basis
+      in
+      basis /@
+        (fun vector ->
+          let constant_term = QQ.negate (Linear.QQVector.dot vector vertex)
+                              |> QQ.floor |> QQ.of_zz
+          in
+          let new_constraint = Linear.QQVector.add vector
+                                 (Linear.const_linterm constant_term) in
+          logf ~level:`trace "cut_face: rounded: %a, new_constraint: %a@;"
+            QQ.pp constant_term
+            Linear.QQVector.pp new_constraint;
+          (`Nonneg, new_constraint))
 
   let elementary_gc polyhedron =
     let faces = minimal_faces polyhedron in
@@ -789,23 +822,29 @@ module NormalizCone = struct
       `Changed (
           BatEnum.fold
             (fun new_polyhedron (vertex, defining) ->
+              logf ~level:`trace "elementary_gc: cutting face at vertex = %a; defining = @[%a@]"
+                Linear.QQVector.pp vertex
+                (Format.pp_print_list pp_constraint)
+                (BatList.of_enum (BatEnum.clone defining));
               BatEnum.append new_polyhedron (cut_face vertex defining))
             (BatEnum.empty ())
             faces
           |> of_constraints)
 
-  let rec gomory_chvatal polyhedron =
-    match elementary_gc polyhedron with
-    | `Fixed result -> result
-    | `Changed elem_closure -> gomory_chvatal elem_closure
+  let gomory_chvatal polyhedron =
+    let rec iter polyhedron i =
+      match elementary_gc polyhedron with
+      | `Fixed result ->
+         logf "@[Polyhedron: Gomory-Chvatal finished in round %d@]" i;
+         result
+      | `Changed elem_closure ->
+         logf "@[Polyhedron: Gomory-Chvatal: round %d@]" i;
+         iter elem_closure (i + 1)
+    in
+    iter polyhedron 0
 
 end
 
 let integer_hull = function
   | `GomoryChvatal -> NormalizCone.gomory_chvatal
   | `Normaliz -> NormalizCone.integer_hull
-
-let gomory_chvatal = NormalizCone.gomory_chvatal
-
-
-                       

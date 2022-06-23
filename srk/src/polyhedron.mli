@@ -99,8 +99,6 @@ val minimal_faces : t -> (V.t * ((constraint_kind * V.t) BatEnum.t)) BatEnum.t
  *)
 val integer_hull : [`GomoryChvatal | `Normaliz] -> t -> t
 
-val gomory_chvatal : t -> t
-
 (** Test whether two polyhedra are equal (as sets of points in
    QQ^omega). *)
 val equal : t -> t -> bool
