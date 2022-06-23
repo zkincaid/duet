@@ -574,6 +574,17 @@ let of_generators dim generators =
   Abstract0.add_ray_array man polytope (BatArray.of_list rays)
   |> of_apron0 man
 
+let pp_generator pp_dim formatter = function
+  | (`Line, t) -> Format.fprintf formatter "line: %a" (V.pp_term pp_dim) t
+  | (`Ray, t) -> Format.fprintf formatter "ray: %a" (V.pp_term pp_dim) t
+  | (`Vertex, t) -> Format.fprintf formatter "vertex: %a" (V.pp_term pp_dim) t
+
+let _pp_generators pp_dim dim formatter polyhedron =
+  let pp_sep formatter () = Format.fprintf formatter "@;" in
+  Format.fprintf formatter "@[<v 0>%a@]"
+    (SrkUtil.pp_print_enum_nobox ~pp_sep (pp_generator pp_dim))
+    (enum_generators dim polyhedron)
+
 let pp_constraint fmt = function
   | (`Zero, v) -> Format.fprintf fmt "%a = 0" Linear.QQVector.pp v
   | (`Nonneg, v) -> Format.fprintf fmt "%a >= 0" Linear.QQVector.pp v
@@ -612,13 +623,13 @@ let minimal_faces polyhedron : (V.t * ((constraint_kind * V.t) list)) list =
   |> (function defining ->
         List.iter log_face defining;
         defining)
-
+  
 module NormalizCone = struct
 
   open Normalizffi
 
   let pp_vectors = Format.pp_print_list ~pp_sep:Format.pp_print_cut
-                     Linear.QQVector.pp    
+                     Linear.QQVector.pp
 
   let map_over_constraint f = function
     | (`Zero, v) -> (`Zero, f v)
@@ -666,6 +677,10 @@ module NormalizCone = struct
         BatEnum.fold (fun dims (_coeff, dim) -> S.add dim dims)
           dims (Linear.QQVector.enum v))
       S.empty vectors
+
+  let _min_ambient_dimension polyhedron =
+    P.enum polyhedron /@ (fun (_, v) -> v)
+    |> BatList.of_enum |> collect_dimensions |> SrkUtil.Int.Set.cardinal
 
   let densify bij vector =
     let lookup i =
@@ -772,6 +787,7 @@ module NormalizCone = struct
     let cone = Normaliz.empty_cone
                |> Normaliz.add_rays rays |> Result.get_ok
                |> Normaliz.new_cone in
+    logf ~level:`trace "@[Computing Hilbert basis...@]@;";
     let (pointed_hilbert_basis, lineality_basis) =
       (Normaliz.hilbert_basis cone,  Normaliz.get_lineality_space cone)
       |> (fun (l1, l2) ->
@@ -812,39 +828,36 @@ module NormalizCone = struct
           in
           let new_constraint = Linear.QQVector.add vector
                                  (Linear.const_linterm constant_term) in
-          logf ~level:`trace "cut_face: rounded: %a, new_constraint: %a@;"
-            QQ.pp constant_term
-            Linear.QQVector.pp new_constraint;
           (`Nonneg, new_constraint))
       |> BatList.of_enum
 
   let elementary_gc polyhedron =
     let faces = minimal_faces polyhedron in
     if List.for_all (fun (v, _) -> is_integral v) faces
-    then `Fixed polyhedron
+    then polyhedron
     else
-      `Changed (
-          List.fold_left
-            (fun new_polyhedron (vertex, defining) ->
-              logf ~level:`trace "elementary_gc: cutting face at vertex = %a; defining = @[%a@]"
-                Linear.QQVector.pp vertex
-                (Format.pp_print_list pp_constraint)
-                defining;
-              List.append new_polyhedron (cut_face vertex defining))
-            []
-            faces
-          |> BatList.enum
-          |> of_constraints)
+      List.fold_left
+        (fun new_polyhedron (vertex, defining) ->
+          logf ~level:`trace "elementary_gc: cutting face at vertex = %a; defining = @[%a@]"
+            Linear.QQVector.pp vertex
+            (Format.pp_print_list pp_constraint)
+            defining;
+          List.append new_polyhedron (cut_face vertex defining))
+        []
+        faces
+      |> BatList.enum
+      |> of_constraints
 
   let gomory_chvatal polyhedron =
     let rec iter polyhedron i =
-      match elementary_gc polyhedron with
-      | `Fixed result ->
-         logf "@[Polyhedron: Gomory-Chvatal finished in round %d@]" i;
-         result
-      | `Changed elem_closure ->
-         logf "@[Polyhedron: Gomory-Chvatal: round %d@]" i;
-         iter elem_closure (i + 1)
+      let elem_closure =  elementary_gc polyhedron in
+      if equal elem_closure polyhedron then
+        begin
+          logf "@[Polyhedron: Gomory-Chvatal finished in round %d@]" i;
+          elem_closure
+        end
+      else
+        iter elem_closure (i + 1)
     in
     iter polyhedron 0
 
