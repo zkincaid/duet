@@ -11,8 +11,6 @@ type generator_kind = [`Vertex | `Ray | `Line]
 
 include Log.Make(struct let name = "srk.polyhedron" end)
 
-let _ = Log.set_verbosity_level "srk.polyhedron" `trace
-
 (* Replace x with replacement in term. *)
 let replace_term x replacement term =
   let (a, t) = V.pivot x term in
@@ -733,13 +731,17 @@ module NormalizCone = struct
   let integer_hull polyhedron =
     let (cone, bijection) = normaliz_cone_by_constraints polyhedron in
 
-    logf ~level:`trace "polyhedron: integer_hull: computed Normliz cone for polyhedron:@[%a@]@;"
+    logf ~level:`trace "polyhedron: integer_hull: computed Normaliz cone for polyhedron:@[%a@]@;"
       (pp (PolynomialUtil.PrettyPrint.pp_numeric_dim "x")) polyhedron;
 
     let dehomogenized = Normaliz.dehomogenize cone in
     logf ~level:`trace "polyhedron: integer_hull: dehomogenized cone, computing integer hull...@;";
     Normaliz.hull dehomogenized;
-    logf ~level:`trace "polyhedron: integer_hull: computed integer hull@;";
+    if !my_verbosity_level = `trace then
+      logf ~level:`trace "polyhedron: integer_hull: computed integer hull: @[%a@]@;"
+        Normaliz.pp_hull dehomogenized
+    else ();
+
     let cut_ineqs = Normaliz.get_int_hull_inequalities dehomogenized in
     let cut_eqns = Normaliz.get_int_hull_equations dehomogenized
     in
@@ -759,7 +761,6 @@ module NormalizCone = struct
       v Linear.QQVector.zero
 
   let hilbert_basis vectors =
-    Normaliz.set_debug true;
     let module S = SrkUtil.Int.Set in
     let vectors = BatList.of_enum vectors in
     let dimensions = collect_dimensions vectors in
