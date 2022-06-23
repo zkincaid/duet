@@ -579,7 +579,7 @@ let pp_constraint fmt = function
   | (`Nonneg, v) -> Format.fprintf fmt "%a >= 0" Linear.QQVector.pp v
   | (`Pos, v) -> Format.fprintf fmt "%a > 0" Linear.QQVector.pp v
 
-let minimal_faces polyhedron =
+let minimal_faces polyhedron : (V.t * ((constraint_kind * V.t) list)) list =
   let dim = 1 + max_constrained_dim polyhedron in
   let satisfied coeffs point =
     let homogenized_point = Linear.QQVector.add_term QQ.one Linear.const_dim point in
@@ -591,6 +591,7 @@ let minimal_faces polyhedron =
            | (`Zero, u) -> if satisfied u v then Some (`Zero, u) else None
            | (`Nonneg, u) -> if satisfied u v then Some (`Nonneg, u) else None
            | (`Pos, _) -> None)
+      |> BatList.of_enum
     in
     (v, constraints)
   in
@@ -598,7 +599,7 @@ let minimal_faces polyhedron =
     logf ~level:`trace "minimal face: vertex: @[%a@], defining constraints: @[%a@]"
       Linear.QQVector.pp v
       (fun fmt constraints ->
-        BatEnum.iter (Format.fprintf fmt "%a@;" pp_constraint) constraints)
+        List.iter (Format.fprintf fmt "%a@;" pp_constraint) constraints)
       defining in
   logf "@[minimal_face: minimal faces of polyhedron @[%a@]@]"
     (pp (fun fmt i -> Format.fprintf fmt ":%d" i)) polyhedron;
@@ -606,10 +607,11 @@ let minimal_faces polyhedron =
   //@ (function
        | (`Vertex, v) -> Some v
        | _ -> None)
-  /@ defining_equations_for
-    |> (function enum ->
-          BatEnum.iter log_face (BatEnum.clone enum);
-          enum)
+  |> BatList.of_enum
+  |> List.map defining_equations_for
+  |> (function defining ->
+        List.iter log_face defining;
+        defining)
 
 module NormalizCone = struct
 
@@ -790,7 +792,7 @@ module NormalizCone = struct
                   @ lineality_basis
                   @ List.map Linear.QQVector.negate lineality_basis)
 
-  let cut_face vertex defining =
+  let cut_face vertex (defining : (constraint_kind * V.t) list) =
     if is_integral vertex then
       defining
     else
@@ -799,7 +801,7 @@ module NormalizCone = struct
             | (`Zero, v) -> BatList.enum [v ; Linear.QQVector.negate v]
             | (`Nonneg, v) -> BatList.enum [v]
             | (`Pos, _v) -> assert false)
-          defining
+          (BatList.enum defining)
         /@ (non_constant % (normalize (fun dim -> dim <> Linear.const_dim)))
         |> hilbert_basis
       in
@@ -814,22 +816,24 @@ module NormalizCone = struct
             QQ.pp constant_term
             Linear.QQVector.pp new_constraint;
           (`Nonneg, new_constraint))
+      |> BatList.of_enum
 
   let elementary_gc polyhedron =
     let faces = minimal_faces polyhedron in
-    if BatEnum.for_all (fun (v, _) -> is_integral v) (BatEnum.clone faces)
+    if List.for_all (fun (v, _) -> is_integral v) faces
     then `Fixed polyhedron
     else
       `Changed (
-          BatEnum.fold
+          List.fold_left
             (fun new_polyhedron (vertex, defining) ->
               logf ~level:`trace "elementary_gc: cutting face at vertex = %a; defining = @[%a@]"
                 Linear.QQVector.pp vertex
                 (Format.pp_print_list pp_constraint)
-                (BatList.of_enum (BatEnum.clone defining));
-              BatEnum.append new_polyhedron (cut_face vertex defining))
-            (BatEnum.empty ())
+                defining;
+              List.append new_polyhedron (cut_face vertex defining))
+            []
             faces
+          |> BatList.enum
           |> of_constraints)
 
   let gomory_chvatal polyhedron =

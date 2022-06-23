@@ -92,7 +92,7 @@ val dual_cone : int -> t -> t
    linear (rather than affine) halfspaces. *)
 val conical_hull : t -> t
 
-val minimal_faces : t -> (V.t * ((constraint_kind * V.t) BatEnum.t)) BatEnum.t
+val minimal_faces : t -> (V.t * ((constraint_kind * V.t) list)) list
 
 (** [integer_hull p] computes the convex hull of the integer points contained
     in p.
