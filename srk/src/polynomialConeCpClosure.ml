@@ -6,7 +6,11 @@ module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 
 (* let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace *)
 
+let integer_hull_method = ref `GomoryChvatal
+
 module MonomialSet = BatSet.Make(Monomial)
+
+let set_cutting_plane_method how = integer_hull_method := how
 
 let pp_dim = PrettyPrint.pp_numeric_dim "x"
 
@@ -253,7 +257,7 @@ let compute_cut transform cone =
 
   (* 3. Integer hull *)
   (* let hull = Polyhedron.integer_hull polyhedron_to_hull in *)
-  let hull = Polyhedron.gomory_chvatal polyhedron_to_hull in
+  let hull = Polyhedron.integer_hull !integer_hull_method polyhedron_to_hull in
   L.logf ~level:`trace
     "compute_cut: computed integer hull: @[%a@]@;"
     (Polyhedron.pp pp_dim) hull;
