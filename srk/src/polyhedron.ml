@@ -797,13 +797,17 @@ module NormalizCone = struct
         let sparsify = List.map (sparsify bij) in
         (sparsify l1, sparsify l2))
     in
-    logf ~level:`trace "@[<v 0>Hilbert basis: vector_input: @[<v 0>%a@]@;"
-      pp_vectors vectors;
-    logf ~level:`trace "Hilbert basis of cone: @[<v 0>%a@]@;"
-      Normaliz.pp_hom cone;
-    logf ~level:`trace "pointed HB: @[<v 0>%a@]@; linear HB: @[<v 0>%a@]@]"
+    logf ~level:`trace "@[<v 0>Hilbert basis: vector_input: @[<v 0>%a@]@;
+                        HB vector input had %d vectors."
+      pp_vectors vectors
+      (List.length vectors);
+    (* logf ~level:`trace "Hilbert basis of cone: @[<v 0>%a@]@;"
+         Normaliz.pp_hom cone; *)
+    logf ~level:`trace "pointed HB: @[<v 0>%a@]@; linear HB: @[<v 0>%a@]@;
+                        pointed HB has %d vectors, linear HB has %d vectors@]"
       pp_vectors pointed_hilbert_basis
-      pp_vectors lineality_basis;
+      pp_vectors lineality_basis
+      (List.length pointed_hilbert_basis) (List.length lineality_basis);
     BatList.enum (pointed_hilbert_basis
                   @ lineality_basis
                   @ List.map Linear.QQVector.negate lineality_basis)
@@ -832,17 +836,21 @@ module NormalizCone = struct
       |> BatList.of_enum
 
   let elementary_gc polyhedron =
+    logf ~level:`trace "elementary_gc: Computing minimal faces...@;";
     let faces = minimal_faces polyhedron in
+    logf ~level:`trace "elementary_gc: Computed minimal faces...@;";
     if List.for_all (fun (v, _) -> is_integral v) faces
     then polyhedron
     else
       List.fold_left
         (fun new_polyhedron (vertex, defining) ->
-          logf ~level:`trace "elementary_gc: cutting face at vertex = %a; defining = @[%a@]"
+          logf ~level:`trace "elementary_gc: cutting face at vertex = %a; defining = @[%a@]@;"
             Linear.QQVector.pp vertex
             (Format.pp_print_list pp_constraint)
             defining;
-          List.append new_polyhedron (cut_face vertex defining))
+          let new_face = cut_face vertex defining in
+          logf ~level:`trace "elementary_gc: face has been cut@;";
+          List.append new_polyhedron new_face)
         []
         faces
       |> BatList.enum
@@ -851,13 +859,17 @@ module NormalizCone = struct
   let gomory_chvatal polyhedron =
     let rec iter polyhedron i =
       let elem_closure =  elementary_gc polyhedron in
+      logf ~level:`trace "elementary_gc: testing fixed point@;";
       if equal elem_closure polyhedron then
         begin
-          logf "@[Polyhedron: Gomory-Chvatal finished in round %d@]" i;
+          logf "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
           elem_closure
         end
       else
-        iter elem_closure (i + 1)
+        begin
+          logf ~level:`trace "elementary_gc: new round %d@;" (i + 1);
+          iter elem_closure (i + 1)
+        end
     in
     iter polyhedron 0
 
