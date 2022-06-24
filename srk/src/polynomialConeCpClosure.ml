@@ -4,8 +4,6 @@ open PolynomialUtil
 
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 
-(* let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace *)
-
 let integer_hull_method = ref `GomoryChvatal
 
 module MonomialSet = BatSet.Make(Monomial)
