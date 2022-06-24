@@ -866,3 +866,42 @@ end
 let integer_hull = function
   | `GomoryChvatal -> NormalizCone.gomory_chvatal
   | `Normaliz -> NormalizCone.integer_hull
+
+module IntDS = DisjointSet.Make(struct
+    include Int
+    let hash = Hashtbl.hash
+    let equal = (=)
+  end)
+
+let factor polyhedron =
+  let ds = IntDS.create 991 in
+  enum_constraints polyhedron |> BatEnum.iter
+    (fun (_, v) ->
+       let ((i, _), v') = V.pop (snd (V.pivot Linear.const_dim v)) in
+       let rep = IntDS.find ds i in
+       V.enum v' |> BatEnum.iter (fun (_, j) ->
+           ignore (IntDS.union (IntDS.find ds j) rep)));
+  let rev_map =
+    IntDS.reverse_map ds IntSet.empty IntSet.add
+  in
+  let find_rep i = IntSet.choose (rev_map i) in
+  let map =
+    BatEnum.fold (fun map (kind, vec) ->
+        let equiv_class =
+          find_rep (fst (fst (V.pop (snd (V.pivot Linear.const_dim vec)))))
+        in
+        IntMap.modify_def P.top equiv_class (P.add (kind, vec)) map)
+      IntMap.empty
+      (enum_constraints polyhedron)
+  in
+  BatList.of_enum (IntMap.values map)
+
+let integer_hull ?(decompose=true) how =
+  Log.time "Integer hull" (fun p ->
+      if decompose then
+        List.fold_left
+          (fun rest factor -> meet rest (integer_hull how factor))
+          top
+          (factor p)
+      else
+        integer_hull how p)

@@ -97,7 +97,7 @@ val minimal_faces : t -> (V.t * ((constraint_kind * V.t) list)) list
 (** [integer_hull p] computes the convex hull of the integer points contained
     in p.
  *)
-val integer_hull : [`GomoryChvatal | `Normaliz] -> t -> t
+val integer_hull : ?decompose:bool -> [`GomoryChvatal | `Normaliz] -> t -> t
 
 (** Test whether two polyhedra are equal (as sets of points in
    QQ^omega). *)
