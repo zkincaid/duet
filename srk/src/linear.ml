@@ -408,7 +408,7 @@ let solve mat b =
   with No_solution -> None
 
 let solve mat v =
-  Log.time "Solve" (solve mat) v
+  Log.time "Gaussian Elimination" (solve mat) v
 
 let nullspace mat dimensions =
   let rref =

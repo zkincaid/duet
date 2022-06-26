@@ -101,6 +101,9 @@ module Monomial : sig
     (t -> t -> [ `Eq | `Lt | `Gt ])
 
   val term_of : ('a context) -> (dim -> 'a arith_term) -> t -> 'a arith_term
+
+  (** Determine whether a monomial is a variable *)
+  val destruct_var : t -> dim option
 end
 
 (** Signature of multivariate polynmials *)
@@ -269,6 +272,13 @@ module Rewrite : sig
 
   (** Is one rewrite equal to another? *)
   val equal : t -> t -> bool
+
+  (** Find the subset of rewrites that only refer to monomials satisfying the
+     given predicate.  Assuming that the rewrite is a grobner basis and the set of
+     monomials satisfying the predicate is downwards-closed w.r.t. the
+     monomial ordering, this is a grobner basis for the intersection of the ideal
+      and the space of polynomials over the given set of monomials *)
+  val restrict : (Monomial.t -> bool) -> t -> t
 end
 
 (** A polynomial ideal is a set of polynomials that is closed under

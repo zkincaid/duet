@@ -469,7 +469,6 @@ module Solver = struct
     in
     logf ~level:`trace "Enclosing regular cone: @[%a@]"
       (PolynomialCone.pp (pp_dim srk)) pc;
-
     (* All positive atoms.  Unsat cores extend positive atoms with an
        unsatisfied negative atom. *)
     let positive_atoms =
@@ -481,6 +480,7 @@ module Solver = struct
       in
       add int [] |> add zero |> add nonneg
     in
+
     let (cut_pc, lattice) =
       PolynomialConeCpClosure.regular_cutting_plane_closure
         pc (List.map fst (BatDynArray.to_list int))
@@ -558,7 +558,7 @@ let is_sat srk phi =
 (* Given a operator cl mapping cones to cones such that (1) cl distributes
    over intersection and projection, (2) cl is extensive, find the closure of
    the non-negative cone of phi *)
-let abstract cl srk phi =
+let abstract srk cl phi =
   let project =
     let phi_symbols = Syntax.symbols phi in
     fun i -> Syntax.Symbol.Set.mem (Syntax.symbol_of_int i) phi_symbols
@@ -581,56 +581,13 @@ let abstract cl srk phi =
     | `Unsat -> current_pc
     | `Unknown -> assert false
     | `Sat m ->
-      let poly_cone = cl (Model.nonnegative_cone m) in
-      let projected_pc = PolynomialCone.project poly_cone project in
-      let new_pc = PolynomialCone.intersection current_pc projected_pc in
-      block (Model.nonnegative_cone m);
+      let poly_cone = cl (PolynomialCone.project (Model.nonnegative_cone m) project) in
+      let new_pc = cl (PolynomialCone.intersection current_pc poly_cone) in
+      (*      block (Model.nonnegative_cone m);*)
+      block new_pc;
       go new_pc
   in
   Solver.add solver [phi];
   go PolynomialCone.trivial
 
-let find_consequences srk phi = abstract (fun x -> x) srk phi
-
-let filter_polys_linear_in_dims dims polys =
-  let polys_linear_in_dx = BatList.filter_map
-      (fun poly -> let lin, higher = P.split_linear poly in
-        let higher_contains_dx =
-          BatEnum.exists
-            (fun (_, mono) ->
-               BatEnum.exists
-                 (fun (dim, _) -> BatSet.Int.mem dim dims)
-                 (Polynomial.Monomial.enum mono)
-            )
-            (P.enum higher)
-        in
-        if higher_contains_dx then None else Some (lin, higher)
-      )
-      polys
-  in
-  BatList.filter_map (fun (lin, higher) ->
-      let linterm_of_only_dx_enum = BatEnum.filter_map (fun (coeff, dim) ->
-          if BatSet.Int.mem dim dims then Some (coeff, dim) else None
-        )
-          (V.enum lin)
-      in
-      let linterm_of_only_dx = V.of_enum linterm_of_only_dx_enum in
-      let p = P.of_vec linterm_of_only_dx in
-      let other_linterm = V.sub lin linterm_of_only_dx in
-      let other_poly = P.of_vec other_linterm in
-      if V.is_zero linterm_of_only_dx then None else Some (P.add p (P.add other_poly higher))
-    )
-    polys_linear_in_dx
-
-let project_down_to_linear pc lin_dims =
-  let ideal = PolynomialCone.get_ideal pc in
-  let ideal_gen = Polynomial.Rewrite.generators ideal in
-  let lin_ideal = filter_polys_linear_in_dims lin_dims ideal_gen in
-  (* let cone_gen = PolynomialCone.get_cone_generators pc in *)
-  (* let lin_cone = filter_polys_linear_in_dims lin_dims cone_gen in *)
-  let lin_cone = [] in
-  let new_ideal = Polynomial.Rewrite.mk_rewrite (Polynomial.Rewrite.get_monomial_ordering ideal) lin_ideal in
-  PolynomialCone.make_enclosing_cone new_ideal lin_cone
-
-let find_linear_consequences srk phi lin_dims =
-  abstract (fun cone -> project_down_to_linear cone lin_dims) srk phi
+let find_consequences srk phi = abstract srk (fun x -> x) phi

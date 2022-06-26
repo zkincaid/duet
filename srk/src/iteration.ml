@@ -63,17 +63,14 @@ module WeakTheoryGuard = struct
     (*   PolynomialCone.pp iter.postcondition *)
 
   let abstract srk tf =
-    logf "weak theory guard abstract for %a" (Formula.pp srk) (TF.formula tf);
     let post_symbols = TF.post_symbols (TF.symbols tf) in
     let pre_symbols = TF.pre_symbols (TF.symbols tf) in
-    logf "computing precondition";
     let precondition =
       let exists x =
         TF.exists tf x && not (Symbol.Set.mem x post_symbols)
       in
       WeakSolver.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
     in
-    logf "computing postcondition";
     let postcondition =
       let exists x =
         TF.exists tf x && not (Symbol.Set.mem x pre_symbols)
@@ -84,21 +81,19 @@ module WeakTheoryGuard = struct
       try Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i)
       with _ -> Format.fprintf formatter "1")
   in
-  logf "precondition cone: %a" (PolynomialCone.pp pp_dim) precondition;
-  logf "postcondition cone: %a" (PolynomialCone.pp pp_dim) postcondition;
-    { precondition; postcondition }
+  logf "precondition: %a" (PolynomialCone.pp pp_dim) precondition;
+  logf "postcondition: %a" (PolynomialCone.pp pp_dim) postcondition;
+  { precondition; postcondition }
 
   let exp srk tr_symbols loop_counter guard =
-    logf "weak theory guard exp ";
     let term_of_dim dim =
       mk_const srk (symbol_of_int dim)
     in
-    let f = mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
+    mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
                            TF.formula (TF.identity srk tr_symbols)];
                mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
                            PolynomialCone.to_formula srk term_of_dim guard.precondition;
                            PolynomialCone.to_formula srk term_of_dim guard.postcondition]]
-        in logf "weak theory guard exp result: %a" (Formula.pp srk) f; f
 
   let equal _ _ iter iter' =
     PolynomialCone.equal iter.precondition iter'.precondition

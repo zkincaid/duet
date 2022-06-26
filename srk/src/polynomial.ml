@@ -489,7 +489,7 @@ module QQXs = struct
     if is_zero p then
       Format.pp_print_string formatter "0"
     else
-      SrkUtil.pp_print_enum_nobox
+      SrkUtil.pp_print_enum
         ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
         (fun formatter (coeff, m) ->
            if QQ.equal coeff QQ.one then
@@ -992,15 +992,39 @@ module MakeRewrite
   let add_saturate rewrite p =
     Log.time "Buchberger" (add_saturate rewrite) p
 
+  let generators rewrite =
+    let linear =
+      VarMap.fold
+        (fun v rhs rules ->
+           (polynomial_of_rule rewrite.order (Monomial.singleton v 1, rhs))::rules)
+        rewrite.linear
+        []
+    in
+    BatEnum.fold
+      (fun rules rule ->
+         (polynomial_of_rule rewrite.order rule)::rules)
+      linear
+      (RS.enum rewrite.rules)
+
   let pp pp_dim formatter rewrite =
+    Format.pp_open_vbox formatter 0;
     SrkUtil.pp_print_enum_nobox
-      ~pp_sep:(fun formatter () -> Format.fprintf formatter "@;")
+      ~pp_sep:Format.pp_print_cut
       (fun formatter (lhs, rhs) ->
          Format.fprintf formatter "%a --> @[<hov 2>%a@]"
            (Monomial.pp pp_dim) lhs
            (P.pp pp_dim) rhs)
       formatter
-      (RS.enum rewrite.rules)
+      (RS.enum rewrite.rules);
+    SrkUtil.pp_print_enum_nobox
+      ~pp_sep:Format.pp_print_cut
+      (fun formatter (lhs, rhs) ->
+         Format.fprintf formatter "%a --> @[<hov 2>%a@]"
+           pp_dim lhs
+           (P.pp pp_dim) rhs)
+      formatter
+      (VarMap.enum rewrite.linear);
+    Format.pp_close_box formatter ()
 
   let grobner_basis rewrite =
     logf ~level:`trace "Compute a Grobner basis for:@\n@[<v 0>%a@]"
@@ -1095,19 +1119,6 @@ module MakeRewrite
 
 
   let get_monomial_ordering rewrite = rewrite.order
-  let generators rewrite =
-    let linear =
-      VarMap.fold
-        (fun v rhs rules ->
-           (polynomial_of_rule rewrite.order (Monomial.singleton v 1, rhs))::rules)
-        rewrite.linear
-        []
-    in
-    BatEnum.fold
-      (fun rules rule ->
-         (polynomial_of_rule rewrite.order rule)::rules)
-      linear
-      (RS.enum rewrite.rules)
 
   let restrict p rewrite =
     let rules =
