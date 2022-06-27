@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'Nichols-Plot-Inverted-Pendulum-Fails-1-6-chunk-0045.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: false
-    

@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'ball_count_1d_plain.03.seq_lazy_linear_enc_lemmas_global_14.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    
-    

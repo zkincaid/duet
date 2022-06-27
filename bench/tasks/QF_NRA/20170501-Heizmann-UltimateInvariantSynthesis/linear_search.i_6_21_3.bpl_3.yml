@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'linear_search.i_6_21_3.bpl_3.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    
-    

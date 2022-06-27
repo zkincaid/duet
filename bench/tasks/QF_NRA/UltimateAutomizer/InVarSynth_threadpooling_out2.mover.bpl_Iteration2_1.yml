@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'InVarSynth_threadpooling_out2.mover.bpl_Iteration2_1.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: true
-    

@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'matrixsqrt.t2.c_Iteration6_Loop_4-pieceTemplate.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    
+    

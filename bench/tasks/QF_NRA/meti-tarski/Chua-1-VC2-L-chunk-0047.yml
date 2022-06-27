@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'Chua-1-VC2-L-chunk-0047.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: false
-    

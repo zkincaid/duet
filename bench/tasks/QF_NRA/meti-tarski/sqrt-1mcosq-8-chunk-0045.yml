@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'sqrt-1mcosq-8-chunk-0045.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: true
-    

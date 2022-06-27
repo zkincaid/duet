@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'standard_copy4_ground.i_3_2_2.bpl_5.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    
-    

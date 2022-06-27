@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'fun4.t2.c_Iteration1_Lasso_4-pieceTemplate.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    
-    
