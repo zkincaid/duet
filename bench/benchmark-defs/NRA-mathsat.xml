@@ -1,21 +1,22 @@
 <?xml version="1.0"?>
 <!DOCTYPE benchmark PUBLIC "+//IDN sosy-lab.org//DTD BenchExec benchmark 1.18//EN" "https://www.sosy-lab.org/benchexec/benchmark-1.18.dtd">
-<benchmark tool="tools.wtsolver"
-           displayName="WT-QFNRA"
+<benchmark tool="tools.mathsat"
+           displayName="mathsat-QFNRA"
            timelimit="15min">
   <rundefinition>
-	<option name="-weaktheorysat" />
+
     <tasks name="QFNRATest">
       <includesfile>../tasks/qfnra_test.set</includesfile>
       <propertyfile>../tasks/properties/sat.prp</propertyfile>
     </tasks>
-     <tasks name="QFNRASmall">
+    <tasks name="QFNRASmall">
       <includesfile>../tasks/qfnra_small.set</includesfile>
       <propertyfile>../tasks/properties/sat.prp</propertyfile>
     </tasks>
-       <tasks name="QFNRA">
+    <tasks name="QFNRA">
       <includesfile>../tasks/qfnra.set</includesfile>
       <propertyfile>../tasks/properties/sat.prp</propertyfile>
     </tasks>
+   
   </rundefinition>
 </benchmark>
