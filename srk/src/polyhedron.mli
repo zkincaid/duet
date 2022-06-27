@@ -52,6 +52,8 @@ val to_apron : 'a CoordinateSystem.t -> 'a SrkApron.Env.t -> 'abs Apron.Manager.
     inside a polyhedron. *)
 val mem : (int -> QQ.t) -> t -> bool
 
+val implies : t -> (constraint_kind * V.t) -> bool
+
 (** Convert a conjunction of atomic formulas (as returned by
     [Interpretation.select_implicant]) to a polyhedron. *)
 val of_implicant : ?admit:bool -> 'a CoordinateSystem.t -> ('a formula) list -> t

@@ -590,6 +590,30 @@ let pp_constraint fmt = function
   | (`Nonneg, v) -> Format.fprintf fmt "%a >= 0" Linear.QQVector.pp v
   | (`Pos, v) -> Format.fprintf fmt "%a > 0" Linear.QQVector.pp v
 
+let apron0_constraint_of cons =
+  let open Apron in
+  let (kind, v) = cons in
+  let typ = match kind with
+    | `Zero -> Lincons0.EQ
+    | `Nonneg -> Lincons0.SUPEQ
+    | `Pos -> Lincons0.SUP
+  in
+  Lincons0.make (lexpr_of_vec v) typ
+
+let implies polyhedron cons =
+  let open Apron in
+  let man = Polka.manager_alloc_loose () in
+  let (_, v) = cons in
+  let max_dim =
+    Linear.QQVector.fold (fun dim _ max_dim -> max dim max_dim)
+      v
+      (max_constrained_dim polyhedron)
+  in
+  polyhedron
+  |> apron0_of man (max_dim + 1)
+  |> (fun poly ->
+    Abstract0.sat_lincons man poly (apron0_constraint_of cons))
+
 let minimal_faces polyhedron : (V.t * ((constraint_kind * V.t) list)) list =
   let dim = 1 + max_constrained_dim polyhedron in
   let satisfied coeffs point =
@@ -607,7 +631,7 @@ let minimal_faces polyhedron : (V.t * ((constraint_kind * V.t) list)) list =
     (v, constraints)
   in
   let log_face (v, defining) =
-    logf ~level:`trace "minimal face: vertex: @[%a@], defining constraints: @[%a@]"
+    logf ~level:`trace "minimal face: vertex: @[%a@]@;defining constraints: @[%a@]"
       Linear.QQVector.pp v
       (fun fmt constraints ->
         List.iter (Format.fprintf fmt "%a@;" pp_constraint) constraints)
@@ -623,7 +647,7 @@ let minimal_faces polyhedron : (V.t * ((constraint_kind * V.t) list)) list =
   |> (function defining ->
         List.iter log_face defining;
         defining)
-  
+
 module NormalizCone = struct
 
   open Normalizffi
@@ -677,10 +701,6 @@ module NormalizCone = struct
         BatEnum.fold (fun dims (_coeff, dim) -> S.add dim dims)
           dims (Linear.QQVector.enum v))
       S.empty vectors
-
-  let _min_ambient_dimension polyhedron =
-    P.enum polyhedron /@ (fun (_, v) -> v)
-    |> BatList.of_enum |> collect_dimensions |> SrkUtil.Int.Set.cardinal
 
   let densify bij vector =
     let lookup i =
@@ -838,38 +858,64 @@ module NormalizCone = struct
   let elementary_gc polyhedron =
     logf ~level:`trace "elementary_gc: Computing minimal faces...@;";
     let faces = minimal_faces polyhedron in
-    logf ~level:`trace "elementary_gc: Computed minimal faces...@;";
+    logf ~level:`trace "elementary_gc: Computed minimal faces: found %d@;"
+      (List.length faces);
     if List.for_all (fun (v, _) -> is_integral v) faces
-    then polyhedron
+    then `Fixed polyhedron
     else
+      let man = Polka.manager_alloc_loose () in
+      let dim = max_constrained_dim polyhedron + 1 in
+      let apron_poly = apron0_of man dim polyhedron in
+      let adjoin_constraint (changed, curr_polyhedron) cons =
+        (* TODO: Test if meet is faster than implication check; if so, 
+           we should do meet directly once [changed] is true.
+         *)
+        let implied = Apron.Abstract0.sat_lincons man curr_polyhedron
+                        (apron0_constraint_of cons) in
+        if implied then
+          begin
+            logf ~level:`trace "@[elementary_gc: polyhedron implies %a@]@;"
+              pp_constraint cons;
+            (changed, curr_polyhedron)
+          end
+        else
+          begin
+            logf ~level:`trace "@[elementary_gc: computing meet with %a@]@;"
+              pp_constraint cons;
+            let intersected = Apron.Abstract0.meet_lincons_array man
+                                curr_polyhedron
+                                (Array.make 1 (apron0_constraint_of cons)) in
+            (true, intersected)
+          end
+      in
       List.fold_left
-        (fun new_polyhedron (vertex, defining) ->
+        (fun curr (vertex, defining) ->
           logf ~level:`trace "elementary_gc: cutting face at vertex = %a; defining = @[%a@]@;"
             Linear.QQVector.pp vertex
             (Format.pp_print_list pp_constraint)
             defining;
           let new_face = cut_face vertex defining in
-          logf ~level:`trace "elementary_gc: face has been cut@;";
-          List.append new_polyhedron new_face)
-        []
+          logf ~level:`trace "elementary_gc: face has been cut, new face has %d constraints@;"
+            (List.length new_face);
+          List.fold_left adjoin_constraint curr new_face
+        )
+        (false, apron_poly)
         faces
-      |> BatList.enum
-      |> of_constraints
+      |> (fun (changed, poly) ->
+        let p = of_apron0 man poly in
+        if changed then `Changed p
+        else `Fixed p)
 
   let gomory_chvatal polyhedron =
     let rec iter polyhedron i =
       let elem_closure =  elementary_gc polyhedron in
-      logf ~level:`trace "elementary_gc: testing fixed point@;";
-      if equal elem_closure polyhedron then
-        begin
-          logf "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
-          elem_closure
-        end
-      else
-        begin
-          logf ~level:`trace "elementary_gc: new round %d@;" (i + 1);
-          iter elem_closure (i + 1)
-        end
+      match elem_closure with
+      | `Fixed poly ->
+         logf "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
+         poly
+      | `Changed poly ->
+         logf ~level:`trace "elementary_gc: new round %d@;" (i + 1);
+          iter poly (i + 1)
     in
     iter polyhedron 0
 
