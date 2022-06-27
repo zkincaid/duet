@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'ball_count_1d_plain.10.seq_lazy_lemmas_global_12.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    expected_verdict: false
+    

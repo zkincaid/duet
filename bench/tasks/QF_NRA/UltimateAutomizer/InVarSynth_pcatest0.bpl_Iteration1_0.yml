@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'InVarSynth_pcatest0.bpl_Iteration1_0.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    expected_verdict: true
+    

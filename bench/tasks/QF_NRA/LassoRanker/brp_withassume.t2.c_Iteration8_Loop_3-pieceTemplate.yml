@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'brp_withassume.t2.c_Iteration8_Loop_3-pieceTemplate.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    
+    

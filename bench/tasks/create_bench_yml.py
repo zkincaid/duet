@@ -5,6 +5,7 @@ from pathlib import Path
 from string import Template
 import shutil
 from random import sample
+import random
 
 template = Template("""
 format_version: '1.0'
@@ -16,6 +17,8 @@ properties:
     $verdict
     
 """)
+
+random.seed(20220607)
 
 def flatten(directory):
     for dirpath, _, filenames in os.walk(directory, topdown=False):
@@ -75,9 +78,10 @@ def main():
                     if f.endswith('.smt2'):
                         print('file', f)
                         all_smt_files.append(f)
-            print(all_smt_files)
-            s = sample(all_smt_files, n)
-            print(s)
+            # print(all_smt_files)
+            m = min(n, len(all_smt_files))
+            s = sample(all_smt_files, m)
+            # print(s)
             selected = set(s)
             for d_path, dirs, files in os.walk(current_subdir_path):
                 for f in files:

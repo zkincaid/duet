@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'sin-cos-346-b-chunk-0563.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    expected_verdict: true
+    

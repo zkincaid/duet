@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'Collatz.bpl_Iteration1_Loop_3-phaseTemplate.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    expected_verdict: false
+    

@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'toeplz.t2.c_Iteration2_Loop_4-pieceTemplate.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    
+    

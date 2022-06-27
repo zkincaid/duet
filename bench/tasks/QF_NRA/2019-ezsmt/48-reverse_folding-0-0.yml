@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: '48-reverse_folding-0-0.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    
+    

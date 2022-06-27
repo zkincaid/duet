@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'sum60.i_5_6_5.bpl_3.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    
+    

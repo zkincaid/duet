@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'atan-vega-3-weak-chunk-0691.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    expected_verdict: true
+    

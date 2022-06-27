@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'ball_count_1d_plain.01.qfree_global_8.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    expected_verdict: true
+    
