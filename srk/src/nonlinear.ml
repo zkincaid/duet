@@ -312,6 +312,14 @@ let eliminate_floor_mod_div srk phi =
             ]
          ]
       | `Binop (`Div, s, t) ->
+        [mk_or srk
+           [ mk_eq srk t (mk_int srk 0)
+           ; mk_eq srk s (mk_mul srk [mk_const srk sym ; t])]]
+        (*
+         TODO: the following encodes integer division.  Only real division is
+         supported by the IR, but we could make use of this encoding by
+         pattern-matching on floor(a/b) where a & b are integral.
+
          begin match expr_typ srk s, expr_typ srk t with
          | `TyInt, `TyReal
            | `TyReal, `TyInt
@@ -332,6 +340,7 @@ let eliminate_floor_mod_div srk phi =
             ]
          | _, _ -> invalid_arg "nonlinear: impossible case"
          end
+        *)
       | _ -> []
     end
   in

@@ -426,7 +426,8 @@ let tr_instr ctx instr =
     let mk_def kind = mk_single (Def.mk ~loc:loc kind) in
     begin match v.Cil.vname, lhs, List.map tr_expr args with
       | ("assume", None, [x])
-      | ("__VERIFIER_assume", None, [x]) ->
+      | ("__VERIFIER_assume", None, [x])
+      | ("assume_abort_if_not", None, [x]) ->
         mk_def (Assume (Bexpr.of_aexpr x))
       | ("assert", None, [x])
       | ("__VERIFIER_assert", None, [x]) -> begin

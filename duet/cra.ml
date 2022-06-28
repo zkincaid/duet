@@ -149,13 +149,30 @@ type term =
   | TInt of Ctx.arith_term
   | TPointer of ptr_term
 
+let mk_mod_c99 left right =
+  let zero = Ctx.mk_real QQ.zero in
+  let pos t =
+    (* Redundant encoding is robust under negation w.r.t. LIRR *)
+    Ctx.mk_and [Ctx.mk_leq zero t
+               ; Ctx.mk_not (Ctx.mk_lt t zero)]
+  in
+  let m = Ctx.mk_mod left right in
+  Ctx.mk_ite
+    (pos left)
+    m
+    (Ctx.mk_ite
+       (pos right)
+       (Ctx.mk_sub m right)
+       (Ctx.mk_add [m; right]))
+
 let int_binop op left right =
   match op with
   | Add -> Ctx.mk_add [left; right]
   | Minus -> Ctx.mk_sub left right
   | Mult -> Ctx.mk_mul [left; right]
-  | Div -> Ctx.mk_idiv left right
-  | Mod -> Ctx.mk_mod left right
+  | Div ->
+    Ctx.mk_div (Ctx.mk_sub left (mk_mod_c99 left right)) right
+  | Mod -> mk_mod_c99 left right
   | _ -> Ctx.mk_const (Ctx.mk_symbol ~name:"havoc" `TyInt)
 
 let term_binop op left right = match left, op, right with
@@ -247,17 +264,27 @@ and tr_bexpr bexpr =
         match pred with
         | Lt ->
           begin
-          let t1 = (Core.resolve_type (Core.Aexpr.get_type rx)) in
-          let t2 = (Core.resolve_type (Core.Aexpr.get_type ry)) in
-          match t1, t2 with
-          | Core.Int _, Core.Int _ ->
-            Ctx.mk_leq (Ctx.mk_add [x; (Ctx.mk_int 1)]) y
-          | _, _ ->
-            Ctx.mk_lt x y
-        end
+            let t1 = (Core.resolve_type (Core.Aexpr.get_type rx)) in
+            let t2 = (Core.resolve_type (Core.Aexpr.get_type ry)) in
+            match t1, t2 with
+            | Core.Int _, Core.Int _ ->
+              Ctx.mk_leq (Ctx.mk_add [x; (Ctx.mk_int 1)]) y
+            | _, _ ->
+              Ctx.mk_lt x y
+          end
         | Le -> Ctx.mk_leq x y
         | Eq -> Ctx.mk_eq x y
-        | Ne -> Ctx.mk_not (Ctx.mk_eq x y)
+        | Ne ->
+          begin
+            let t1 = (Core.resolve_type (Core.Aexpr.get_type rx)) in
+            let t2 = (Core.resolve_type (Core.Aexpr.get_type ry)) in
+            match t1, t2 with
+            | Core.Int _, Core.Int _ ->
+              Ctx.mk_or [Ctx.mk_leq (Ctx.mk_add [x; (Ctx.mk_int 1)]) y;
+                         Ctx.mk_leq (Ctx.mk_add [y; (Ctx.mk_int 1)]) x]
+            | _, _ ->
+              Ctx.mk_or [Ctx.mk_lt x y; Ctx.mk_lt y x]
+          end
       end
   in
   Bexpr.fold alg bexpr
@@ -1146,7 +1173,7 @@ let _ =
          monotone := true;
          K.domain := (module Product(LossyTranslation)(PolyhedronGuard))),
      " Disable non-monotone analysis features");
-CmdLine.register_config
+  CmdLine.register_config
     ("-weaktheory",
      Arg.Unit (fun () ->
          let open Iteration in
