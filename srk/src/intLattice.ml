@@ -3,8 +3,6 @@ open BatPervasives
 
 module L = Log.Make(struct let name = "srk.intLattice" end)
 
-(* let _ = Log.set_verbosity_level "srk.intLattice" `trace *)
-
 type dim_idx_bijection = { dim_to_idx : int SrkUtil.Int.Map.t
                          ; idx_to_dim : int SrkUtil.Int.Map.t
                          }
@@ -175,19 +173,6 @@ let pp fmt t =
        ZZ.pp lat.denominator
        (SrkUtil.pp_print_list Linear.ZZVector.pp)
        lat.sparse_rep
-
-(*
-let pp_term pp_dim fmt t =
-  match t with
-  | EmptyLattice -> Format.fprintf fmt "{empty lattice}"
-  | Lattice lat ->
-     Format.fprintf fmt
-       "{denominator: %a; basis: %a}"
-       ZZ.pp lat.denominator
-       (Format.pp_print_list ~pp_sep:Format.pp_print_cut
-          (Linear.ZZVector.pp_term pp_dim))
-       lat.sparse_rep
- *)
 
 let _flint_member v t =
   match t with

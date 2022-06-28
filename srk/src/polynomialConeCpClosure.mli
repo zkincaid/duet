@@ -19,7 +19,6 @@ val in_polylattice : QQXs.t -> polylattice -> bool
 val pp_polylattice : (Format.formatter -> int -> unit)
                      -> Format.formatter -> polylattice -> unit
 
-
 val set_cutting_plane_method : [`GomoryChvatal | `Normaliz] -> unit
 
 (** [regular_cutting_plane_closure cone lattice]
