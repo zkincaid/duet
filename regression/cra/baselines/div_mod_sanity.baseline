@@ -1,0 +1,4 @@
+./regression/cra/code/fib_secure.c:33 >> l1 == l2
+
+1 errors total
+0 safe assertions
