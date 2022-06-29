@@ -218,9 +218,10 @@ module Solver = struct
 
   let propositionalize solver phi =
     let srk = solver.srk in
-    eliminate_ite srk phi
+    Nonlinear.eliminate_ite srk phi
     |> Nonlinear.eliminate_floor_mod_div srk
     |> rewrite srk ~down:(nnf_rewriter srk % lt_rewriter srk) ~up:(prop_rewriter solver)
+
 
   let propositionalize_atom solver phi =
     match Expr.refine solver.srk (prop_rewriter solver (phi :> ('a, typ_fo) expr)) with
@@ -583,7 +584,6 @@ let abstract srk cl phi =
     | `Sat m ->
       let poly_cone = cl (PolynomialCone.project (Model.nonnegative_cone m) project) in
       let new_pc = cl (PolynomialCone.intersection current_pc poly_cone) in
-      (*      block (Model.nonnegative_cone m);*)
       block new_pc;
       go new_pc
   in
