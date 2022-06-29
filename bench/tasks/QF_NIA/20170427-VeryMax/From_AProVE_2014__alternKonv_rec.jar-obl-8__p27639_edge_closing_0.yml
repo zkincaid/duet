@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'From_AProVE_2014__alternKonv_rec.jar-obl-8__p27639_edge_closing_0.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    
+    

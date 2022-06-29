@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'twisted-alloca_true-termination.c.i_Iteration2_Lasso+nonterminationTemplate.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    expected_verdict: false
+    

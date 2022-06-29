@@ -19,4 +19,19 @@
       <propertyfile>../tasks/properties/unreach-call.prp</propertyfile>
     </tasks>
   </rundefinition>
+  
+  <rundefinition name="invgen-all">
+    <option name="-cra" />
+    <option name="-cra-split-loops" />
+
+    <tasks name="NLA">
+      <include>../tasks/nla-digbench/*.yml</include>
+      <propertyfile>../tasks/properties/unreach-call.prp</propertyfile>
+    </tasks>
+    <tasks name="loops">
+      <include>../tasks/loops/*.yml</include>
+      <propertyfile>../tasks/properties/unreach-call.prp</propertyfile>
+    </tasks>
+
+</rundefinition>
 </benchmark>
