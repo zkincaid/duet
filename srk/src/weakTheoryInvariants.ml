@@ -131,15 +131,17 @@ let find_tf_invs srk tr_symbols loop_counter tf =
   in
   (* dx variables may only appear linearly; *)
   let inv_cone =
-    let cone = WTS.find_consequences srk existential_formula in
     let elim_order = P.Monomial.block [is_dx % symbol_of_int] P.Monomial.degrevlex in
-    PC.change_monomial_ordering cone elim_order
-    |> PC.restrict (fun m ->
-        match P.Monomial.destruct_var m with
-        | Some _ -> true
-        | None -> BatEnum.for_all
-                    (is_invariant_symbol % symbol_of_int % fst)
-                    (P.Monomial.enum m))
+    let cl cone =
+      PolynomialCone.change_monomial_ordering cone elim_order
+      |> PC.restrict (fun m ->
+          match P.Monomial.destruct_var m with
+          | Some _ -> true
+          | None -> BatEnum.for_all
+                      (is_invariant_symbol % symbol_of_int % fst)
+                      (P.Monomial.enum m))
+    in
+    WTS.abstract srk cl existential_formula
   in
   (* Convert polynomial to term, substituting z variables for corresponding
      invariant functionals *)
