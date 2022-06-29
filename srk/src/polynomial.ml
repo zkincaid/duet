@@ -987,7 +987,6 @@ module MakeRewrite
           (RS.enum rewrite.rules)
       in
       buchberger (_insert_rule new_rule rewrite) pairs
-      |> reduce_rewrite
 
   let add_saturate rewrite p =
     Log.time "Buchberger" (add_saturate rewrite) p
@@ -1049,7 +1048,6 @@ module MakeRewrite
 
     let grobner =
       buchberger rewrite pairs 
-      |> reduce_rewrite
     in
     logf ~level:`trace "Grobner basis:@\n@[<v 0>%a@]"
       (pp pp_dim) grobner;
