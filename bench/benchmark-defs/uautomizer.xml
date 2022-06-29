@@ -27,4 +27,16 @@
   </tasks>
 </rundefinition>
 
+<rundefinition name="invgen-all">
+    <tasks name="NLA">
+      <include>../tasks/nla-digbench/*.yml</include>
+      <propertyfile>../tasks/properties/unreach-call.prp</propertyfile>
+    </tasks>
+    <tasks name="loops">
+      <include>../tasks/loops/*.yml</include>
+      <propertyfile>../tasks/properties/unreach-call.prp</propertyfile>
+    </tasks>
+
+</rundefinition>
+
 </benchmark>
