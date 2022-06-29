@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'simple4.i_3_4_2.bpl_9.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    
+    
