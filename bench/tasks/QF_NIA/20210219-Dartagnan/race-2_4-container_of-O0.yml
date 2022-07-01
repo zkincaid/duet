@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'race-2_4-container_of-O0.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    
+    

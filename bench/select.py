@@ -1,5 +1,3 @@
-#!/bin/python3
-
 import sys
 import os
 import glob
@@ -26,7 +24,26 @@ for task in opts:
     with open(task) as file:
         task_info = yaml.load(file, Loader=yaml.FullLoader)
         for prop in task_info['properties']:
-            if prop['property_file'] == '../properties/termination.prp':
+            # if prop['property_file'] == '../properties/termination.prp':
+            #     input_file = os.path.join(os.path.dirname(task),
+            #                               task_info['input_files'])
+            #     result = subprocess.run(['duet.exe', '-categorize', input_file],
+            #                             stdout=subprocess.PIPE,
+            #                             stderr=subprocess.PIPE,
+            #                             env=my_env)
+            #     categories = yaml.load(result.stdout, Loader=yaml.FullLoader)
+            #     use_task = True
+            #     for k in pattern:
+            #         if k == "verdict":
+            #             if 'expected_verdict' in prop:
+            #                 use_task = use_task and prop.get('expected_verdict') == pattern[k]
+            #             else:
+            #                 use_task = False
+            #         else:
+            #             use_task = use_task and pattern[k] == categories[k]
+            #     if use_task:
+            #         print (task[6:])
+            if prop['property_file'] == '../properties/unreach-call.prp':
                 input_file = os.path.join(os.path.dirname(task),
                                           task_info['input_files'])
                 result = subprocess.run(['duet.exe', '-categorize', input_file],

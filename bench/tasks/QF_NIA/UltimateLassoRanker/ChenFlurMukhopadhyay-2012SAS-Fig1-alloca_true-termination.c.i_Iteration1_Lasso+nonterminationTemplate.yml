@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'ChenFlurMukhopadhyay-2012SAS-Fig1-alloca_true-termination.c.i_Iteration1_Lasso+nonterminationTemplate.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    expected_verdict: false
+    

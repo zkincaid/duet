@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'ps6-ll_unwindbound20-O0.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    
+    
