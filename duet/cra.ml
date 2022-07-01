@@ -150,7 +150,7 @@ module K = struct
   module CRARefinement = Refinement.DomainRefinement
       (struct
         include Tr
-        let equal a _ = ((Wedge.is_sat srk (guard a)) == `Unsat)
+        let equal a _ = ((WeakSolver.is_sat srk (guard a)) == `Unsat)
       end)
 
   let to_dnf x =
@@ -158,11 +158,10 @@ module K = struct
     let guard =
       rewrite srk
         ~down:(nnf_rewriter srk)
-        ~up:(Nonlinear.uninterpret_rewriter srk)
         (guard x)
     in
     let x_tr = BatEnum.fold (fun acc a -> a :: acc) [] (transform x) in
-    let solver = Smt.mk_solver srk in
+    let solver = WeakSolver.Solver.mk_solver srk in
     let rhs_symbols =
       BatEnum.fold (fun rhs_symbols (_, t) ->
           Symbol.Set.union rhs_symbols (symbols t))
@@ -174,118 +173,35 @@ module K = struct
       | Some _ -> true
       | None -> Symbol.Set.mem x rhs_symbols
     in
-    Smt.Solver.add solver [guard];
+    WeakSolver.Solver.add solver [guard];
     let rec split disjuncts =
-      match Smt.Solver.get_model solver with
+      match WeakSolver.Solver.get_model solver with
       | `Unknown -> [x]
-      | `Unsat ->
-        BatList.filter_map (fun guard ->
-            let interp_guard = Nonlinear.interpret srk guard in
-            if Wedge.is_sat srk interp_guard = `Unsat then
-              None
-            else
-              Some (construct interp_guard x_tr))
-          disjuncts
+      | `Unsat -> disjuncts
       | `Sat m ->
+        let term_of_dim dim = mk_const srk (symbol_of_int dim) in
         let disjunct =
-          match Interpretation.select_implicant m guard with
-          | Some implicant ->
-            let cs = CoordinateSystem.mk_empty srk in
-            Polyhedron.of_implicant ~admit:true cs implicant
-            |> Polyhedron.try_fourier_motzkin cs project
-            |> Polyhedron.implicant_of cs
-            |> mk_and srk
-          | None -> assert false
+          PolynomialCone.project (WeakSolver.Model.nonnegative_cone m)
+            (project % symbol_of_int)
+          |> PolynomialCone.to_formula srk term_of_dim
         in
-        Smt.Solver.add solver [mk_not srk disjunct];
-        split (disjunct::disjuncts)
+        WeakSolver.Solver.add solver [mk_not srk disjunct];
+        split ((construct disjunct x_tr)::disjuncts)
     in
     split []
 
   let refine_star x =
-    (* let x_dnf = to_dnf x in *)
     let x_dnf = Log.time "cra:to_dnf" to_dnf x in
     if (List.length x_dnf) = 1 then star (List.hd x_dnf)
     else CRARefinement.refinement x_dnf
 
   let star x = 
     if (!cra_refine) then 
-      (print_endline ("cra refine star");
-      Log.time "cra:refine_star" refine_star x)
+      Log.time "cra:refine_star" refine_star x
     else 
       Log.time "cra:star" star x
 
   let project = exists V.is_global
-end
-
-module RK = struct
-  module S = BatSet.Make(K)
-  type t = S.t
-
-  let k_leq x y =
-    let eq_transform (x,t) (x',t') =
-      V.equal x x' && Syntax.ArithTerm.equal t t'
-    in
-    BatEnum.equal eq_transform (K.transform x) (K.transform y)
-    && Smt.equiv srk
-      (Nonlinear.uninterpret srk (K.guard x))
-      (Nonlinear.uninterpret srk (K.guard y)) = `Yes
-
-  let antichain k =
-    let rec go = function
-      | [] -> []
-      | [x] -> [x]
-      | (x::xs) ->
-        let xs = go xs in
-        if List.exists (k_leq x) xs then
-          xs
-        else
-          x::(List.filter (fun y -> not (k_leq y x)) xs)
-    in
-    let is_consistent x =
-      Smt.is_sat srk (Nonlinear.uninterpret srk (K.guard x)) != `Unsat
-    in
-    S.of_list (go (List.filter is_consistent (S.elements k)))
-
-  let antichain k = Log.time "cra:refine_antichain" antichain k
-
-  let one = S.singleton K.one
-
-  let zero = S.empty
-
-  let add x y = antichain (S.union x y)
-
-  let mul x y =
-    BatEnum.fold (fun s x ->
-        BatEnum.fold (fun s y ->
-            S.add (K.mul x y) s)
-          s
-          (S.enum y))
-      S.empty
-      (S.enum x)
-    |> antichain
-
-  let star x =
-    match S.elements x with
-    | [] -> one
-    | [x] -> S.singleton (K.star x)
-    | xs -> S.singleton (K.CRARefinement.refinement xs)
-
-  let star x = Log.time "cra:refine_star_RK" star x
-
-  let lower s = S.fold K.add s K.zero
-  let lift = S.singleton
-  (*let lift_dnf x = S.of_list (K.to_dnf x)*)
-  let lift_dnf x = S.of_list (Log.time "cra:to_dnf" K.to_dnf x)
-  let project = S.map K.project
-
-  let equal x y =
-    S.cardinal x = S.cardinal y
-    && List.for_all2 K.equal (S.elements x) (S.elements y)
-
-  let widen x y =
-    if S.is_empty x then y
-    else lift (K.widen (lower x) (lower y))
 end
 
 type ptr_term =
