@@ -50,7 +50,8 @@ for task in opts:
                                         stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE,
                                         env=my_env)
-                categories = yaml.load(result.stdout, Loader=yaml.FullLoader)
+                s = result.stdout.split(b"\n", 2)[2]
+                categories = yaml.load(s, Loader=yaml.FullLoader)
                 use_task = True
                 for k in pattern:
                     if k == "verdict":
