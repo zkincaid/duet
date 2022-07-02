@@ -21,11 +21,6 @@ let pp_vectors pp_elem = SrkUtil.pp_print_list pp_elem
 let context_of ?ordering:(ordering=Monomial.degrevlex) polys =
   PolyVectorContext.mk_context ordering polys
 
-let complementary_dims ctxt dims =
-  BatEnum.fold (fun l (dim, _mono) -> if List.mem dim dims then l else dim :: l)
-    []
-    (PolyVectorContext.enum_by_dimension ctxt)
-
 let zzvector_to_qqvector vec =
   BatEnum.fold
     (fun v (scalar, dim) -> Linear.QQVector.add_term (QQ.of_zz scalar) dim v)
@@ -215,55 +210,6 @@ let polyhedron_of ctxt zeroes positives =
   p
 
 (**
-    Given a regular polynomial cone C and a subspace U spanned by
-    [variables] and 1, such that the monomial ordering of C is a
-    graded elimination order that retains [variables] (e.g., devreglex),
-    compute the polyhedron [C \cap U].
- *)
-let intersect_cone_and_affine_space cone variables =
-  L.logf ~level:`trace "intersect_cone_and_affine_space: cone: @[%a@]@;onto variables @[%a@]@;"
-    (PolynomialCone.pp pp_dim) cone
-    (SrkUtil.pp_print_list (Monomial.pp pp_dim)) variables;
-  let variable_polys = List.map (fun v -> QQXs.of_list [(QQ.one, v)]) variables
-  in
-  if not (PolynomialCone.is_proper cone) then
-    (variable_polys, [])
-  else
-    begin
-      let positives = PolynomialCone.get_cone_generators cone in
-      let ctxt = context_of (List.concat [[QQXs.one] ; variable_polys ; positives])
-      in
-      let variable_dimensions =
-        List.map (fun v -> PolyVectorContext.dim_of v ctxt) variables
-      in
-      let complementary_dimensions =
-        complementary_dims ctxt (Linear.const_dim :: variable_dimensions)
-      in
-      L.logf ~level:`trace "intersect_cone_and_affine_space: context: @[%a@]@;"
-        (PolyVectorContext.pp pp_dim) ctxt;
-      let (projected_zeroes, projected_positives) =
-        polyhedron_of ctxt [] positives
-        |> Polyhedron.project complementary_dimensions
-        |> Polyhedron.enum_constraints
-        |> BatEnum.fold (fun (zs, ps) (kind, v) ->
-               let vp = PolyVectorConversion.vector_to_poly ctxt v in
-               match kind with
-               | `Zero -> ((vp :: zs), ps)
-               | `Nonneg -> (zs, (vp :: ps))
-               | `Pos -> failwith "compute_cut: Strict inequalities not supported"
-             ) ([], [])
-      in
-      L.logf ~level:`trace "intersect_cone_and_affine_space: projected_zeros: @[%a@]@;
-                            projected_positives: @[%a@]@;"
-        (pp_poly_list pp_dim) projected_zeroes
-        (pp_poly_list pp_dim) projected_positives;
-      ( Rewrite.generators (PolynomialCone.get_ideal cone)
-        |> List.filter (fun p -> QQXs.degree p <= 1)
-        |> List.append projected_zeroes
-      , projected_positives)
-    end
-
-(**
    [compute_cut T C] computes [cl_{ZZ B}(C \cap QQ B)], where
    B = T.substitutions(T.codomain_dims) = { b_0 = 1, b_1, ..., b_n } is the
    basis for the lattice.
@@ -293,8 +239,10 @@ let compute_cut transform cone =
     (PolynomialCone.pp pp_dim) projected;
   let (linear_zeroes, linear_positives) =
     (* Projection uses a graded elimination order keeping Y *)
-    intersect_cone_and_affine_space projected
-      (List.map (fun dim -> Monomial.singleton dim 1) codims)
+    let p = PolynomialCone.restrict
+              (fun m -> QQXs.degree (QQXs.add_term QQ.one m QQXs.zero) <= 1) projected in
+    ( Rewrite.generators (PolynomialCone.get_ideal p)
+    , PolynomialCone.get_cone_generators p)
   in
   L.logf ~level:`trace
     "compute_cut:
