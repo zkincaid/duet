@@ -6,11 +6,151 @@ module VS = Linear.QQVectorSpace
 module IntSet = SrkUtil.Int.Set
 module IntMap = SrkUtil.Int.Map
 
+
 (* QS represents a vector space L along with a function reduce that
    maps each vector in QQ^omega to its representative in the quotient
    QQ^omega/L.  Representatives are chosen to use as few dimensions as
    possible. *)
 module QS = Linear.MakeLinearSpace(QQ)(SrkUtil.Int)(Linear.QQVector)
+
+module MakeSolver
+    (D : Map.OrderedType)
+    (V : sig
+       include Linear.SparseArray with type dim = D.t
+                                   and type scalar = QQ.t
+     end) = struct
+  module QQV = Linear.QQVector
+  module Map = Linear.MakeLinearMap(QQ)(D)(V)(QQV)
+  module Fun = Linear.MakeLinearMap(QQ)(D)(V)(struct
+      type scalar = QQ.t
+      include QQ
+      let is_zero = QQ.equal QQ.zero
+      let scalar_mul = QQ.mul
+    end)
+  (* Simplex tableau *)
+  type t =
+    { tbl_generators : V.t array (* All cone generators *)
+    ; tbl_index : int array      (* Indices into generator array, forming a
+                                    basis for its span *)
+    ; mutable tbl_map : Map.t (* Linear map sending tbl_index(i) to the unit
+                                 vector in direction i.  Applying tbl_map
+                                 expresses a vector as a linear combination of
+                                 the tbl_index basis *)
+    }
+
+  (* Replace ith element of the basis with jth generator *)
+  let _pivot tableau i j =
+    (* Express jth generator as a linear combination of the elements of the
+       basis *)
+    let v = BatOption.get (Map.apply tableau.tbl_map tableau.tbl_generators.(j)) in
+    (* Express ith generator as a linear combination of the elements of basis
+       obtained by swapping the ith element of the basis with the jth
+       generator *)
+    let u =
+      let (a, v') = QQV.pivot i v in
+      QQV.add_term (QQ.of_int (-1)) i v'
+      |> QQV.scalar_mul (QQ.negate (QQ.inverse a))
+    in
+    let map =
+      Map.compose tableau.tbl_map (fun x ->
+          let (a, x') = QQV.pivot i x in
+          QQV.add x' (QQV.scalar_mul a u))
+    in
+    tableau.tbl_index.(i) <- j;
+    tableau.tbl_map <- map
+
+  let _solve_primal tableau target = Map.apply tableau.tbl_map target
+
+  (* Find a functional that vanishes on all basis vectors except for i, where
+     it evaluates to 1. *)
+  let _solve_dual tableau i =
+    let f =
+      BatEnum.fold (fun f (src, tgt) ->
+          Fun.add_exn src (QQ.negate (QQV.coeff i tgt)) f)
+        Fun.empty
+        (Map.enum tableau.tbl_map)
+    in
+    fun v -> BatOption.get (Fun.apply f v)
+
+  let make generators =
+    (* Find a subset of generators that forms a basis for the linear space
+       spanned by generators *)
+    let dim = ref 0 in
+    let (index,map) =
+      BatArray.fold_lefti (fun (index,map) i gen ->
+          let target = QQV.of_term QQ.one (!dim) in
+          match Map.add gen target map with
+          | Some map' ->
+            incr dim;
+            (i::index, map')
+          | None -> (index, map))
+        ([], Map.empty)
+        generators
+    in
+    { tbl_generators = generators
+    ; tbl_index = Array.of_list (List.rev index)
+    ; tbl_map = map }
+
+  let solve tableau target =
+    let rec go () =
+      match _solve_primal tableau target with
+      | None ->
+        (* Target vector is not in the span of the cone *)
+        None
+      | Some result ->
+        (* If result is non-negative then we're done.  Otherwise, find
+           the smallest index h such that result(h) < 0 *)
+        let r =
+          QQV.fold (fun i c r ->
+              if QQ.lt c QQ.zero then
+                match r with
+                | Some j ->
+                  if tableau.tbl_index.(i) < tableau.tbl_index.(j) then
+                    Some i
+                  else
+                    Some j
+                | None -> Some i
+              else r)
+            result
+            None
+        in
+        match r with
+        | None ->
+          (* Coefficients in result are all non-negative *)
+          let r =
+            QQV.fold
+              (fun dim a vec -> QQV.add_term a tableau.tbl_index.(dim) vec)
+              result
+              QQV.zero
+          in
+          Some r
+        | Some h ->
+          (* Find a linear functional c such that { x : c(x) = 0 } is
+             the span of the tableau minus h, and c(b_h) = 1. *)
+          let c = _solve_dual tableau h in
+          (* Find smallest s such that cs < 0 *)
+          (try
+             let s =
+               BatArray.findi
+                 (fun v -> QQ.lt (c v) QQ.zero)
+                 tableau.tbl_generators
+             in
+             _pivot tableau h s;
+             go ()
+           with Not_found -> None)
+    in
+    go ()
+
+  let make generators  = Log.time "Simplex" make generators
+  let solve tableau target = Log.time "Simplex" (solve tableau) target
+end
+    
+
+module Solver = struct
+  include MakeSolver(SrkUtil.Int)(V)
+end
+
+
 
 (* A cone C is represented by a set of lines L and a set of rays R,
    with C = span(L) + cone(R), and each ray reduced w.r.t. L.  In a
@@ -23,99 +163,8 @@ type t =
   ; mutable minimal : bool
   ; dim : int }
 
-type tableau =
-  { tbl_generators : V.t array (* All cone generators *)
-  ; tbl_index : int array      (* Indices into generator array, forming a basis for its span *)
-  ; mutable tbl_basis : M.t }  (* Matrix where ith row is tbl_generators(tbl_index.(i)) *)
-  
-
-(* Replace ith index with j in a simplex tableau *)
-let _pivot tableau i j =
-  let basis =
-    snd (M.pivot i tableau.tbl_basis)
-    |> M.add_row i tableau.tbl_generators.(j)
-  in
-  tableau.tbl_index.(i) <- j;
-  tableau.tbl_basis <- basis
-
-let _solve_primal tableau target =
-  Linear.solve (M.transpose tableau.tbl_basis) target
-
-let _solve_dual tableau target =
-  (Linear.solve tableau.tbl_basis) target
-
 let simplex generators target =
-  (* Find a subset of generators that forms a basis for the linear space
-     spanned by generators *)
-  let (index,vs,_) =
-    Log.time "init"
-      (BatArray.fold_lefti (fun (index,vs,qs) i gen ->
-           if QS.mem qs gen then
-             (index, vs, qs)
-           else
-             (i::index, gen::vs, QS.add gen qs))
-      ([], [], QS.zero))
-      generators
-  in
-  let tableau =
-    { tbl_generators = generators;
-      tbl_index = Array.of_list (List.rev index);
-      tbl_basis = M.of_rows (List.rev vs) }
-  in
-  let rec go () =
-    match _solve_primal tableau target with
-    | None ->
-       (* Target vector is not in the span of the cone *)
-       None
-    | Some result ->
-       (* If result is non-negative then we're done.  Otherwise, find
-          the smallest index h such that result(h) < 0 *)
-
-      let r =
-        V.fold (fun i c r ->
-            if QQ.lt c QQ.zero then
-              match r with
-              | Some j ->
-                if tableau.tbl_index.(i) < tableau.tbl_index.(j) then
-                  Some i
-                else
-                  Some j
-              | None -> Some i
-            else r)
-          result
-          None
-       in
-       match r with
-       | None ->
-          (* Coefficients in result are all non-negative *)
-         let r =
-           V.fold
-             (fun dim a vec -> V.add_term a tableau.tbl_index.(dim) vec)
-             result
-             V.zero
-          in
-          Some r
-       | Some h ->
-          (* Find a linear functional c such that { x : c(x) = 0 } is
-             the span of the tableau minus h, and c(b_h) = 1. *)
-          let c =
-            BatOption.get (_solve_dual tableau (V.of_term QQ.one h))
-          in
-          (* Find smallest s such that cs < 0 *)
-          (try
-             let s =
-               BatArray.findi
-                 (fun v -> QQ.lt (V.dot c v) QQ.zero)
-                 tableau.tbl_generators
-             in
-             _pivot tableau h s;
-             go ()
-           with Not_found -> None)
-  in
-  go ()
-
-let simplex generators target =
-  Log.time "Simplex" (simplex generators) target
+  Solver.solve (Solver.make generators) target
 
 let normalize cone =
   if not cone.normal then

@@ -8,13 +8,14 @@ module V = Linear.QQVector
 module PVCTX = PolynomialUtil.PolyVectorContext
 module PV = PolynomialUtil.PolyVectorConversion
 
-let pp pp_dim formatter pc =
-  let ideal, cone = pc in
-  Format.pp_print_string formatter "Ideal: ";
-  Rewrite.pp pp_dim formatter ideal;
-  Format.pp_print_string formatter " ";
-  Format.pp_print_string formatter "Cone: ";
-  SrkUtil.pp_print_list (QQXs.pp pp_dim) formatter cone
+let pp pp_dim formatter (ideal, cone) =
+  Format.fprintf
+    formatter
+    "Ideal: @[<v 0>%a@]@;Cone: @[<v 0>%a@]"
+    (Rewrite.pp pp_dim) ideal
+    (SrkUtil.pp_print_enum_nobox
+       ~pp_sep:Format.pp_print_space (QQXs.pp pp_dim))
+    (BatList.enum cone)
 
 let get_ideal (ideal, _) = ideal
 
@@ -119,21 +120,20 @@ let cone_of_polyhedron poly ctx =
   BatList.filter (fun p -> not (QQXs.equal p (QQXs.zero))) cone_generators
 
 let project_cone cone_generators f =
-  let cone_generators = QQXs.one :: cone_generators in
   let ctx = PVCTX.mk_context Monomial.degrevlex cone_generators in
   let dim = PVCTX.num_dimensions ctx in
   let polyhedron_rep_of_cone = polyhedron_of_cone cone_generators ctx in
-  let elim_dims = (1 -- (dim - 1)) |> BatEnum.filter
-                    (fun i ->
-                       let monomial = PVCTX.monomial_of i ctx in
-                       BatEnum.exists
-                         (fun (d, _) -> f d)
-                         (Monomial.enum monomial)
-                    ) |> BatList.of_enum in
+  let elim_dims =
+    (1 -- (dim - 1))
+    |> BatEnum.filter (fun i -> not (f (PVCTX.monomial_of i ctx)))
+    |> BatList.of_enum
+  in
   let projected_polyhedron =
     Polyhedron.project_dd elim_dims polyhedron_rep_of_cone
   in
   cone_of_polyhedron projected_polyhedron ctx
+
+let restrict f (ideal, cone) = (Rewrite.restrict f ideal, project_cone cone f)
 
 let monomial_over pred monomial =
   BatEnum.for_all (fun (d, _) -> pred d) (Monomial.enum monomial)
@@ -144,13 +144,13 @@ let polynomial_over pred polynomial =
 let project pc f =
   let elim_order = Monomial.block [not % f] Monomial.degrevlex in
   let (ideal, cone) = change_monomial_ordering pc elim_order in
-  let dims_to_elim = not % f in
+  let elim m = BatEnum.for_all (f % fst) (Monomial.enum m) in
   let projected_ideal =
     Rewrite.generators ideal
     |> List.filter (polynomial_over f)
     |> Rewrite.mk_rewrite Monomial.degrevlex
   in
-  let projected_cone = project_cone cone dims_to_elim in
+  let projected_cone = project_cone cone elim in
   (projected_ideal, projected_cone)
 
 let intersection (i1, c1) (i2, c2) =
@@ -179,20 +179,12 @@ let intersection (i1, c1) (i2, c2) =
     |> Rewrite.mk_rewrite Monomial.degrevlex
   in
   let reduced = (List.map (Rewrite.reduce ideal) (c1' @ c2')) in
-  let cone = project_cone reduced (fun x -> x = fresh_var) in
+  let cone =
+    project_cone
+      reduced
+      (BatEnum.for_all (fun (v, _) -> v != fresh_var) % Monomial.enum)
+  in
   (ideal2, cone)
-
-
-let equal (i1, c1) (i2, c2) =
-  Rewrite.equal i1 i2
-  && (let rewritten_c2 = List.map (Rewrite.reduce i1) c2 in
-      try
-        let pvutil = PVCTX.mk_context Monomial.degrevlex rewritten_c2 in
-        (
-          Polyhedron.equal
-            (polyhedron_of_cone c1 pvutil)
-            (polyhedron_of_cone rewritten_c2 pvutil))
-      with PVCTX.Not_in_context -> false)
 
 let to_formula srk term_of_dim (ideal, cone_generators) =
   let open Syntax in
@@ -231,6 +223,15 @@ let mem p (ideal, cone_generators) =
       in
       Cone.mem vec_target_poly cone
     end
+
+let leq (z1, p1) (z2, p2) =
+  Rewrite.subset z1 z2
+  && List.for_all (fun p -> mem p (z2, p2)) p1
+
+let equal (z1, p1) (z2, p2) =
+  Rewrite.equal z1 z2
+  && List.for_all (fun p -> mem p (z2, p2)) p1
+  && List.for_all (fun p -> mem p (z1, p1)) p2
 
 let is_proper (ideal, _) =
   not (QQXs.equal QQXs.zero (Rewrite.reduce ideal QQXs.one))

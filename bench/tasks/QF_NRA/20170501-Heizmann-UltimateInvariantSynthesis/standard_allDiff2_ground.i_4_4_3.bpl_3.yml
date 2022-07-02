@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'standard_allDiff2_ground.i_4_4_3.bpl_3.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    
+    

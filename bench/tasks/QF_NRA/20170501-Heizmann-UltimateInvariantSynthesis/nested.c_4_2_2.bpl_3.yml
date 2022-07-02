@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'nested.c_4_2_2.bpl_3.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    expected_verdict: true
+    

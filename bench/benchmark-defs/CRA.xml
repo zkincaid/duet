@@ -14,5 +14,9 @@
       <include>../tasks/HOLA/*.yml</include>
       <propertyfile>../properties/unreach-call.prp</propertyfile>
     </tasks>
+    <tasks name="NLA">
+      <include>../tasks/nla-digbench/*.yml</include>
+      <propertyfile>../tasks/properties/unreach-call.prp</propertyfile>
+    </tasks>
   </rundefinition>
 </benchmark>

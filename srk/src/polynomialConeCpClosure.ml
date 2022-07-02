@@ -398,7 +398,7 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
   let num_rounds = ref 1 in
   let rec closure cone lattice =
     let (cone', lattice') = cutting_plane_operator cone lattice in
-    if PolynomialCone.equal cone' cone then
+    if PolynomialCone.leq cone' cone then
       begin
         L.logf "regular_cutting_plane_closure: closure took %d rounds@;" !num_rounds;
         (cone', lattice')

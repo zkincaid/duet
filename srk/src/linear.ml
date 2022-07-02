@@ -228,6 +228,25 @@ struct
   let is_leading dim rewrite = M.mem dim rewrite
 end
 
+module type LinearSpace = sig
+  type t
+  type scalar
+  type vector
+  val equal : t -> t -> bool
+  val subspace : t -> t -> bool
+  val zero : t
+  val is_zero : t -> bool
+  val mem : t -> vector -> bool
+  val intersect : t -> t -> t
+  val sum : t -> t -> t
+  val diff : t -> t -> t
+  val basis : t -> vector BatEnum.t
+  val dimension : t -> int
+  val add : vector -> t -> t
+  val reduce : t -> vector -> vector
+  val span : vector BatEnum.t -> t
+end
+
 module MakeLinearSpace
     (K : Algebra.Field)
     (D : Map.OrderedType)
@@ -236,6 +255,8 @@ module MakeLinearSpace
 struct
   module R = MakeRewrite(K)(D)(V)
   type t = R.t
+  type scalar = K.t
+  type vector = V.t
   let zero = R.empty
   let sum = R.join
   let intersect = R.meet
@@ -285,6 +306,7 @@ module MakeLinearMap
   val may_add : S.t -> T.t -> t -> t
   val enum : t -> (S.t * T.t) BatEnum.t
   val reverse : t -> (S.t * T.t) BatEnum.t
+  val compose : t -> (T.t -> T.t) -> t
 end = struct
   module R = MakeRewrite(K)(D)(struct
       type t = S.t * T.t
@@ -333,6 +355,7 @@ end = struct
 
   let reverse = R.rev_basis
   let enum = R.basis
+  let compose m f = R.M.map (fun (x, y) -> (x, f y))  m
 end
 
 module QQVS = MakeLinearSpace(QQ)(SrkUtil.Int)(QQVector)
@@ -385,7 +408,7 @@ let solve mat b =
   with No_solution -> None
 
 let solve mat v =
-  Log.time "Solve" (solve mat) v
+  Log.time "Gaussian Elimination" (solve mat) v
 
 let nullspace mat dimensions =
   let rref =

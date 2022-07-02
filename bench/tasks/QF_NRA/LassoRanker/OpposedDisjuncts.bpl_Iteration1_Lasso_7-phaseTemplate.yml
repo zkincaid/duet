@@ -1,0 +1,9 @@
+
+format_version: '1.0'
+
+input_files: 'OpposedDisjuncts.bpl_Iteration1_Lasso_7-phaseTemplate.smt2'
+
+properties:
+  - property_file: ../../properties/sat.prp
+    expected_verdict: false
+    

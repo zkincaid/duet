@@ -21,7 +21,6 @@ include Log.Make(struct let name = "srk.weaksolver" end)
 let pp_dim srk = (fun formatter i -> pp_symbol srk formatter (symbol_of_int i))
 
 let rec get_quantifiers srk env phi =
-  let phi = Formula.prenex srk phi in
   let lookup env i =
     try Env.find env i
     with Not_found -> assert false
@@ -33,29 +32,19 @@ let rec get_quantifiers srk env phi =
     ((qt,k)::qf_pre, psi)
   | _ -> ([], substitute srk (fun (i, _) -> lookup env i) phi)
 
-let destruct_literal srk phi =
+let destruct_atom srk phi =
   let sub a b = P.sub (P.of_term srk a) (P.of_term srk b) in
   match Formula.destruct srk phi with
-  | `Atom (`Arith (`Eq, s, t)) -> `Zero (sub t s)
-  | `Atom (`Arith (`Lt, s, t)) -> `Neg (sub s t) (* x < y <=> !(0 <= x - y) *)
-  | `Atom (`Arith (`Leq, s, t)) -> `Nonneg (sub t s)
-  | `Atom (`IsInt s) -> `IsInt (P.of_term srk s)
-  | `Proposition (`App (k, [])) -> `True k
-  | `Not psi ->
-    begin match Formula.destruct srk psi with
-      | `Proposition (`App (k, [])) -> `False k
-      | `Atom (`Arith (`Eq, s, t)) -> `Nonzero (sub t s)
-      | `Atom (`Arith (`Leq, s, t)) -> `Neg (sub t s)   (* !(x <= y) <=> y - x < 0 *)
-      | `Atom (`Arith (`Lt, s, t)) -> `Nonneg (sub s t) (*  !(x < y) <=> 0 <= x - y *)
-      | `Atom (`IsInt s) -> `NonInt (P.of_term srk s)
-      | _ -> invalid_arg (Format.asprintf "destruct_literal: %a is not recognized"
-                            (Formula.pp srk) phi)
-    end
-  | `Tru -> `Zero P.zero
-  | `Fls -> `Zero P.one
-  | _ ->
-    invalid_arg (Format.asprintf "destruct_literal: %a is not recognized"
-                   (Formula.pp srk) phi)
+  | `Atom (`Arith (`Eq, s, t)) -> Some (`Zero (sub t s))
+  | `Atom (`Arith (`Leq, s, t)) -> Some (`Nonneg (sub t s))
+  | `Atom (`IsInt s) -> Some (`IsInt (P.of_term srk s))
+  | `Atom (`Arith (`Lt, _, _)) ->
+    (* x < y should be replaced by x <= y /\ x != y. *)
+    assert false
+  | `Proposition (`App (k, [])) -> Some (`Prop k)
+  | `Tru -> Some (`Zero P.zero)
+  | `Fls -> Some (`Zero P.one)
+  | _ -> None
 
 (* Polynomial combination of proposition identifiers *)
 module W = Polynomial.Witness
@@ -67,12 +56,16 @@ let core_of_witness srk witness =
     []
     (W.enum witness)
 
+type 'a literal =
+  { atom : 'a
+  ; polarity : [`Pos | `Neg] }
+
 let destruct_prop_literal srk lit =
   match Formula.destruct srk lit with
-  | `Proposition (`App (k, [])) -> (false, k)
+  | `Proposition (`App (k, [])) -> { atom = k; polarity = `Pos }
   | `Not phi ->
     begin match Formula.destruct srk phi with
-      | `Proposition (`App (k, [])) -> (true, k)
+      | `Proposition (`App (k, [])) -> { atom = k; polarity = `Neg }
       | _ -> invalid_arg "destruct_prop_literal: not a propositional literal"
     end
   | _ -> invalid_arg "destruct_prop_literal: not a propositional literal"
@@ -118,19 +111,26 @@ module Model = struct
       | `Quantify (_, _, _, _) -> invalid_arg "evaluate_formula: quantifier"
       | `Atom atom ->
         let atom = Formula.construct srk (`Atom atom) in
-        match destruct_literal srk atom with
-        | `Zero z -> is_zero m z
-        | `Nonzero p -> not (is_zero m p)
-        | `Nonneg p -> is_nonneg m p
-        | `Neg n -> not (is_nonneg m n)
-        | `IsInt q -> is_int m q
-        | `NonInt q -> not (is_int m q)
-        | `True k -> is_true_prop m k
-        | `False k -> not (is_true_prop m k)
+        match destruct_atom srk atom with
+        | Some (`Zero z) -> is_zero m z
+        | Some (`Nonneg p) -> is_nonneg m p
+        | Some (`IsInt q) -> is_int m q
+        | Some (`Prop k) -> is_true_prop m k
+        | None -> assert false
   in
   Formula.eval srk f phi
 
 end
+
+let mk_atom srk prop =
+  let term_of_dim dim = mk_const srk (symbol_of_int dim) in
+  let term_of = P.term_of srk term_of_dim in
+  let zero = mk_zero srk in
+  match prop with
+  | `Zero p -> mk_eq srk zero (term_of p)
+  | `Nonneg p -> mk_leq srk zero (term_of p)
+  | `IsInt p -> mk_is_int srk (term_of p)
+  | `Prop k -> mk_const srk k
 
 module Solver = struct
   type 'a t =
@@ -143,7 +143,10 @@ module Solver = struct
     ; prop : ('a, typ_bool, 'a formula) Expr.HT.t
 
     (* Inverse of prop *)
-    ; unprop : (symbol, 'a formula) Hashtbl.t
+    ; unprop : (symbol, [`Zero of P.t
+                        | `Nonneg of P.t
+                        | `IsInt of P.t ]) Hashtbl.t
+
 
     (* Propositional skeletons of asserted formulae.  Not necessarily in same
        order they are asserted. *)
@@ -171,37 +174,54 @@ module Solver = struct
             ~name:(Format.asprintf "{%a}" (Expr.pp srk) expr)
             (expr_typ srk expr)
         in
-        let atom = mk_const srk prop in
-        Expr.HT.add solver.prop phi atom;
-        Hashtbl.add solver.unprop prop phi;
-        atom
+        let prop_atom = mk_const srk prop in
+        let atom =
+          match destruct_atom srk phi with
+          | Some (`Zero z) -> `Zero z
+          | Some (`Nonneg p) -> `Nonneg p
+          | Some (`IsInt q) -> `IsInt q
+          | Some (`Prop _) -> assert false
+          | None -> assert false
+        in
+        Expr.HT.add solver.prop phi prop_atom;
+        Hashtbl.add solver.unprop prop atom;
+        prop_atom
     in
     match Expr.refine srk expr with
     | `ArithTerm _ | `ArrTerm _ -> expr
     | `Formula phi ->
       let term_of_dim dim = mk_const srk (symbol_of_int dim) in
       let term_of = P.term_of srk term_of_dim in
-      match Formula.destruct srk phi with
-      | `Atom _ ->
-        let prop =
-          match destruct_literal srk phi with
-          | `Zero p -> prop_of_atom (mk_eq srk zero (term_of p))
-          | `Nonneg p -> prop_of_atom (mk_leq srk zero (term_of p))
-          | `Neg p -> mk_not srk (prop_of_atom (mk_leq srk zero (term_of p)))
-          | `Nonzero p -> mk_not srk (prop_of_atom (mk_leq srk zero (term_of p)))
-          | `IsInt p -> prop_of_atom (mk_is_int srk (term_of p))
-          | `NonInt p -> mk_not srk (prop_of_atom (mk_is_int srk (term_of p)))
-          | `True k -> mk_const srk k
-          | `False k -> mk_not srk (mk_const srk k)
-        in
-        (prop :> ('a, typ_fo) expr)
-      | _ -> expr
+      let phi' =
+        match destruct_atom srk phi with
+        | Some (`Zero p) -> prop_of_atom (mk_eq srk zero (term_of p))
+        | Some (`Nonneg p) -> prop_of_atom (mk_leq srk zero (term_of p))
+        | Some (`IsInt p) -> prop_of_atom (mk_is_int srk (term_of p))
+        | Some (`Prop k) -> mk_const srk k
+        | None -> phi
+      in
+      (phi' :> ('a, typ_fo) expr)
+
+  (* Replace s < t with s <= t /\ s != t. *)
+  let lt_rewriter srk (expr : ('a, typ_fo) expr) =
+    match destruct srk expr with
+    | `Not phi ->
+      begin
+        match Formula.destruct srk phi with
+        | `Atom (`Arith (`Lt, s, t)) ->
+          (mk_or srk [mk_not srk (mk_leq srk s t); mk_eq srk s t] :> ('a, typ_fo) expr)
+        | _ -> expr
+      end
+    | `Atom (`Arith (`Lt, s, t)) ->
+      (mk_and srk [mk_leq srk s t; mk_not srk (mk_eq srk s t)] :> ('a, typ_fo) expr)
+    | _ -> expr
 
   let propositionalize solver phi =
     let srk = solver.srk in
-    eliminate_ite srk phi
+    Nonlinear.eliminate_ite srk phi
     |> Nonlinear.eliminate_floor_mod_div srk
-    |> rewrite srk ~down:(nnf_rewriter srk) ~up:(prop_rewriter solver)
+    |> rewrite srk ~down:(nnf_rewriter srk % lt_rewriter srk) ~up:(prop_rewriter solver)
+
 
   let propositionalize_atom solver phi =
     match Expr.refine solver.srk (prop_rewriter solver (phi :> ('a, typ_fo) expr)) with
@@ -210,7 +230,7 @@ module Solver = struct
 
   let unpropositionalize solver phi =
     let unprop symbol =
-      try Hashtbl.find solver.unprop symbol
+      try mk_atom solver.srk (Hashtbl.find solver.unprop symbol)
       with Not_found -> mk_const solver.srk symbol
     in
     substitute_const solver.srk unprop phi
@@ -283,6 +303,8 @@ module Solver = struct
     | Some witness -> `Unsat (core_of_witness srk witness)
     | None -> `Sat rewrite
 
+  let proper_ideal srk zero = Log.time "Proper ideal" (proper_ideal srk) zero
+
   (* Compute smallest regular cone containing positive and the ideal generated
      by zero.  Returns an unsat core if the resulting regular cone is trivial.
      This procedure may allocate additional propositions that represent
@@ -290,17 +312,18 @@ module Solver = struct
      added to the solver.  *)
   let regularize solver zero positive =
     let srk = solver.srk in
-    let* rewrite = proper_ideal srk zero in
+    let* rewrite = proper_ideal srk (BatDynArray.to_list zero) in
     let term_of_dim dim = mk_const srk (symbol_of_int dim) in
     let term_of = P.term_of srk term_of_dim in
     let lineality positive =
       let (ctx, rays) = vectorize positive in
       let dim = PVCTX.num_dimensions ctx in
       let linear_cone = Cone.make ~lines:[] ~rays:(Array.to_list rays) dim in
+      let cs = Cone.Solver.make rays in
       Cone.normalize linear_cone;
       Cone.lines linear_cone
       |> rev_mapm (fun line ->
-          match Cone.simplex rays line, Cone.simplex rays (V.negate line) with
+          match Cone.Solver.solve cs line, Cone.Solver.solve cs (V.negate line) with
           | Some u, Some v ->
             let line_poly = PV.vector_to_poly ctx line in
             let witness =
@@ -317,7 +340,7 @@ module Solver = struct
                   (mk_eq srk (mk_zero srk) (term_of line_poly))
               in
               let line_prop_id =
-                int_of_symbol (snd (destruct_prop_literal srk line_prop))
+                int_of_symbol (destruct_prop_literal srk line_prop).atom
               in
               Smt.Solver.add solver.sat [mk_if srk
                                            (mk_and srk (core_of_witness srk witness))
@@ -348,6 +371,20 @@ module Solver = struct
     | Some w -> `Unsat (core_of_witness srk w)
     | None -> `Sat (zero, positive)
 
+  let regularize solver zero positive =
+    Log.time "Regularize" (regularize solver zero) positive
+
+  let fold_qqxs_symbols f acc poly =
+    BatEnum.fold
+      (fun acc (_, m) ->
+         BatEnum.fold
+           (fun acc (var, _) ->
+              f acc (symbol_of_int var))
+           acc
+           (Monomial.enum m))
+      acc
+      (P.enum poly)
+
   (* Depropositionalize a propositional cube and compute a minimal model, if
      possible.  Assumes prop_cube is propositionally satisfiable. *)
   let model_of_prop_cube solver prop_cube =
@@ -360,37 +397,46 @@ module Solver = struct
     let not_nonneg = BatDynArray.create () in
     let int_symbols = ref Symbol.Set.empty in
     let srk = solver.srk in
-
+    let add_poly arr p w =
+      fold_qqxs_symbols (fun () sym ->
+          if Syntax.typ_symbol srk sym == `TyInt then
+            int_symbols := Symbol.Set.add sym (!int_symbols))
+        ()
+        p;
+      BatDynArray.add arr (p, w)
+    in
     (* 1 is nonnegative without need for a witness *)
     BatDynArray.add nonneg (P.one, W.zero);
 
-    prop_cube |> List.iter (fun prop_lit ->
-        let lit = unpropositionalize solver prop_lit in
-        let (_, sym) = destruct_prop_literal srk prop_lit in
-        symbols lit |> Symbol.Set.iter (fun sym ->
-            if Syntax.typ_symbol srk sym == `TyInt then
-              int_symbols := Symbol.Set.add sym (!int_symbols));
+    logf "Cube:@.  @[<v 0>%a@]"
+      (SrkUtil.pp_print_enum_nobox
+         (fun formatter p ->
+            unpropositionalize solver p
+            |> Formula.pp srk formatter))
+      (BatList.enum prop_cube);
 
-        let w = W.of_list [(P.one, int_of_symbol sym)] in
-        match destruct_literal srk lit with
-        | `Zero z -> BatDynArray.add zero (z, w)
-        | `Nonneg p -> BatDynArray.add nonneg (p, w)
-        | `IsInt m -> BatDynArray.add int (m, w)
-        | `Neg n -> BatDynArray.add not_nonneg (n, prop_lit)
-        | `Nonzero q -> BatDynArray.add not_zero (q, prop_lit)
-        | `NonInt m -> BatDynArray.add not_int (m, prop_lit)
-        | `True k -> pos := Symbol.Set.add k (!pos)
-        | `False _ ->
-          (* Since prop_cube is propositionally satisfiable, we can simply
-             ignore negative propositions *)
-          ());
+    prop_cube |> List.iter (fun prop_lit ->
+        let lit = destruct_prop_literal srk prop_lit in
+        let w = W.of_list [(P.one, int_of_symbol lit.atom)] in
+        match BatHashtbl.find_option solver.unprop lit.atom, lit.polarity with
+        | Some (`Zero p), `Pos -> add_poly zero p w
+        | Some (`IsInt p), `Pos -> add_poly int p w
+        | Some (`Nonneg p), `Pos -> add_poly nonneg p w
+        | Some (`Zero p), `Neg -> add_poly not_zero p prop_lit
+        | Some (`IsInt p), `Neg -> add_poly not_int p prop_lit
+        | Some (`Nonneg p), `Neg -> add_poly not_nonneg p prop_lit
+        | None, `Pos -> pos := Symbol.Set.add lit.atom (!pos)
+
+        (* Since prop_cube is propositionally satisfiable, we can simply
+           ignore negative propositions *)
+        | None, `Neg -> ());
 
     (* Add integrality constraints for int-sorted symbols *)
     (!int_symbols) |> Symbol.Set.iter (fun sym ->
         (* No witness required, since int constraint is implicit *)
         BatDynArray.add int (P.of_dim (int_of_symbol sym), W.zero));
 
-    let* (rewrite, positive) = regularize solver (BatDynArray.to_list zero) nonneg in
+    let* (rewrite, positive) = regularize solver zero nonneg in
     let* _ =
       (* Test for unsatisfied disequality *)
       not_zero |> check_all (fun (p, lit) ->
@@ -398,13 +444,15 @@ module Solver = struct
           | Some w -> `Unsat (lit :: (core_of_witness srk w))
           | None -> ok)
     in
+
     let* _ =
       (* Test for unsatisfied negative inequality *)
       let (ctx, rays) = vectorize positive in
+      let cs = Cone.Solver.make rays in
       not_nonneg |> check_all (fun (p, lit) ->
           try
             let (p', w) = RR.reduce rewrite p in
-            match Cone.simplex rays (PV.poly_to_vector ctx p') with
+            match Cone.Solver.solve cs (PV.poly_to_vector ctx p') with
             | Some u ->
               let w = W.add w (combine_witness positive u) in
               `Unsat (lit :: (core_of_witness srk w))
@@ -414,6 +462,7 @@ module Solver = struct
                positive cone, and so does not belong to the cone *)
             ok)
     in
+
     let pc =
       PolynomialCone.make_cone
         (RR.forget rewrite)
@@ -421,7 +470,6 @@ module Solver = struct
     in
     logf ~level:`trace "Enclosing regular cone: @[%a@]"
       (PolynomialCone.pp (pp_dim srk)) pc;
-
     (* All positive atoms.  Unsat cores extend positive atoms with an
        unsatisfied negative atom. *)
     let positive_atoms =
@@ -433,6 +481,7 @@ module Solver = struct
       in
       add int [] |> add zero |> add nonneg
     in
+
     let (cut_pc, lattice) =
       PolynomialConeCpClosure.regular_cutting_plane_closure
         pc (List.map fst (BatDynArray.to_list int))
@@ -463,6 +512,7 @@ module Solver = struct
       `Unsat positive_atoms
 
   let get_model solver =
+    logf "Getting model...";
     let srk = solver.srk in
     let rec go () =
       match Log.time "SAT solving" Smt.Solver.get_model solver.sat with
@@ -481,9 +531,16 @@ module Solver = struct
         in
         match model_of_prop_cube solver prop_implicant with
         | `Sat m -> `Sat m
-        | `Unsat cube ->
-          Smt.Solver.add solver.sat [mk_not srk (mk_and srk cube)];
-          go ()
+        | `Unsat cube -> begin
+            logf "Unsat core:@.  @[<v 0>%a@]"
+              (SrkUtil.pp_print_enum_nobox
+                 (fun formatter p ->
+                    unpropositionalize solver p
+                    |> Formula.pp srk formatter))
+              (BatList.enum cube);
+            Smt.Solver.add solver.sat [mk_not srk (mk_and srk cube)];
+            go ()
+          end
     in
     go ()
 end
@@ -502,11 +559,12 @@ let is_sat srk phi =
 (* Given a operator cl mapping cones to cones such that (1) cl distributes
    over intersection and projection, (2) cl is extensive, find the closure of
    the non-negative cone of phi *)
-let abstract cl srk phi =
+let abstract srk cl phi =
   let project =
     let phi_symbols = Syntax.symbols phi in
     fun i -> Syntax.Symbol.Set.mem (Syntax.symbol_of_int i) phi_symbols
   in
+  let phi = Formula.prenex srk phi in
   let quantifiers, phi = get_quantifiers srk Env.empty phi in
   let term_of_dim dim = mk_const srk (symbol_of_int dim) in
   assert (BatList.for_all (fun (quant, _) -> quant == `Exists) quantifiers);
@@ -524,56 +582,12 @@ let abstract cl srk phi =
     | `Unsat -> current_pc
     | `Unknown -> assert false
     | `Sat m ->
-      let poly_cone = cl (Model.nonnegative_cone m) in
-      let projected_pc = PolynomialCone.project poly_cone project in
-      let new_pc = PolynomialCone.intersection current_pc projected_pc in
-      block (Model.nonnegative_cone m);
+      let poly_cone = cl (PolynomialCone.project (Model.nonnegative_cone m) project) in
+      let new_pc = cl (PolynomialCone.intersection current_pc poly_cone) in
+      block new_pc;
       go new_pc
   in
   Solver.add solver [phi];
   go PolynomialCone.trivial
 
-let find_consequences srk phi = abstract (fun x -> x) srk phi
-
-let filter_polys_linear_in_dims dims polys =
-  let polys_linear_in_dx = BatList.filter_map
-      (fun poly -> let lin, higher = P.split_linear poly in
-        let higher_contains_dx =
-          BatEnum.exists
-            (fun (_, mono) ->
-               BatEnum.exists
-                 (fun (dim, _) -> BatSet.Int.mem dim dims)
-                 (Polynomial.Monomial.enum mono)
-            )
-            (P.enum higher)
-        in
-        if higher_contains_dx then None else Some (lin, higher)
-      )
-      polys
-  in
-  BatList.filter_map (fun (lin, higher) ->
-      let linterm_of_only_dx_enum = BatEnum.filter_map (fun (coeff, dim) ->
-          if BatSet.Int.mem dim dims then Some (coeff, dim) else None
-        )
-          (V.enum lin)
-      in
-      let linterm_of_only_dx = V.of_enum linterm_of_only_dx_enum in
-      let p = P.of_vec linterm_of_only_dx in
-      let other_linterm = V.sub lin linterm_of_only_dx in
-      let other_poly = P.of_vec other_linterm in
-      if V.is_zero linterm_of_only_dx then None else Some (P.add p (P.add other_poly higher))
-    )
-    polys_linear_in_dx
-
-let project_down_to_linear pc lin_dims =
-  let ideal = PolynomialCone.get_ideal pc in
-  let ideal_gen = Polynomial.Rewrite.generators ideal in
-  let lin_ideal = filter_polys_linear_in_dims lin_dims ideal_gen in
-  (* let cone_gen = PolynomialCone.get_cone_generators pc in *)
-  (* let lin_cone = filter_polys_linear_in_dims lin_dims cone_gen in *)
-  let lin_cone = [] in
-  let new_ideal = Polynomial.Rewrite.mk_rewrite (Polynomial.Rewrite.get_monomial_ordering ideal) lin_ideal in
-  PolynomialCone.make_enclosing_cone new_ideal lin_cone
-
-let find_linear_consequences srk phi lin_dims =
-  abstract (fun cone -> project_down_to_linear cone lin_dims) srk phi
+let find_consequences srk phi = abstract srk (fun x -> x) phi

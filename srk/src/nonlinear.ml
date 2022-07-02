@@ -260,6 +260,30 @@ let eliminate_term srk filter ?(label=fun _ -> "") gen_equiv (qf_phi : 'a formul
   in
   mk_and srk (phi' :: equivalences)
 
+let eliminate_ite srk phi =
+  let filter expr =
+    match destruct srk expr with
+    | `Ite (_, _, _) -> true
+    | _ -> false
+  in
+  let label _ = "ite" in
+  let gen_equiv sym expr =
+    match destruct srk expr with
+    | `Ite (cond, bthen, belse) ->
+      let mk_eq a b =
+        match Expr.refine srk a, Expr.refine srk b with
+        | `Formula p, `Formula q -> mk_iff srk p q
+        | `ArithTerm s, `ArithTerm t -> mk_eq srk s t
+        | `ArrTerm s, `ArrTerm t -> mk_arr_eq srk s t
+        | _, _ -> assert false
+      in
+      let k = mk_const srk sym in
+      [mk_or srk [mk_and srk [cond; mk_eq k bthen]
+                 ; mk_and srk [mk_not srk cond; mk_eq k belse]]]
+    | _ -> assert false
+  in
+  eliminate_term srk filter ~label gen_equiv phi
+
 let eliminate_floor_mod_div srk phi =
   let filter expr =
     match destruct srk expr with
@@ -312,6 +336,14 @@ let eliminate_floor_mod_div srk phi =
             ]
          ]
       | `Binop (`Div, s, t) ->
+        [mk_or srk
+           [ mk_eq srk t (mk_int srk 0)
+           ; mk_eq srk s (mk_mul srk [mk_const srk sym ; t])]]
+        (*
+         TODO: the following encodes integer division.  Only real division is
+         supported by the IR, but we could make use of this encoding by
+         pattern-matching on floor(a/b) where a & b are integral.
+
          begin match expr_typ srk s, expr_typ srk t with
          | `TyInt, `TyReal
            | `TyReal, `TyInt
@@ -332,6 +364,7 @@ let eliminate_floor_mod_div srk phi =
             ]
          | _, _ -> invalid_arg "nonlinear: impossible case"
          end
+        *)
       | _ -> []
     end
   in

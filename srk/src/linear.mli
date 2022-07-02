@@ -173,13 +173,10 @@ module type SparseArray = sig
 end
 
 
-(** Finite-dimensional (sub)spaces of sparse arays *)
-module MakeLinearSpace
-    (K : Algebra.Field)
-    (D : Map.OrderedType)
-    (V : SparseArray with type dim = D.t
-                      and type scalar = K.t) : sig
+module type LinearSpace = sig
   type t
+  type scalar
+  type vector
 
   (** Logical equality *)
   val equal : t -> t -> bool
@@ -194,7 +191,7 @@ module MakeLinearSpace
   val is_zero : t -> bool
 
   (** Check membership of vector within a linear space *)
-  val mem : t -> V.t -> bool
+  val mem : t -> vector -> bool
 
   (** Intersect two spaces *)
   val intersect : t -> t -> t
@@ -208,22 +205,31 @@ module MakeLinearSpace
   val diff : t -> t -> t
 
   (** Retrieve an ordered basis for a space *)
-  val basis : t -> V.t BatEnum.t
+  val basis : t -> vector BatEnum.t
 
   (** Find the dimension of the given space *)
   val dimension : t -> int
 
   (** [add v U] computes the space [{ av + u : a in K, u in U }] *)
-  val add : V.t -> t -> t
+  val add : vector -> t -> t
 
   (** [reduce v S] compute a representative of v in the quotient space
      [V/S]. *)
-  val reduce : t -> V.t -> V.t
+  val reduce : t -> vector -> vector
 
   (** Smallest vector space that contains all vectors in the given
      enumeration. *)
-  val span : V.t BatEnum.t -> t
+  val span : vector BatEnum.t -> t
 end
+
+(** Finite-dimensional (sub)spaces of sparse arays *)
+module MakeLinearSpace
+    (K : Algebra.Field)
+    (D : Map.OrderedType)
+    (V : SparseArray with type dim = D.t
+                      and type scalar = K.t) :
+  LinearSpace with type scalar = K.t
+               and type vector = V.t
 
 (** {2 Linear maps} *)
 
@@ -268,6 +274,10 @@ module MakeLinearMap
 
   (** As [enum], but with the order reversed. *)
   val reverse : t -> (S.t * T.t) BatEnum.t
+
+  (** Compose a map with a linear map on the target space.  The function must
+     be linear for the composition to be well-defined. *)
+  val compose : t -> (T.t -> T.t) -> t
 end
 
 (** {2 Affine terms} *)

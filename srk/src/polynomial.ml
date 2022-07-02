@@ -346,6 +346,16 @@ module Monomial = struct
       m
       []
     |> Syntax.mk_mul srk
+
+  let destruct_var monomial =
+    let e = enum monomial in
+    match BatEnum.get e with
+    | Some (v, 1) ->
+      if BatEnum.is_empty e then
+        Some v
+      else
+        None
+    | _ -> None
 end
 
 module type Multivariate = sig
@@ -479,7 +489,7 @@ module QQXs = struct
     if is_zero p then
       Format.pp_print_string formatter "0"
     else
-      SrkUtil.pp_print_enum_nobox
+      SrkUtil.pp_print_enum
         ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
         (fun formatter (coeff, m) ->
            if QQ.equal coeff QQ.one then
@@ -647,6 +657,9 @@ module OrderedPolynomial = struct
   let add_term order c m p = add order [(c,m)] p
 
   let zero = []
+  let is_zero = function
+    | [] -> true
+    | _ -> false
 end
 
 module MakeRewrite
@@ -756,30 +769,69 @@ module MakeRewrite
       FeatureTree.of_list features rules
   end
 
+  module VarMap = SrkUtil.Int.Map
+
   type t =
     { rules : RS.t;
+      linear : P.t VarMap.t;
       order : Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ] }
 
   let polynomial_of_rule order (lhs, rhs) =
     P.add_term order (K.negate K.one) lhs rhs
 
+  (* Add a rule to a rewrite.  **Assumes that the rule is reduced**.  Do not
+     export. *)
+  let _insert_rule (lhs, rhs) rewrite =
+    match Monomial.destruct_var lhs with
+    | Some v -> { rewrite with linear = VarMap.add v rhs rewrite.linear }
+    | None -> { rewrite with rules = RS.insert (lhs, rhs) rewrite.rules }
+
+  (* Try to find a linear rule (v -> rhs) such that v divides the monomial
+     m.  If yes, return the pair (m/v, rhs)  *)
+  let _reduce_lin _order linear monomial =
+    try
+      let var =
+        BatEnum.find (fun var -> VarMap.mem var linear) (Monomial.IntMap.keys monomial)
+      in
+      let remainder =
+        Monomial.IntMap.modify_opt
+          var
+          (fun deg -> match deg with
+             | Some n when n >= 2 -> Some (n - 1)
+             | _ -> None)
+          monomial
+      in
+      Some (remainder, VarMap.find var linear)
+    with Not_found ->
+      (* No key in linear divides monomial *)
+      None
+
   let rec reduce rewrite polynomial =
     match P.split_leading rewrite.order polynomial with
     | None -> polynomial
     | Some (c, m, polynomial') ->
-      try
-        let reduced =
-          RS.find_leq_map (RS.features rewrite.rules m) (fun (n, p) ->
-              match Monomial.div m n with
-              | Some remainder ->
-                Some (P.monomial_scalar_mul c remainder p)
-              | None -> None)
-            rewrite.rules
-        in
-        reduce rewrite (P.add rewrite.order reduced polynomial')
-      with Not_found ->
-        let reduced = reduce rewrite polynomial' in
-        P.add_term rewrite.order c m reduced
+      (* Preferentially reduce using linear polynomials, since pattern
+         matching is faster.  This speeds up the linear case.
+         TODO: can do multiple steps of linear reduction at once, e.g.,
+               if x -> p, then x^2 -> p^2 *)
+      match _reduce_lin rewrite.order rewrite.linear m with
+      | Some (m, q) ->
+        reduce rewrite
+          (P.add rewrite.order (P.monomial_scalar_mul c m q) polynomial')
+      | None ->
+        try
+          let reduced =
+            RS.find_leq_map (RS.features rewrite.rules m) (fun (n, p) ->
+                match Monomial.div m n with
+                | Some remainder ->
+                  Some (P.monomial_scalar_mul c remainder p)
+                | None -> None)
+              rewrite.rules
+          in
+          reduce rewrite (P.add rewrite.order reduced polynomial')
+        with Not_found ->
+          let reduced = reduce rewrite polynomial' in
+          P.add_term rewrite.order c m reduced
 
   let pp_dim formatter i =
     let rec to_string i =
@@ -797,14 +849,19 @@ module MakeRewrite
       let (m', _) = r' in
       Monomial.lcm m m'
     in
-    List.exists (fun rule ->
+    BatEnum.exists (fun rule ->
         let (m, _) = rule in
         (Monomial.div m lcm) != None
         && not (PairQueue.mem pairs (r, rule))
         && not (PairQueue.mem pairs (r', rule)))
       rules
 
-  let buchberger order rules pairs =
+  let mk_inconsistent order rhs =
+    { order = order
+    ; linear = VarMap.empty
+    ; rules = RS.of_list [(Monomial.one, rhs)]}
+
+  let buchberger rewrite pairs =
     (* Suppose m1 = rhs1 and m2 = rhs1.  Let m be the least common multiple of
        m1 and m2, and let m1*r1 = m = m2*r2.  Then we have m = rhs1*r1 and m =
        rhs2*r1.  It follows that rhs1*r1 - rhs2*r2 = 0.  spoly computes this
@@ -814,15 +871,15 @@ module MakeRewrite
       let r1 = BatOption.get (Monomial.div m m1) in
       let r2 = BatOption.get (Monomial.div m m2) in
       P.add
-        order
+        rewrite.order
         (P.monomial_scalar_mul K.one r1 rhs1)
         (P.monomial_scalar_mul (K.negate K.one) r2 rhs2)
     in
     let lhs (x, _) = x in
     let rhs (_, x) = x in
-    let rec go rules pairs =
+    let rec go rewrite pairs =
       match PairQueue.pop pairs with
-      | None -> rules
+      | None -> rewrite
       | Some ((r1, r2), pairs) ->
         logf ~level:`trace  "Pair:";
         logf ~level:`trace  "  @[%a@] --> @[<hov 2>%a@]"
@@ -831,16 +888,16 @@ module MakeRewrite
         logf ~level:`trace  "  @[%a@] --> @[<hov 2>%a@]"
           (Monomial.pp pp_dim) (lhs r2)
           (P.pp pp_dim) (rhs r2);
-        let sp = reduce { order = order; rules = rules } (spoly r1 r2) in
-        match P.split_leading order sp with
-        | None -> go rules pairs
+        let sp = reduce rewrite (spoly r1 r2) in
+        match P.split_leading rewrite.order sp with
+        | None -> go rewrite pairs
         | Some (c, m, p') when Monomial.equal m Monomial.one ->
           (* Inconsistent -- return (1 = 0) *)
           assert (not (K.equal c K.zero));
           let rhs =
             P.monomial_scalar_mul (K.negate (K.inverse c)) Monomial.one p'
           in
-          (RS.of_list [(Monomial.one, rhs)])
+          mk_inconsistent rewrite.order rhs
         | Some (c, m, rest) ->
           assert (not (K.equal c K.zero));
           let rhs =
@@ -859,44 +916,48 @@ module MakeRewrite
                 | _ ->
                   PairQueue.insert pairs (new_rule, rule))
               pairs
-              (RS.enum rules)
+              (RS.enum rewrite.rules)
           in
-          go
-            (RS.insert new_rule rules)
-            pairs
+          go (_insert_rule new_rule rewrite) pairs
     in
-    go rules pairs
+    go rewrite pairs
+
+  let buchberger rewrite pairs =
+    Log.time "Buchberger" (buchberger rewrite) pairs
 
   (* Ensure that every basis polynomial is irreducible w.r.t. every other
      basis polynomial *)
   let reduce_rewrite rewrite =
-    let rules =
-      BatEnum.fold (fun rules rule ->
-        let (m, rhs) = rule in
-        let rules = RS.remove rule rules in
+    let rewrite =
+      (* Leading term of linear rewrite is irreducible -- only RHS needs to be
+         reduced. *)
+      { rewrite with
+        linear = VarMap.map (fun rhs -> reduce rewrite rhs) rewrite.linear }
+    in
+    BatEnum.fold (fun rewrite rule ->
+        let rewrite' = { rewrite with rules = RS.remove rule rewrite.rules } in
         let p =
-          P.add_term rewrite.order (K.negate K.one) m rhs
-          |> reduce {rewrite with rules=rules}
+          polynomial_of_rule rewrite.order rule
+          |> reduce rewrite'
         in
         match P.split_leading rewrite.order p with
-        | None -> rules
+        | None -> rewrite'
         | Some (c, m, p') when Monomial.equal m Monomial.one ->
           (* Inconsistent -- return (1 = 0) *)
           assert (not (K.equal c K.zero));
           let rhs =
             P.monomial_scalar_mul (K.negate (K.inverse c)) Monomial.one p'
           in
-          RS.of_list [(Monomial.one, rhs)]
+          mk_inconsistent rewrite.order rhs
         | Some (c, m, rest) ->
           assert (not (K.equal c K.zero));
           let rhs =
             P.monomial_scalar_mul (K.negate (K.inverse c)) Monomial.one rest
           in
-          RS.insert (m, rhs) rules)
-        rewrite.rules
-        (RS.enum rewrite.rules)
-    in
-    { order = rewrite.order; rules = rules }
+          _insert_rule (m, rhs) rewrite')
+      rewrite
+      (RS.enum rewrite.rules)
+
 
   let add_saturate rewrite p =
     let p = reduce rewrite p in
@@ -908,8 +969,7 @@ module MakeRewrite
       let rhs =
         P.monomial_scalar_mul (K.negate (K.inverse c)) Monomial.one p'
       in
-      { order = rewrite.order;
-        rules = RS.of_list [(Monomial.one, rhs)] }
+      mk_inconsistent rewrite.order rhs
     | Some (c, m, rest) ->
       assert (not (K.equal c K.zero));
       let rhs =
@@ -926,21 +986,44 @@ module MakeRewrite
           PairQueue.empty
           (RS.enum rewrite.rules)
       in
-      { order = rewrite.order;
-        rules = buchberger rewrite.order
-            (RS.insert new_rule rewrite.rules)
-            pairs }
-      |> reduce_rewrite
+      buchberger (_insert_rule new_rule rewrite) pairs
+
+  let add_saturate rewrite p =
+    Log.time "Buchberger" (add_saturate rewrite) p
+
+  let generators rewrite =
+    let linear =
+      VarMap.fold
+        (fun v rhs rules ->
+           (polynomial_of_rule rewrite.order (Monomial.singleton v 1, rhs))::rules)
+        rewrite.linear
+        []
+    in
+    BatEnum.fold
+      (fun rules rule ->
+         (polynomial_of_rule rewrite.order rule)::rules)
+      linear
+      (RS.enum rewrite.rules)
 
   let pp pp_dim formatter rewrite =
+    Format.pp_open_vbox formatter 0;
     SrkUtil.pp_print_enum_nobox
-      ~pp_sep:(fun formatter () -> Format.fprintf formatter "@;")
+      ~pp_sep:Format.pp_print_cut
       (fun formatter (lhs, rhs) ->
          Format.fprintf formatter "%a --> @[<hov 2>%a@]"
            (Monomial.pp pp_dim) lhs
            (P.pp pp_dim) rhs)
       formatter
-      (RS.enum rewrite.rules)
+      (RS.enum rewrite.rules);
+    SrkUtil.pp_print_enum_nobox
+      ~pp_sep:Format.pp_print_cut
+      (fun formatter (lhs, rhs) ->
+         Format.fprintf formatter "%a --> @[<hov 2>%a@]"
+           pp_dim lhs
+           (P.pp pp_dim) rhs)
+      formatter
+      (VarMap.enum rewrite.linear);
+    Format.pp_close_box formatter ()
 
   let grobner_basis rewrite =
     logf ~level:`trace "Compute a Grobner basis for:@\n@[<v 0>%a@]"
@@ -964,34 +1047,76 @@ module MakeRewrite
     in
 
     let grobner =
-      { order = rewrite.order;
-        rules = buchberger rewrite.order rewrite.rules pairs }
-      |> reduce_rewrite
+      buchberger rewrite pairs 
     in
     logf ~level:`trace "Grobner basis:@\n@[<v 0>%a@]"
       (pp pp_dim) grobner;
     grobner
 
+  module type LinearSpace = Linear.LinearSpace
+    with type scalar = K.t
+     and type vector = P.t
+
+  let mk_space order =
+    (module (Linear.MakeLinearSpace
+               (K)
+               (Monomial)
+               (struct
+                 type t = P.t
+                 type dim = Monomial.t
+                 type scalar = K.t
+                 let scalar_mul k p = P.monomial_scalar_mul k Monomial.one p
+                 let zero = P.zero
+                 let add = P.add order
+                 let split_leading p =
+                   match P.split_leading order p with
+                   | Some (a,b,c) -> Some (b,a,c)
+                   | None -> None
+                 let pp = P.pp pp_dim
+                 let rec fold f p a =
+                   match P.split_leading order p with
+                   | Some (c,m,p') ->
+                     fold f p' (f m c a)
+                   | None -> a
+                 let add_term = P.add_term order
+               end)) : LinearSpace)
+
   let mk_rewrite order polynomials =
-    let rule_list =
-      polynomials |> BatList.filter_map (fun polynomial ->
-          match P.split_leading order polynomial with
-          | None -> None
-          | Some (c, m, rest) ->
-            assert (not (K.equal c K.zero));
-            let rhs =
-              P.monomial_scalar_mul (K.negate (K.inverse c)) Monomial.one rest
-            in
-            Some (m, rhs))
+    let module L = ((val mk_space order) : LinearSpace) in
+    let polynomials =
+      L.basis (L.span (BatList.enum polynomials))
     in
-    { rules = RS.of_list rule_list;
-      order }
+    let rec loop (rule_list, linear) =
+      match BatEnum.get polynomials with
+      | None ->
+        { rules = RS.of_list rule_list
+        ; linear = linear
+        ; order = order }
+      | Some polynomial ->
+        match P.split_leading order polynomial with
+        | None -> loop (rule_list, linear)
+        | Some (c, m, p') when Monomial.equal m Monomial.one ->
+          (* Inconsistent *)
+          assert (not (K.equal c K.zero));
+          let rhs =
+            P.monomial_scalar_mul (K.negate (K.inverse c)) Monomial.one p'
+          in
+          mk_inconsistent order rhs
+        | Some (c, m, rest) ->
+          assert (not (K.equal c K.zero));
+          let rhs =
+            P.monomial_scalar_mul (K.negate (K.inverse c)) Monomial.one rest
+          in
+          match Monomial.destruct_var m with
+          | Some v -> loop (rule_list, VarMap.add v rhs linear)
+          | None ->
+            assert (not (Monomial.equal m Monomial.one));
+            loop ((m, rhs)::rule_list, linear)
+    in
+    loop ([], VarMap.empty)
+
 
   let get_monomial_ordering rewrite = rewrite.order
-  let generators rewrite =
-    RS.enum rewrite.rules
-    /@ polynomial_of_rule rewrite.order
-    |> BatList.of_enum
 
   let restrict p rewrite =
     let rules =
@@ -1000,7 +1125,12 @@ module MakeRewrite
       |> BatList.of_enum
       |> RS.of_list
     in
-    { rewrite with rules = rules }
+    let linear =
+      VarMap.filter (fun v _ -> p (Monomial.singleton v 1)) rewrite.linear
+    in
+    { order = rewrite.order
+    ; rules = rules
+    ; linear = linear }
 end
 
 module Rewrite = struct
@@ -1059,14 +1189,13 @@ module Rewrite = struct
       (OP.of_qqxs (R.get_monomial_ordering rewrite) p, P.empty)
       |> R.reduce rewrite
     in
-    p' = []
+    OP.is_zero p'
 
   let subset j k =
     BatList.for_all
       (fun q ->
-         match R.reduce k q with
-         | ([], _) -> true
-         | _ -> false)
+         let (p, _) = R.reduce k q in
+         OP.is_zero p)
       (R.generators j)
 
   let equal j k = subset j k && subset k j
@@ -1191,9 +1320,7 @@ module RewriteWitness = struct
     add_saturate rewrite (OP.of_qqxs rewrite.order p, w)
   let zero_witness rewrite p =
     let (p, w) = reduce rewrite (OP.of_qqxs rewrite.order p, Witness.zero) in
-    match p with
-    | [] -> Some w
-    | _  -> None
+    if OP.is_zero p then Some w else None
 
   let reducew rewrite (p, w) =
     let (p, w) = reduce rewrite (OP.of_qqxs rewrite.order p, w) in

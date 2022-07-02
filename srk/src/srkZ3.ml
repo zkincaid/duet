@@ -98,7 +98,7 @@ let rec eval alg ast =
       | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
       | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
       | (OP_IS_INT, [s]) -> alg (`IsInt [s])
-      | (OP_XOR, xs) ->
+      | (OP_DISTINCT, xs) ->
         let rec exclusive acc = function
           | y::ys ->
             exclusive
@@ -110,6 +110,12 @@ let rec eval alg ast =
           | [] -> acc
         in
         alg (`And (exclusive [alg (`Or xs)] xs))
+      | (OP_XOR, xs) ->
+        let xor x y =
+          alg (`Or [alg (`And [alg (`Not x); y]);
+                    alg (`And [x; alg (`Not y)])])
+        in
+        BatList.reduce xor xs
 
       | (_, _) -> invalid_arg ("eval: unknown application: "
                                ^ (Expr.to_string ast))

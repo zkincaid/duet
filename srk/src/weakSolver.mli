@@ -16,4 +16,7 @@ end
 val get_model : 'a context -> 'a formula -> [ `Sat of Model.t | `Unsat | `Unknown ]
 val is_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]
 val find_consequences : 'a context -> 'a formula -> PolynomialCone.t
-val find_linear_consequences : 'a context -> 'a formula -> BatSet.Int.t -> PolynomialCone.t
+val abstract : 'a context ->
+  (PolynomialCone.t -> PolynomialCone.t) ->
+  'a formula ->
+  PolynomialCone.t
