@@ -215,9 +215,9 @@ let polyhedron_of ctxt zeroes positives =
   p
 
 (**
-    Given a regular polynomial cone [C] and a subspace [U] spanned by 
+    Given a regular polynomial cone C and a subspace U spanned by
     [variables] and 1, such that the monomial ordering of C is a
-    graded elimination order that keeps [dimensions] (e.g., devreglex),
+    graded elimination order that retains [variables] (e.g., devreglex),
     compute the polyhedron [C \cap U].
  *)
 let intersect_cone_and_affine_space cone variables =
