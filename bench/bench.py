@@ -8,6 +8,7 @@ import subprocess
 import tempfile
 import types
 import statistics
+from collections import defaultdict
 
 # Configuration -- can be reconfigured via the command line
 tools = ['ComPACT','CPAchecker','UAutomizer','2ls','Termite']
@@ -100,10 +101,40 @@ def summarize_result(tool, suite):
     result.time = 0
     result.correct = 0
     result.timeout = 0
+    result.memout = 0
     result.unknown = 0
     result.times_excluding_timeouts = []
+    result.time_by_verdict = defaultdict(float) 
+    result.num_by_verdict = defaultdict(int)
+    result.correct_by_verdict = defaultdict(int) 
+    result.timeout_by_verdict = defaultdict(int)
+    result.memout_by_verdict = defaultdict(int)
     for entry in data:
         result.total += 1
+        if len(entry) > 4:
+            result.time += float(entry[4])
+            v = entry[1]
+            if v == '':
+                v = 'unknown'
+            result.num_by_verdict[v] += 1
+            t = float(entry[4])
+            if entry[2] == 'TIMEOUT':
+                result.timeout += 1
+                result.timeout_by_verdict[v] = result.timeout_by_verdict[v] + 1 
+            else:
+                result.time_by_verdict[v] = result.time_by_verdict[v] + t 
+                if entry[3] == 'correct':
+                    result.correct += 1
+                    result.correct_by_verdict[v] = result.correct_by_verdict[v] + 1
+                elif entry[2] == 'KILLED BY SIGNAL 9':
+                    result.memout += 1
+                    result.memout_by_verdict[v] = result.memout_by_verdict[v] + 1
+                elif entry[3] == "unknown":
+                    result.unknown += 1
+                    result.times_excluding_timeouts.append(t)
+                else:
+                    result.times_excluding_timeouts.append(t)
+            continue
         result.time += get_time(entry, 0)
         if (get_result(entry, 0) == "TIMEOUT"):
             result.timeout += 1
@@ -116,6 +147,87 @@ def summarize_result(tool, suite):
         else:
             result.times_excluding_timeouts.append(get_time(entry, 0))
     return result
+
+def summary_by_verdict():
+    res = {}
+    matrix = {}
+
+    best_time = {}
+    best_correct = {}
+    num = {}
+    total_correct = {}
+    total_time = {}
+    num_timeout = {}
+    num_memout = {}
+    times_excluding_timeout = {}
+    mean_time_excluding_timeout = {}
+    median_time_excluding_timeout = {}
+
+
+    for tool in tools:
+        total_correct[tool] = 0
+        total_time[tool] = 0
+        times_excluding_timeout[tool] = []
+        num_timeout[tool] = 0
+        num_memout[tool] = 0
+
+    for s in suites:
+        r = {}
+        for t in tools:
+            r[t] = summarize_result(t, s)
+        res[s] = r 
+
+    for suite in suites:
+        for verd in ['true', 'false', 'unknown']:
+            row_name = suite + ' - ' + verd
+            row = {}
+            best_time_suite = 999999999.0
+            best_correct_suite = 0
+            num_row = 0
+            for tool in tools:
+                r = res[suite][tool] 
+                num_suite = r.num_by_verdict[verd]
+                row[tool] = r
+                total_correct[tool] += r.correct_by_verdict[verd]
+                total_time[tool] += r.time_by_verdict[verd]
+                num_timeout[tool] += r.timeout_by_verdict[verd]
+                num_memout[tool] += r.memout_by_verdict[verd]
+            num[row_name] = num_suite
+            matrix[row_name] = row
+
+    print("\\begin{tabular}{@{}lc|%s@{}}" % ("|".join(["c@{}c@{}r"] * (len(tools)))))
+    print("\\toprule")
+    print(" &",end='')
+    for tool in tools[:-1]:
+        print(" & \\multicolumn{3}{c|}{%s}" % tool, end='')
+    print(" & \\multicolumn{3}{c}{%s}\\\\" % tools[-1])
+
+    print(" & \#tasks & %s\\\\\\midrule" % " & ".join(["\#P & \#E & t"] * len(tools)))
+
+    for suite in suites:
+        for verd in ['true', 'false', 'unknown']:
+            suite_name = suite + ' - ' + verd
+            print("%s & %d" % (suite_name, num[suite_name]),end='')
+            for tool in tools:
+                r = matrix[suite_name][tool]
+                c = res[suite][tool]
+                print(" & %d" % c.correct_by_verdict[verd],end='')
+                print(" & %d/%d" % (c.timeout_by_verdict[verd], c.memout_by_verdict[verd]),end='')
+                print(" & %.1f" % c.time_by_verdict[verd],end='')
+
+            print("\\\\")
+    print("\\midrule")
+
+
+    print("Total & %d " % sum(num.values()), end='')
+    for tool in tools:
+         print(" & %d" % total_correct[tool],end='')
+         print(" & %d/%d" % (num_timeout[tool], num_memout[tool]),end='')
+         print(" & %.1f" % total_time[tool],end='')
+    print("\\\\")
+
+    print("\\bottomrule")
+    print("\\end{tabular}")
 
 def summary():
     matrix = {}
@@ -413,5 +525,7 @@ if __name__ == "__main__":
         scatter_plot()
     elif (command == "summary"):
         summary()
+    elif (command == "summarybyverdict"):
+        summary_by_verdict()
     else:
         print("Unknown command")
