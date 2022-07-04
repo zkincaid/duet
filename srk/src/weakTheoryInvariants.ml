@@ -107,6 +107,8 @@ let find_tf_invs srk tr_symbols loop_counter tf =
                    srk
                    (fun i -> Symbol.Map.find (symbol_of_int i) dx_subst_x))
   in
+  logf "invariant functionals:";
+  BatList.iter (fun t -> logf "inv func: %a" (ArithTerm.pp srk) t) inv_functionals;
   (* For each invariant functional f_i, create a symbol z_i representing f *)
   let (z_subst, z_defs) =
     BatList.fold_lefti
@@ -143,6 +145,9 @@ let find_tf_invs srk tr_symbols loop_counter tf =
     in
     WTS.abstract srk cl existential_formula
   in
+  logf "algebraic cone with elim ordering:";
+  logf "cone of inv func and delta vars: %a" (PC.pp (pp_dim srk)) inv_cone;
+  BatList.iter (fun t -> logf "inv func: %a" (ArithTerm.pp srk) t) inv_functionals;
   (* Convert polynomial to term, substituting z variables for corresponding
      invariant functionals *)
   let inv_term_of_poly =
@@ -175,6 +180,8 @@ let find_tf_invs srk tr_symbols loop_counter tf =
         else None)
       (P.Rewrite.generators ideal)
   in
+  logf "implied zero polynomials:";
+  BatList.iter (fun f -> logf "zero: %a" (Formula.pp srk) f) implied_zero_polys_formulas;
   let implied_recurrent_poly_eqs =
     filter_polys_linear_in_dims is_dx (P.Rewrite.generators ideal)
     |> BatList.map (fun (vec, poly) ->
@@ -182,6 +189,8 @@ let find_tf_invs srk tr_symbols loop_counter tf =
                                    ; mk_mul srk [loop_counter
                                                 ; inv_term_of_poly poly]]))
   in
+  logf "implied recurrent eqs:";
+  BatList.iter (fun f -> logf "rec eq: %a" (Formula.pp srk) f) implied_recurrent_poly_eqs; 
   let implied_recurrent_poly_ineqs =
     PC.get_cone_generators inv_cone
     |> filter_polys_linear_in_dims is_dx
@@ -190,6 +199,8 @@ let find_tf_invs srk tr_symbols loop_counter tf =
                                     ; mk_mul srk [loop_counter
                                                  ; inv_term_of_poly poly]]))
   in
+  logf "implied recurrent ineqs:";
+  BatList.iter (fun f -> logf "rec ineq: %a" (Formula.pp srk) f) implied_recurrent_poly_ineqs; 
   mk_or srk [
     mk_and srk [ (* Reflexive closure *)
       mk_eq srk loop_counter (mk_real srk QQ.zero);

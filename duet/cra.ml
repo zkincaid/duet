@@ -337,17 +337,37 @@ and tr_bexpr bexpr =
               Ctx.mk_lt x y
           end
         | Le -> Ctx.mk_leq x y
-        | Eq -> Ctx.mk_eq x y
+        | Eq ->
+          begin
+            match rx, ry with
+            | (BinaryOp (a, Mod, b, _), Constant (CInt (k, _))) ->
+              (* a mod b = k <==> (a - k)/b is an integer *)
+              (Ctx.mk_div
+                 (Ctx.mk_sub (tr_expr_val a) (Ctx.mk_int k))
+                 (tr_expr_val b))
+              |> Ctx.mk_is_int
+            | _ ->
+              Ctx.mk_eq x y
+          end
         | Ne ->
           begin
-            let t1 = (Core.resolve_type (Core.Aexpr.get_type rx)) in
-            let t2 = (Core.resolve_type (Core.Aexpr.get_type ry)) in
-            match t1, t2 with
-            | Core.Int _, Core.Int _ ->
-              Ctx.mk_or [Ctx.mk_leq (Ctx.mk_add [x; (Ctx.mk_int 1)]) y;
-                         Ctx.mk_leq (Ctx.mk_add [y; (Ctx.mk_int 1)]) x]
-            | _, _ ->
-              Ctx.mk_or [Ctx.mk_lt x y; Ctx.mk_lt y x]
+            match rx, ry with
+            (* a mod b != k <==> (a - k)/b is not an integer *)
+            | (BinaryOp (a, Mod, b, _), Constant (CInt (k, _))) ->
+              Ctx.mk_div
+                (Ctx.mk_sub (tr_expr_val a) (Ctx.mk_int k))
+                (tr_expr_val b)
+              |> Ctx.mk_is_int
+              |> Ctx.mk_not
+            | _ ->
+              let t1 = (Core.resolve_type (Core.Aexpr.get_type rx)) in
+              let t2 = (Core.resolve_type (Core.Aexpr.get_type ry)) in
+              match t1, t2 with
+              | Core.Int _, Core.Int _ ->
+                Ctx.mk_or [Ctx.mk_leq (Ctx.mk_add [x; (Ctx.mk_int 1)]) y;
+                           Ctx.mk_leq (Ctx.mk_add [y; (Ctx.mk_int 1)]) x]
+              | _, _ ->
+                Ctx.mk_or [Ctx.mk_lt x y; Ctx.mk_lt y x]
           end
       end
   in
