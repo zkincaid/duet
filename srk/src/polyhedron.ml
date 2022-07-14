@@ -636,7 +636,7 @@ let minimal_faces polyhedron : (V.t * ((constraint_kind * V.t) list)) list =
       (fun fmt constraints ->
         List.iter (Format.fprintf fmt "%a@;" pp_constraint) constraints)
       defining in
-  logf "@[minimal_face: minimal faces of polyhedron @[%a@]@]"
+  logf ~level:`trace "@[minimal_face: minimal faces of polyhedron @[%a@]@]"
     (pp (fun fmt i -> Format.fprintf fmt ":%d" i)) polyhedron;
   enum_generators dim polyhedron
   //@ (function
@@ -802,12 +802,13 @@ module NormalizCone = struct
     let vectors = BatList.of_enum vectors in
     let dimensions = collect_dimensions vectors in
     let (bij, _cardinality) = assign_indices dimensions in
-    let rays = BatList.fold (fun rays v -> (Mpzf.of_int 0 :: densify bij v) :: rays)
+    (* Stick in dummy 1 because [Normaliz.new_cone] adds x0 >= 0 (to make cone pointed) *)
+    let rays = BatList.fold (fun rays v -> (Mpzf.of_int 1 :: densify bij v) :: rays)
                  [] vectors in
     let cone = Normaliz.empty_cone
                |> Normaliz.add_rays rays |> Result.get_ok
                |> Normaliz.new_cone in
-    logf ~level:`trace "@[Computing Hilbert basis...@]@;";
+    logf ~level:`trace "Computing Hilbert basis...@;";
     let (pointed_hilbert_basis, lineality_basis) =
       (Normaliz.hilbert_basis cone,  Normaliz.get_lineality_space cone)
       |> (fun (l1, l2) ->
@@ -821,8 +822,6 @@ module NormalizCone = struct
                         HB vector input had %d vectors."
       pp_vectors vectors
       (List.length vectors);
-    (* logf ~level:`trace "Hilbert basis of cone: @[<v 0>%a@]@;"
-         Normaliz.pp_hom cone; *)
     logf ~level:`trace "pointed HB: @[<v 0>%a@]@; linear HB: @[<v 0>%a@]@;
                         pointed HB has %d vectors, linear HB has %d vectors@]"
       pp_vectors pointed_hilbert_basis
@@ -861,13 +860,17 @@ module NormalizCone = struct
     logf ~level:`trace "elementary_gc: Computed minimal faces: found %d@;"
       (List.length faces);
     if List.for_all (fun (v, _) -> is_integral v) faces
-    then `Fixed polyhedron
+    then
+      begin
+        logf "elementary_gc: all faces are integral@;";
+        `Fixed polyhedron
+      end
     else
       let man = Polka.manager_alloc_loose () in
       let dim = max_constrained_dim polyhedron + 1 in
       let apron_poly = apron0_of man dim polyhedron in
       let adjoin_constraint (changed, curr_polyhedron) cons =
-        (* TODO: Test if meet is faster than implication check; if so, 
+        (* TODO: Test if meet is faster than implication check; if so,
            we should do meet directly once [changed] is true.
          *)
         let implied = Apron.Abstract0.sat_lincons man curr_polyhedron
@@ -911,10 +914,10 @@ module NormalizCone = struct
       let elem_closure =  elementary_gc polyhedron in
       match elem_closure with
       | `Fixed poly ->
-         logf "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
+         logf ~level:`info "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
          poly
       | `Changed poly ->
-         logf ~level:`trace "elementary_gc: new round %d@;" (i + 1);
+         logf ~level:`trace "elementary_gc: entering round %d@;" (i + 1);
           iter poly (i + 1)
     in
     iter polyhedron 0
