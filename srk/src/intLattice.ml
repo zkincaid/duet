@@ -141,11 +141,11 @@ let lattice_of ?(ordering=rev_compare) vectors =
     let generators =
       List.map (fun xs -> Array.of_list (List.map ZZ.of_mpz xs)) hermitized
     in
-    L.logf "lattice_of: input vectors: @[%a@]@;"
+    L.logf ~level:`trace "lattice_of: input vectors: @[%a@]@;"
       (SrkUtil.pp_print_list Linear.QQVector.pp) vectors;
     L.logf ~level:`trace "lattice_of: densified: @[%a@]@;"
       pp_zz_matrix densified;
-    L.logf "lattice_of: basis: @[%a@]@;"
+    L.logf ~level:`trace "lattice_of: basis: @[%a@]@;"
       pp_zz_matrix hermitized;
     L.logf ~level:`trace "lattice_of: dimensions-to-indices: @[%a@]@;"
       pp_bijection bijection;
