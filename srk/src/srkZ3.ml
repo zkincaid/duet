@@ -99,17 +99,13 @@ let rec eval alg ast =
       | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
       | (OP_IS_INT, [s]) -> alg (`IsInt [s])
       | (OP_DISTINCT, xs) ->
-        let rec exclusive acc = function
-          | y::ys ->
-            exclusive
-              (List.fold_left
-                 (fun acc z -> alg (`Not (alg (`And [y; z])))::acc)
-                 acc
-                 ys)
-              ys
-          | [] -> acc
-        in
-        alg (`And (exclusive [alg (`Or xs)] xs))
+         let neq x y = alg (`Not (alg (`Atom (`Eq, x, y)))) in
+         let rec all_pairs = function
+           | [] -> [alg `Tru]
+           | y1 :: ys ->
+              List.fold_left (fun pairs y2 -> neq y1 y2 :: pairs) (all_pairs ys) ys
+         in
+         alg (`And (all_pairs xs))
       | (OP_XOR, xs) ->
         let xor x y =
           alg (`Or [alg (`And [alg (`Not x); y]);

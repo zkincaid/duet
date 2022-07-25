@@ -78,11 +78,11 @@ let polylattice_spanned_by ideal affine_polys : polylattice option =
           (Linear.const_linterm (QQ.of_zz denominator)))
       basis
   in
-  L.logf "polylattice_spanned_by:
-          @[input affine polynomials: @[%a@] @]@;
-          @[transformed vectors: @[%a@] @]@;
-          @[lattice: @[%a@] @]@;
-          "
+  L.logf ~level:`trace "polylattice_spanned_by:
+                        @[input affine polynomials: @[%a@] @]@;
+                        @[transformed vectors: @[%a@] @]@;
+                        @[lattice: @[%a@] @]@;
+                        "
     (pp_poly_list pp_dim) affine_polys
     (pp_vectors Linear.QQVector.pp) vectors
     IntLattice.pp lattice;
@@ -343,7 +343,7 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
   (* The transformation is fixed for all iterations, because the lattice is fixed
        and the cutting plane closure does not introduce new monomials.
    *)
-  let num_rounds = ref 1 in
+  let num_rounds = ref 0 in
   let rec closure cone lattice =
     let (cone', lattice') = cutting_plane_operator cone lattice in
     if PolynomialCone.leq cone' cone then
@@ -358,7 +358,8 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
         closure cone' lattice'
       end
   in
-  let polylattice = polylattice_spanned_by (PolynomialCone.get_ideal polynomial_cone) lattice_polys in
+  let polylattice = polylattice_spanned_by (PolynomialCone.get_ideal polynomial_cone)
+                      lattice_polys in
   let (final_cone, final_lattice) =
     match polylattice with
     | Some polylattice -> closure polynomial_cone polylattice
