@@ -5,8 +5,9 @@ include Log.Make(struct let name = "srk.polynomialCone" end)
 
 type t = Rewrite.t * QQXs.t BatList.t
 module V = Linear.QQVector
-module PVCTX = PolynomialUtil.PolyVectorContext
-module PV = PolynomialUtil.PolyVectorConversion
+
+module QQXs = Polynomial.QQXs
+module PV = Polynomial.LinearQQXs
 
 let pp pp_dim formatter (ideal, cone) =
   Format.fprintf
@@ -32,15 +33,9 @@ let change_monomial_ordering (ideal, cone) order =
 module MonomialMap = BatMap.Make(Monomial)
 
 let polyhedron_of_cone cone_generators ctx =
-  let vec_generators = BatList.map
-      (fun p -> PV.poly_to_vector ctx p)
-      cone_generators
-  in
-  let constraints = BatEnum.map
-      (fun v -> (`Nonneg, v))
-      (BatList.enum vec_generators)
-  in
-  Polyhedron.of_constraints constraints
+  BatList.enum cone_generators
+  /@ (fun p -> (`Nonneg, PV.densify ctx p))
+  |> Polyhedron.of_constraints
 
 let extract_polynomial_constraints ctx polyhedron =
   let equality_constraints = Polyhedron.enum_constraints polyhedron |>
@@ -51,8 +46,7 @@ let extract_polynomial_constraints ctx polyhedron =
                                )
                              (* use |> tap (fun intermediate -> print) *)
                              |> BatList.of_enum
-                             |> BatList.map (fun (_, v) ->
-                                 PV.vector_to_poly ctx v)
+                             |> BatList.map (fun (_, v) -> PV.sparsify ctx v)
                              |> BatList.filter (fun p -> not (QQXs.equal p QQXs.zero))
   in
   let geq_zero_constraints = Polyhedron.enum_constraints polyhedron |>
@@ -61,28 +55,21 @@ let extract_polynomial_constraints ctx polyhedron =
                                    `Zero -> false
                                  | _ -> true
                                )
-                             |> BatEnum.map (fun (_, v) -> PV.vector_to_poly ctx v)
+                             |> BatEnum.map (fun (_, v) -> PV.sparsify ctx v)
                              |> BatList.of_enum
   in
   (equality_constraints, QQXs.one :: geq_zero_constraints)
 
-(* Find implied zero polynomials via double description method *)
-let _dd_find_implied_zero_polynomials polys =
-  let polys = QQXs.one :: polys in
-  let ctx = PVCTX.mk_context Monomial.degrevlex polys in
-  let polyhedron = polyhedron_of_cone polys ctx |> Polyhedron.normalize_constraints in
-  extract_polynomial_constraints ctx polyhedron
-
 let find_implied_zero_polynomials polys =
   let polys = QQXs.one :: polys in
-  let ctx = PVCTX.mk_context Monomial.degrevlex polys in
-  let dim = PVCTX.num_dimensions ctx in
+  let ctx = PV.min_context (BatList.enum polys) in
+  let dim = PV.dim ctx in
   let linear_cone =
-    Cone.make ~lines:[] ~rays:(BatList.map (PV.poly_to_vector ctx) polys) dim
+    Cone.make ~lines:[] ~rays:(BatList.map (PV.densify ctx) polys) dim
   in
   Cone.normalize linear_cone;
-  (List.map (PV.vector_to_poly ctx) (Cone.lines linear_cone),
-   List.map (PV.vector_to_poly ctx) (Cone.rays linear_cone))
+  (List.map (PV.sparsify ctx) (Cone.lines linear_cone),
+   List.map (PV.sparsify ctx) (Cone.rays linear_cone))
 
 let make_enclosing_cone basis geq_zero_polys =
   (* Assuming that in the arguments geq_zero_polys are reduced w.r.t. basis. *)
@@ -120,12 +107,12 @@ let cone_of_polyhedron poly ctx =
   BatList.filter (fun p -> not (QQXs.equal p (QQXs.zero))) cone_generators
 
 let project_cone cone_generators f =
-  let ctx = PVCTX.mk_context Monomial.degrevlex cone_generators in
-  let dim = PVCTX.num_dimensions ctx in
+  let ctx = PV.min_context (BatList.enum cone_generators) in
+  let dim = PV.dim ctx in
   let polyhedron_rep_of_cone = polyhedron_of_cone cone_generators ctx in
   let elim_dims =
-    (1 -- (dim - 1))
-    |> BatEnum.filter (fun i -> not (f (PVCTX.monomial_of i ctx)))
+    (0 -- (dim - 1))
+    |> BatEnum.filter (fun i -> not (f (PV.dim_of_int ctx i)))
     |> BatList.of_enum
   in
   let projected_polyhedron =
@@ -199,25 +186,21 @@ let to_formula srk term_of_dim (ideal, cone_generators) =
 let mem p (ideal, cone_generators) =
   let cone_generators = QQXs.one :: cone_generators in
   let reduced = Rewrite.reduce ideal p in
-  let ctx = PVCTX.mk_context Monomial.degrevlex cone_generators in
-  let p_monos = QQXs.enum reduced in
+  let ctx = PV.min_context (BatList.enum cone_generators) in
   (* Optimization: if a monomial appears in reduced but not cone_generators
      then return false immediately *)
-  let m = PVCTX.get_mono_map ctx in
   if BatEnum.exists (fun (_, p_mono) ->
-      not (MonomialMap.mem p_mono m))
-      p_monos
+      not (PV.mem ctx p_mono))
+      (QQXs.enum reduced)
   then
     false
   else
      begin
-      let vec_target_poly = PV.poly_to_vector ctx reduced in
-      let dim = PVCTX.num_dimensions ctx in
+      let vec_target_poly = PV.densify ctx reduced in
+      let dim = PV.dim ctx in
       let cone =
         let rays =
-          BatList.map
-            (fun p -> PV.poly_to_vector ctx p)
-            cone_generators
+          BatList.map (PV.densify ctx) cone_generators
         in
         Cone.make ~lines:[] ~rays dim
       in

@@ -7,8 +7,7 @@ type t
     By default, the constant dimension is last so that a "constant linear term"
     is in the basis if it is in the lattice.
 *)
-val lattice_of : ?ordering: (Linear.QQVector.dim -> Linear.QQVector.dim -> int)
-                 -> Linear.QQVector.t list -> t
+val lattice_of : Linear.QQVector.t list -> t
 
 (** [basis L = (d, B)], where L = ZZ (1/d B) = { \sum_i (1/d b_i) : b_i in B }
     and B is a basis in row Hermite normal form.

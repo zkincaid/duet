@@ -57,12 +57,6 @@ let coefficient_gcd term =
     ZZ.zero
     (V.enum term)
 
-let common_denominator term =
-  BatEnum.fold (fun den (qq, _) ->
-      ZZ.lcm den (QQ.denominator qq))
-    ZZ.one
-    (V.enum term)
-
 let map_arith_atoms srk f phi =
   let rewriter expr =
     match Expr.refine srk expr with
@@ -980,7 +974,7 @@ let specialize_floor_cube srk model cube =
   let replace_floor expr = match destruct srk expr with
     | `Unop (`Floor, t) ->
        let v = linterm_of srk t in
-       let divisor = common_denominator v in
+       let divisor = V.common_denominator v in
        let qq_divisor = QQ.of_zz divisor in
        let dividend = of_linterm srk (V.scalar_mul qq_divisor v) in
        let remainder =
@@ -1789,7 +1783,7 @@ let _orient project eqs =
   let eqs =
     eqs
     |> List.map (fun vec ->
-           let den = common_denominator vec in
+           let den = V.common_denominator vec in
            V.enum vec
            /@ (fun (scalar, dim) ->
              match QQ.to_zz (QQ.mul (QQ.of_zz den) scalar) with

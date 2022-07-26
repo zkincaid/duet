@@ -2,6 +2,18 @@ open BatPervasives
 
 include Log.Make(struct let name = "srk.polynomial" end)
 
+let pp_ascii_dim formatter i =
+  let rec to_string i =
+    if i < 26 then
+      Char.escaped (Char.chr (97 + i))
+    else
+      (to_string (i/26)) ^ (Char.escaped (Char.chr (97 + (i mod 26))))
+  in
+  Format.pp_print_string formatter (to_string i)
+
+let pp_numeric_dim base formatter i =
+  Format.fprintf formatter "%s_{%d}" base i
+
 module type Univariate = sig
   include Ring.Vector with type dim = int
   val order : t -> int
@@ -361,6 +373,7 @@ end
 module type Multivariate = sig
   type t
   type scalar
+  type dim = Monomial.t
   val equal : t -> t -> bool
   val add : t -> t -> t
   val negate : t -> t
@@ -389,6 +402,7 @@ module type Multivariate = sig
   val qr_monomial : t -> Monomial.t -> t * t
   val dimensions : t -> SrkUtil.Int.Set.t
   val degree : t -> int
+  val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
 end
 
 module MakeMultivariate(R : Algebra.Ring) = struct
@@ -596,6 +610,25 @@ module QQXs = struct
     in
     let (coeff, rest) = pivot leading_monomial p in
     (coeff, leading_monomial, rest)
+end
+
+module LinearQQXs = struct
+  include Linear.MakeDenseConversion(Monomial)(struct
+      include QQXs
+      let split_leading p =
+        match BatEnum.get (enum p) with
+        | None -> None
+        | Some (_, m) ->
+          let (a, p') = pivot m p in
+          Some (m, a, p')
+      let pp = QQXs.pp (pp_numeric_dim "x")
+    end)
+  let densify_affine ctx p =
+    let (a, p) = QQXs.pivot Monomial.one p in
+    Linear.QQVector.set Linear.const_dim a (densify ctx p)
+  let sparsify_affine ctx v =
+    let (a, v) = Linear.QQVector.pivot Linear.const_dim v in
+    QQXs.set Monomial.one a (sparsify ctx v)
 end
 
 module OrderedPolynomial = struct
@@ -833,15 +866,6 @@ module MakeRewrite
           let reduced = reduce rewrite polynomial' in
           P.add_term rewrite.order c m reduced
 
-  let pp_dim formatter i =
-    let rec to_string i =
-      if i < 26 then
-        Char.escaped (Char.chr (97 + i))
-      else
-        (to_string (i/26)) ^ (Char.escaped (Char.chr (97 + (i mod 26))))
-    in
-    Format.pp_print_string formatter (to_string i)
-
   (* Buchberger's second criterion *)
   let _criterion2 r r' pairs rules =
     let lcm =
@@ -883,11 +907,11 @@ module MakeRewrite
       | Some ((r1, r2), pairs) ->
         logf ~level:`trace  "Pair:";
         logf ~level:`trace  "  @[%a@] --> @[<hov 2>%a@]"
-          (Monomial.pp pp_dim) (lhs r1)
-          (P.pp pp_dim) (rhs r1);
+          (Monomial.pp pp_ascii_dim) (lhs r1)
+          (P.pp pp_ascii_dim) (rhs r1);
         logf ~level:`trace  "  @[%a@] --> @[<hov 2>%a@]"
-          (Monomial.pp pp_dim) (lhs r2)
-          (P.pp pp_dim) (rhs r2);
+          (Monomial.pp pp_ascii_dim) (lhs r2)
+          (P.pp pp_ascii_dim) (rhs r2);
         let sp = reduce rewrite (spoly r1 r2) in
         match P.split_leading rewrite.order sp with
         | None -> go rewrite pairs
@@ -905,8 +929,8 @@ module MakeRewrite
           in
           logf ~level:`trace "Result:";
           logf ~level:`trace "  @[%a@] --> @[<hov 2>%a@]"
-            (Monomial.pp pp_dim) m
-            (P.pp pp_dim) rhs;
+            (Monomial.pp pp_ascii_dim) m
+            (P.pp pp_ascii_dim) rhs;
           let new_rule = (m, rhs) in
           let pairs =
             BatEnum.fold (fun pairs rule ->
@@ -1027,12 +1051,12 @@ module MakeRewrite
 
   let grobner_basis rewrite =
     logf ~level:`trace "Compute a Grobner basis for:@\n@[<v 0>%a@]"
-      (pp pp_dim) rewrite;
+      (pp pp_ascii_dim) rewrite;
 
     let rewrite = reduce_rewrite rewrite in
 
     logf ~level:`trace "After reduction:@\n@[<v 0>%a@]"
-      (pp pp_dim) rewrite;
+      (pp pp_ascii_dim) rewrite;
 
     let pairs =
       BatEnum.fold (fun pairs (rule, rule') ->
@@ -1050,7 +1074,7 @@ module MakeRewrite
       buchberger rewrite pairs 
     in
     logf ~level:`trace "Grobner basis:@\n@[<v 0>%a@]"
-      (pp pp_dim) grobner;
+      (pp pp_ascii_dim) grobner;
     grobner
 
   module type LinearSpace = Linear.LinearSpace
@@ -1072,7 +1096,7 @@ module MakeRewrite
                    match P.split_leading order p with
                    | Some (a,b,c) -> Some (b,a,c)
                    | None -> None
-                 let pp = P.pp pp_dim
+                 let pp = P.pp pp_ascii_dim
                  let rec fold f p a =
                    match P.split_leading order p with
                    | Some (c,m,p') ->

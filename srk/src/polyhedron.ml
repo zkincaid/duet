@@ -82,8 +82,8 @@ let of_formula ?(admit=false) cs phi =
     | `Atom (`Arith (`Lt, x, y)) ->
       P.singleton (`Pos, V.sub (linearize y) (linearize x))
     | `Or _ | `Not _ | `Quantify (_, _, _, _) | `Proposition _
-      | `Ite (_, _, _) | `Atom (`ArrEq _)
-      | `Atom (`IsInt _) -> invalid_arg "Polyhedron.of_formula"
+    | `Ite (_, _, _) | `Atom (`ArrEq _)
+    | `Atom (`IsInt _) -> invalid_arg "Polyhedron.of_formula"
   in
   Formula.eval (CS.get_context cs) alg phi
 
@@ -655,97 +655,50 @@ module NormalizCone = struct
   let pp_vectors = Format.pp_print_list ~pp_sep:Format.pp_print_cut
                      Linear.QQVector.pp
 
-  let map_over_constraint f = function
-    | (`Zero, v) -> (`Zero, f v)
-    | (`Nonneg, v) -> (`Nonneg, f v)
-    | (`Pos, v) -> (`Pos, f v)
-
-  (* TOOD: Repeated code, copied from intLattice.ml.
-     Index starts from 0, which always corresponds to the constant dimension.
-   *)
-  type dim_idx_bijection = { dim_to_idx : int SrkUtil.Int.Map.t
-                           ; idx_to_dim : int SrkUtil.Int.Map.t
-                           }
-
-  (* Return a bijection between dimensions and (array) indices,
-     and the cardinality of dimensions.
-   *)
-  let assign_indices dimensions =
-    SrkUtil.Int.Set.fold (fun dim (bij, curr) ->
-        ({ dim_to_idx = SrkUtil.Int.Map.add dim curr bij.dim_to_idx
-         ; idx_to_dim = SrkUtil.Int.Map.add curr dim bij.idx_to_dim
-         },
-         curr + 1)
-      )
-      dimensions
-      ({ dim_to_idx = SrkUtil.Int.Map.empty
-       ; idx_to_dim = SrkUtil.Int.Map.empty },
-       0)
-
   (* Rescale vector such that the selected coefficients are integral and
      relatively prime *)
-  let normalize pred v =
-    let d = Linear.QQVector.fold
-              (fun dim coeff c ->
-                if pred dim then QQ.gcd c coeff else c) v QQ.one in
-    let r = Linear.QQVector.fold
-              (fun dim coeff vector ->
-                Linear.QQVector.add_term (QQ.div coeff d) dim vector)
-              v Linear.QQVector.zero in
-    r
+  let normalize v =
+    Linear.QQVector.scalar_mul (QQ.inverse (Linear.QQVector.gcd_entries v)) v
 
-  let collect_dimensions vectors =
-    let module S = SrkUtil.Int.Set in
-    BatList.fold
-      (fun dims v ->
-        BatEnum.fold (fun dims (_coeff, dim) -> S.add dim dims)
-          dims (Linear.QQVector.enum v))
-      S.empty vectors
+  module D = Linear.MakeDenseConversion(SrkUtil.Int)(V)
 
-  let densify bij vector =
-    let lookup i =
-      let j = SrkUtil.Int.Map.find i bij.dim_to_idx in
-      j
-    in
-    BatEnum.fold (fun arr (coeff, dim) ->
-        Array.set arr (lookup dim) (Option.get (QQ.to_zz coeff));
-        arr)
-      (Array.make (SrkUtil.Int.Map.cardinal bij.dim_to_idx) ZZ.zero)
-      (Linear.QQVector.enum vector)
-    |> Array.to_list
-    |> List.map ZZ.mpz_of
+  let densify ctx v =
+    let array = Array.make (D.dim ctx) (ZZ.mpz_of ZZ.zero) in
+    BatEnum.iter
+      (fun (a, i) ->
+         array.(D.int_of_dim ctx i) <- ZZ.mpz_of (Option.get (QQ.to_zz a)))
+      (V.enum v);
+    Array.to_list array
 
-  let sparsify bij lst =
-    let lookup i = SrkUtil.Int.Map.find i bij.idx_to_dim in
-    BatList.fold_lefti
-      (fun v i coord ->
-        Linear.QQVector.add_term (QQ.of_zz (ZZ.of_mpz coord)) (lookup i) v)
-      Linear.QQVector.zero lst
+  let sparsify ctx v =
+    BatList.fold_lefti (fun vec i a ->
+        V.set (D.dim_of_int ctx i) (QQ.of_zz (ZZ.of_mpz a)) vec)
+      V.zero
+      v
 
   let normaliz_cone_by_constraints polyhedron =
     let normalized_constraints =
-      let normalize = normalize (fun _dim -> true) in
       enum_constraints polyhedron
-      /@ (map_over_constraint normalize)
+      /@ (fun (p, v) -> (p, normalize v))
       |> (* add 1 >= 0 explicitly to make Normaliz cone pointed and
             ready for dehomogenization *)
         (fun enum ->
           BatEnum.push enum (`Nonneg, Linear.const_linterm (QQ.of_int 1)); enum)
       |> BatList.of_enum
     in
-    let dimensions =
-      List.map (fun (_, v) -> v) normalized_constraints
-      |> collect_dimensions
+    let ctx =
+      BatList.enum normalized_constraints
+      /@ snd
+      |> D.min_context
     in
-    let (bij, _cardinality) = assign_indices dimensions in
     (* The constant dimension must be present and be the first coordinate *)
-    assert (SrkUtil.Int.Map.find Linear.const_dim bij.dim_to_idx = 0);
+    assert (D.int_of_dim ctx Linear.const_dim = 0);
     let (equalities, inequalities) =
       List.fold_left
         (fun (equalities, inequalities) (kind, v) ->
           match kind with
-          | `Zero -> (densify bij v :: equalities, inequalities)
-          | `Nonneg -> (equalities, densify bij v :: inequalities)
+          | `Zero -> (densify ctx v :: equalities, inequalities)
+          | `Nonneg -> (equalities, densify ctx v :: inequalities)
           | `Pos -> invalid_arg "normaliz_cone_of: open faces not supported yet")
         ([], [])
         normalized_constraints in
@@ -755,11 +708,11 @@ module NormalizCone = struct
                  |> Normaliz.add_inequalities inequalities |> Result.get_ok
                  |> Normaliz.new_cone
       in
-      (cone, bij)
+      (cone, ctx)
     with Invalid_argument s -> logf "here"; invalid_arg s
 
-  let polyhedron_of (equalities, inequalities, bijection) =
-    let to_constraint kind v = (kind, sparsify bijection v) in
+  let polyhedron_of (equalities, inequalities, ctx) =
+    let to_constraint kind v = (kind, sparsify ctx v) in
     let equalities = List.map (to_constraint `Zero) equalities in
     let inequalities = List.map (to_constraint `Nonneg) inequalities in
     BatList.enum (List.append equalities inequalities)
@@ -769,7 +722,7 @@ module NormalizCone = struct
     let (cone, bijection) = normaliz_cone_by_constraints polyhedron in
 
     logf ~level:`trace "polyhedron: integer_hull: computed Normaliz cone for polyhedron:@[%a@]@;"
-      (pp (PolynomialUtil.PrettyPrint.pp_numeric_dim "x")) polyhedron;
+      (pp (Polynomial.pp_numeric_dim "x")) polyhedron;
 
     let dehomogenized = Normaliz.dehomogenize cone in
     logf ~level:`trace "polyhedron: integer_hull: dehomogenized cone, computing integer hull...@;";
@@ -784,26 +737,13 @@ module NormalizCone = struct
     in
     polyhedron_of (cut_eqns, cut_ineqs, bijection)
 
-  let is_integral v =
-    Linear.QQVector.fold
-      (fun _ coeff flag ->
-        Option.is_some (QQ.to_zz coeff) && flag)
-      v true
-
-  let non_constant v =
-    Linear.QQVector.fold
-      (fun dim coeff v' ->
-        if dim <> Linear.const_dim then Linear.QQVector.add_term coeff dim v'
-        else v')
-      v Linear.QQVector.zero
 
   let hilbert_basis vectors =
     let module S = SrkUtil.Int.Set in
     let vectors = BatList.of_enum vectors in
-    let dimensions = collect_dimensions vectors in
-    let (bij, _cardinality) = assign_indices dimensions in
+    let ctx = D.min_context (BatList.enum vectors) in
     (* Stick in dummy 1 because [Normaliz.new_cone] adds x0 >= 0 (to make cone pointed) *)
-    let rays = BatList.fold (fun rays v -> (Mpzf.of_int 0 :: densify bij v) :: rays)
+    let rays = BatList.fold (fun rays v -> (Mpzf.of_int 0 :: densify ctx v) :: rays)
                  [] vectors in
     let cone = Normaliz.empty_cone
                |> Normaliz.add_rays rays |> Result.get_ok
@@ -815,7 +755,7 @@ module NormalizCone = struct
         let drop_constant_dimensions = List.map List.tl in
         (drop_constant_dimensions l1, drop_constant_dimensions l2))
       |> (fun (l1, l2) ->
-        let sparsify = List.map (sparsify bij) in
+        let sparsify = List.map (sparsify ctx) in
         (sparsify l1, sparsify l2))
     in
     logf ~level:`trace "@[<v 0>Hilbert basis: vector_input: @[<v 0>%a@]@;
@@ -832,7 +772,7 @@ module NormalizCone = struct
                   @ List.map Linear.QQVector.negate lineality_basis)
 
   let cut_face vertex (defining : (constraint_kind * V.t) list) =
-    if is_integral vertex then
+    if V.is_integral vertex then
       defining
     else
       let basis =
@@ -841,11 +781,11 @@ module NormalizCone = struct
             | (`Nonneg, v) -> BatList.enum [v]
             | (`Pos, _v) -> assert false)
           (BatList.enum defining)
-        /@ (non_constant % (normalize (fun dim -> dim <> Linear.const_dim)))
+        /@ (normalize % snd % V.pivot Linear.const_dim)
         |> hilbert_basis
       in
       basis /@
-        (fun vector ->
+      (fun vector ->
           let constant_term = QQ.negate (Linear.QQVector.dot vector vertex)
                               |> QQ.floor |> QQ.of_zz
           in
@@ -859,7 +799,7 @@ module NormalizCone = struct
     let faces = minimal_faces polyhedron in
     logf ~level:`trace "elementary_gc: Computed minimal faces: found %d@;"
       (List.length faces);
-    if List.for_all (fun (v, _) -> is_integral v) faces
+    if List.for_all (fun (v, _) -> V.is_integral v) faces
     then
       begin
         logf "elementary_gc: all faces are integral@;";

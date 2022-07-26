@@ -3,15 +3,7 @@ open BatPervasives
 
 module L = Log.Make(struct let name = "srk.intLattice" end)
 
-type dim_idx_bijection = { dim_to_idx : int SrkUtil.Int.Map.t
-                         ; idx_to_dim : int SrkUtil.Int.Map.t
-                         }
-
-let pp_bijection fmt bijection =
-  Format.fprintf fmt "{ dim_to_idx: @[%a@] }"
-    (SrkUtil.pp_print_enum
-       (fun fmt (dim, idx) -> Format.fprintf fmt "(dim=%d, idx=%d)" dim idx))
-    (SrkUtil.Int.Map.enum bijection.dim_to_idx)
+module D = Linear.MakeDenseConversion(SrkUtil.Int)(Linear.QQVector)
 
 let pp_zz_matrix =
   SrkUtil.pp_print_list
@@ -34,12 +26,8 @@ type t =
   | Lattice of { sparse_rep: Linear.ZZVector.t list
                ; dense_rep: ZZ.t Array.t list
                ; denominator : ZZ.t
-               ; dimension_indices : dim_idx_bijection
+               ; dimension_indices : D.context
                }
-
-let empty_dim_idx_bijection =
-  { dim_to_idx = SrkUtil.Int.Map.empty
-  ; idx_to_dim = SrkUtil.Int.Map.empty }
 
 let dims_and_lcm_denoms vectors =
   let dims_and_lcm_denoms' v =
@@ -54,47 +42,24 @@ let dims_and_lcm_denoms vectors =
     (SrkUtil.Int.Set.empty, ZZ.one)
     vectors
 
-(** Return a bijection between dimensions and (array) indices,
-    and the cardinality of dimensions.
-*)
-let assign_indices ordering dimensions =
-  let dims = SrkUtil.Int.Set.elements dimensions |> BatList.sort ordering in
-  List.fold_left (fun (bij, curr) dim ->
-      ({ dim_to_idx = SrkUtil.Int.Map.add dim curr bij.dim_to_idx
-       ; idx_to_dim = SrkUtil.Int.Map.add curr dim bij.idx_to_dim
-       },
-       curr + 1)
-    )
-    (empty_dim_idx_bijection, 0)
-    dims
+let make_context dimensions = D.make_context (SrkUtil.Int.Set.elements dimensions)
 
-let densify_and_zzify length dim_to_idx denom_to_clear vector =
-  BatEnum.fold
-    (fun arr (coeff, dim) ->
-      let q = QQ.mul coeff (QQ.of_zz denom_to_clear) in
-      if ZZ.equal (QQ.denominator q) ZZ.one then
-        begin
-          let idx = SrkUtil.Int.Map.find dim dim_to_idx in
-          if idx >= length then
-            invalid_arg "densify_and_zzify: index out of bounds"
-          else
-            begin
-              Array.set arr idx (ZZ.mpz_of (QQ.numerator q));
-              arr
-            end
-        end
-      else
-        invalid_arg "densify_and_zzify: argument supplied does not clear denominator")
-    (Array.make length (Mpzf.of_int 0))
-    (Linear.QQVector.enum vector)
+let densify_and_zzify ctx denom_to_clear vector =
+  let arr = Array.make (D.dim ctx) (Mpzf.of_int 0) in
+  BatEnum.iter
+    (fun (coeff, dim) ->
+       match QQ.to_zz (QQ.mul coeff (QQ.of_zz denom_to_clear)) with
+       | Some zz -> arr.(D.int_of_dim ctx dim) <- ZZ.mpz_of zz
+       | None -> invalid_arg "densify_and_zzify: argument supplied does not \
+                              clear denominator")
+    (Linear.QQVector.enum vector);
+  arr
 
-let sparsify idx_to_dim arr =
-  Array.fold_left (fun (v, idx) entry ->
-      let dim = SrkUtil.Int.Map.find idx idx_to_dim in
-      (Linear.ZZVector.add_term entry dim v,
-       idx + 1))
-    (Linear.ZZVector.zero, 0) arr
-  |> fst
+let sparsify ctx arr =
+  BatArray.fold_lefti (fun v i entry ->
+      Linear.ZZVector.add_term entry (D.dim_of_int ctx i) v)
+    Linear.ZZVector.zero
+    arr
 
 (*
    ZZ L = (1/d) ZZ (d L) = (1/d) ZZ B = ZZ (1/d B).
@@ -124,17 +89,15 @@ let hermite_normal_form matrix =
   if verbose then Flint.set_debug false else ();
   basis
 
-let rev_compare x y = - Int.compare x y
-
-let lattice_of ?(ordering=rev_compare) vectors =
+let lattice_of vectors =
   if List.for_all (Linear.QQVector.equal Linear.QQVector.zero) vectors
   then EmptyLattice
   else
     let (dimensions, lcm) = dims_and_lcm_denoms vectors in
-    let (bijection, length) = assign_indices ordering dimensions in
+    let ctx = make_context dimensions in
     let densified = List.map (fun v ->
                         v
-                        |> densify_and_zzify length bijection.dim_to_idx lcm
+                        |> densify_and_zzify ctx lcm
                         |> Array.to_list)
                       vectors in
     let hermitized = hermite_normal_form densified in
@@ -148,12 +111,12 @@ let lattice_of ?(ordering=rev_compare) vectors =
     L.logf ~level:`trace "lattice_of: basis: @[%a@]@;"
       pp_zz_matrix hermitized;
     L.logf ~level:`trace "lattice_of: dimensions-to-indices: @[%a@]@;"
-      pp_bijection bijection;
+      (D.pp Format.pp_print_int) ctx;
     Lattice
-      { sparse_rep = List.map (sparsify bijection.idx_to_dim) generators
+      { sparse_rep = List.map (sparsify ctx) generators
       ; dense_rep = generators
       ; denominator = lcm
-      ; dimension_indices = bijection
+      ; dimension_indices = ctx
       }
 
 let basis t =
@@ -188,8 +151,7 @@ let _flint_member v t =
      let extended_basis = Flint.extend_hnf_to_basis mat in
      let transposed = Flint.transpose extended_basis in
      let inv = Flint.matrix_inverse transposed in
-     let vec = densify_and_zzify embedding_dim lat.dimension_indices.dim_to_idx
-                 ZZ.one v
+     let vec = densify_and_zzify lat.dimension_indices ZZ.one v
                |> (fun arr -> Flint.new_matrix [Array.to_list arr])
                |> Flint.transpose in
      let (denom, preimage) = Flint.matrix_multiply inv vec
