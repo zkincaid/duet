@@ -803,7 +803,7 @@ module NormalizCone = struct
     let dimensions = collect_dimensions vectors in
     let (bij, _cardinality) = assign_indices dimensions in
     (* Stick in dummy 1 because [Normaliz.new_cone] adds x0 >= 0 (to make cone pointed) *)
-    let rays = BatList.fold (fun rays v -> (Mpzf.of_int 1 :: densify bij v) :: rays)
+    let rays = BatList.fold (fun rays v -> (Mpzf.of_int 0 :: densify bij v) :: rays)
                  [] vectors in
     let cone = Normaliz.empty_cone
                |> Normaliz.add_rays rays |> Result.get_ok
