@@ -20,10 +20,6 @@ type generator_kind = [ `Vertex | `Ray | `Line ]
 (** Enumerate the constraints of a polyhedron. *)
 val enum_constraints : t -> (constraint_kind * V.t) BatEnum.t
 
-(** Enumerate the generators of a polyhedron.  Can take exponential
-   time in the number of constraints. *)
-val enum_generators : int -> t -> (generator_kind * V.t) BatEnum.t
-
 val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
 (** Intersect two polyhedra. *)
@@ -40,8 +36,6 @@ val bottom : t
 val of_formula : ?admit:bool -> 'a CoordinateSystem.t -> 'a formula -> t
 
 val of_constraints : (constraint_kind * V.t) BatEnum.t -> t
-
-val of_generators : int -> (generator_kind * V.t) BatEnum.t -> t
 
 (** Inverse of [of_formula] *)
 val to_formula : 'a CoordinateSystem.t -> t -> 'a formula
@@ -79,8 +73,6 @@ val project_dd : int list -> t -> t
     are not projected.  *)
 val try_fourier_motzkin : 'a CoordinateSystem.t -> (symbol -> bool) -> t -> t
 
-val normalize_constraints: t -> t
-
 (** [dual_cone n p] computes a constraint representation for the dual
    cone of the [n]-dimensional polyhedron [p]: the cone of functionals
    on QQ^[n] that are non-negative on every point in [p].  The
@@ -93,8 +85,6 @@ val dual_cone : int -> t -> t
    as a polyhedron.  All half-spaces making up the conical hull are
    linear (rather than affine) halfspaces. *)
 val conical_hull : t -> t
-
-val minimal_faces : t -> (V.t * ((constraint_kind * V.t) list)) list
 
 (** [integer_hull p] computes the convex hull of the integer points contained
     in p.
@@ -111,13 +101,24 @@ val equal : t -> t -> bool
    [a] belongs to this space. *)
 val constraint_space : t -> Linear.QQVectorSpace.t
 
-(** [apron0_of man n p] converts [p] to an [n]-dimensional abstract
-   value using the supplied abstract domain manager [man].  The
-   supplied dimension [n] should be at least as large as the greatest
-   dimension with a non-zero coefficient in a constraint defining
-   [p]. *)
-val apron0_of : 'a Apron.Manager.t -> int -> t -> 'a Apron.Abstract0.t
+(** Double-description method polyhedra. *)
+type closed
+type nnc
+module DD : sig
+  type 'a t
+  val of_generators : int -> (generator_kind * V.t) BatEnum.t -> closed t
+  val join : 'a t -> 'a t -> 'a t
+  val meet : 'a t -> 'a t -> 'a t
+  val equal : 'a t -> 'a t -> bool
+  val implies : 'a t -> (constraint_kind * V.t) -> bool
+  val meet_constraints : 'a t -> (constraint_kind * V.t) list -> 'a t
+  val project : int list -> 'a t -> 'a t
+  val minimal_faces : 'a t -> (V.t * ((constraint_kind * V.t) list)) list
 
-(** [of_apron0 man v] converts an abstract value [v] to a
-   polyhedron. *)
-val of_apron0 : 'a Apron.Manager.t -> 'a Apron.Abstract0.t -> t
+  (** Enumerate the generators of a polyhedron. *)
+  val enum_generators : 'a t -> (generator_kind * V.t) BatEnum.t
+end
+
+val dd_of : ?man:(Polka.loose Polka.t Apron.Manager.t) -> int -> t -> closed DD.t
+val nnc_dd_of : ?man:(Polka.strict Polka.t Apron.Manager.t) -> int -> t -> nnc DD.t
+val of_dd : 'a DD.t -> t
