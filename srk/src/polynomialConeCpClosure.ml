@@ -21,12 +21,6 @@ let pp_vectors pp_elem = SrkUtil.pp_print_list pp_elem
 let context_of ?ordering:(ordering=Monomial.degrevlex) polys =
   PolyVectorContext.mk_context ordering polys
 
-let zzvector_to_qqvector vec =
-  BatEnum.fold
-    (fun v (scalar, dim) -> Linear.QQVector.add_term (QQ.of_zz scalar) dim v)
-    Linear.QQVector.zero
-    (Linear.ZZVector.enum vec)
-
 (** A polynomial lattice L is of the form I + ZZ B,
     where I is an ideal and B is a finite set of polynomials that include 1
     and are reduced with respect to B.
@@ -56,7 +50,7 @@ let empty_polylattice ideal =
   { ideal
   ; affine_basis = []
   ; lattice_context = context_of []
-  ; int_lattice = IntLattice.lattice_of []
+  ; int_lattice = IntLattice.hermitize []
   }
 
 let polylattice_spanned_by ideal affine_polys : polylattice option =
@@ -69,13 +63,12 @@ let polylattice_spanned_by ideal affine_polys : polylattice option =
   let open PolynomialUtil in
   let vectors =
     List.map (PolyVectorConversion.poly_to_vector ctxt) affine_polys in
-  let lattice = IntLattice.lattice_of vectors in
-  let (denominator, basis) = IntLattice.basis lattice in
+  let lattice = IntLattice.hermitize vectors in
+  let basis = IntLattice.basis lattice in
   let (one, others) =
     List.partition
       (fun v ->
-        Linear.QQVector.equal (zzvector_to_qqvector v)
-          (Linear.const_linterm (QQ.of_zz denominator)))
+        Linear.QQVector.equal v (Linear.const_linterm QQ.one))
       basis
   in
   L.logf ~level:`trace "polylattice_spanned_by:
@@ -100,10 +93,8 @@ let polylattice_spanned_by ideal affine_polys : polylattice option =
       None
     else
       let affine_basis =
-        List.map (fun v ->
-            zzvector_to_qqvector v
-            |> Linear.QQVector.scalar_mul (QQ.inverse (QQ.of_zz denominator))
-            |> PolyVectorConversion.vector_to_poly ctxt) others in
+        List.map (fun v -> PolyVectorConversion.vector_to_poly ctxt v)
+          others in
       Some { affine_basis
            ; ideal
            ; lattice_context = ctxt
