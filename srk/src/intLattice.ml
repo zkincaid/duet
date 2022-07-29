@@ -174,6 +174,9 @@ let hermitize ?(order=Int.compare) vectors =
       ; order
       }
 
+let const_lattice r =
+  hermitize [Linear.const_linterm r]
+
 let reorder order t =
   match t with
   | ZeroLattice -> ZeroLattice
@@ -220,10 +223,9 @@ let member v t =
            (Linear.QQMatrix.add_column i v mat, i + 1)
          )
          (Linear.QQMatrix.zero, 0) generators in
-     begin match Linear.solve matrix v with
+     match Linear.solve matrix v with
      | Some x -> integral x
      | None -> false
-     end
      
 let project keep t =
   match t with
@@ -231,10 +233,9 @@ let project keep t =
   | Lattice { order ; denominator ; _ } ->
      let new_order x y =
        match keep x, keep y with
-       | true, true -> order x y
        | true, false -> -1
        | false, true -> 1
-       | false, false -> order x y in
+       | _, _ -> order x y in
      let reordered =
        match reorder new_order t with
        | ZeroLattice -> assert false
