@@ -817,7 +817,7 @@ module NormalizCone = struct
     let cone = Normaliz.empty_cone
                |> Normaliz.add_rays rays |> Result.get_ok
                |> Normaliz.new_cone in
-    logf ~level:`trace "Computing Hilbert basis with rays:@; @[%a@]@;"
+    logf ~level:`trace "Computing Hilbert basis for rays:@; @[%a@]@;"
       pp_list_list rays;
     let (pointed_hilbert_basis, lineality_basis) =
       (Normaliz.hilbert_basis cone,  Normaliz.get_lineality_space cone)
