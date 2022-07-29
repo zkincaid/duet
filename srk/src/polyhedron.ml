@@ -797,18 +797,28 @@ module NormalizCone = struct
         else v')
       v Linear.QQVector.zero
 
+  let pp_list_list fmt =
+    let pp_comma fmt () = Format.fprintf fmt ", " in
+    Format.fprintf fmt "@[<v 0>%a@]"
+      (Format.pp_print_list
+         (Format.pp_print_list ~pp_sep:pp_comma
+            (fun fmt x -> Format.fprintf fmt "%s" (Mpzf.to_string x)))
+      )
+
   let hilbert_basis vectors =
     let module S = SrkUtil.Int.Set in
     let vectors = BatList.of_enum vectors in
     let dimensions = collect_dimensions vectors in
     let (bij, _cardinality) = assign_indices dimensions in
-    (* Stick in dummy 1 because [Normaliz.new_cone] adds x0 >= 0 (to make cone pointed) *)
-    let rays = BatList.fold (fun rays v -> (Mpzf.of_int 1 :: densify bij v) :: rays)
+    (* Prepend 0 because [Normaliz.new_cone] adds the inequality x0 >= 0
+       to every cone to make it pointed *)
+    let rays = BatList.fold (fun rays v -> (Mpzf.of_int 0 :: densify bij v) :: rays)
                  [] vectors in
     let cone = Normaliz.empty_cone
                |> Normaliz.add_rays rays |> Result.get_ok
                |> Normaliz.new_cone in
-    logf ~level:`trace "Computing Hilbert basis...@;";
+    logf ~level:`trace "Computing Hilbert basis with rays:@; @[%a@]@;"
+      pp_list_list rays;
     let (pointed_hilbert_basis, lineality_basis) =
       (Normaliz.hilbert_basis cone,  Normaliz.get_lineality_space cone)
       |> (fun (l1, l2) ->
