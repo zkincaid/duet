@@ -7,15 +7,16 @@ type dim_idx_bijection = { dim_to_idx : int SrkUtil.Int.Map.t
                          ; idx_to_dim : int SrkUtil.Int.Map.t
                          }
 
+let empty_bijection =
+  { dim_to_idx = SrkUtil.Int.Map.empty
+  ; idx_to_dim = SrkUtil.Int.Map.empty }
+
+(*
 let pp_bijection fmt bijection =
   Format.fprintf fmt "{ dim_to_idx: @[%a@] }"
     (SrkUtil.pp_print_enum
        (fun fmt (dim, idx) -> Format.fprintf fmt "(dim=%d, idx=%d)" dim idx))
     (SrkUtil.Int.Map.enum bijection.dim_to_idx)
-
-let empty_bijection =
-  { dim_to_idx = SrkUtil.Int.Map.empty
-  ; idx_to_dim = SrkUtil.Int.Map.empty }
 
 let pp_zz_matrix =
   SrkUtil.pp_print_list
@@ -24,20 +25,24 @@ let pp_zz_matrix =
         ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
         Mpzf.print fmt entry
     )
+ *)
 
-(** A lattice is represented as a matrix 1/d B, where B is in row Hermite normal 
-    form and the rows of B are the basis of the lattice. In particular, 
-    the rows are linearly independent.
+(** A lattice is represented as a matrix 1/[denominator] B,
+    where B is in row Hermite normal form and the rows of B are the basis of the 
+    lattice.
+    Each ZZVector.t is viewed as a row vector of B according to [dim_idx_bijection],
+    where the smallest dimension according to [ordering] is in the rightmost
+    position of the row/matrix.
 
     The zero lattice is distinguished because we don't know the dimension of the 
     ambient space (and we don't want to call out to Flint).
  *)
 type t =
   | ZeroLattice
-  | Lattice of { sparse_rep: Linear.ZZVector.t list
-               ; dense_rep: ZZ.t Array.t list
+  | Lattice of { generators: Linear.ZZVector.t list
                ; denominator : ZZ.t
-               ; dimension_indices : dim_idx_bijection
+               ; dimensions : SrkUtil.Int.Set.t
+               ; ordering : Linear.QQVector.dim -> Linear.QQVector.dim -> int
                }
 
 let qqify v = Linear.ZZVector.fold (fun dim scalar v ->
@@ -116,7 +121,7 @@ let sparsify idx_to_dim arr =
 (*
    ZZ L = (1/d) ZZ (d L) = (1/d) ZZ B = ZZ (1/d B).
  *)
-let hermite_normal_form matrix =
+let dense_hermite_normal_form matrix =
   let level = `trace in
   let verbose = Log.level_leq (!L.my_verbosity_level) level in
   if verbose then Flint.set_debug true else ();
@@ -131,37 +136,44 @@ let hermite_normal_form matrix =
   if verbose then Flint.set_debug false else ();
   basis
 
+let hermite_normal_form ambient_dimension bijection matrix =
+  let densified =
+    List.map (Array.to_list % densify ambient_dimension bijection.dim_to_idx) matrix in
+  let hermitized = dense_hermite_normal_form densified in
+  let generators =
+      List.map (Array.of_list % (List.map ZZ.of_mpz)) hermitized
+  in
+  List.map (sparsify bijection.idx_to_dim) generators
+
 let hermitize ?(ordering=Int.compare) vectors =
   if List.for_all (Linear.QQVector.equal Linear.QQVector.zero) vectors
   then ZeroLattice
   else
     let (dimensions, lcm) = collect_dims_and_lcm_denoms vectors in
     let (bijection, length) = assign_indices ordering dimensions in
-    let densified = List.map (fun v ->
-                        v
-                        |> Linear.QQVector.scalar_mul (QQ.of_zz lcm)
-                        |> zzify
-                        |> densify length bijection.dim_to_idx
-                        |> Array.to_list)
-                      vectors in
-    let hermitized = hermite_normal_form densified in
-    let generators =
-      List.map (fun xs -> Array.of_list (List.map ZZ.of_mpz xs)) hermitized
-    in
-    L.logf ~level:`trace "lattice_of: input vectors: @[%a@]@;"
-      (SrkUtil.pp_print_list Linear.QQVector.pp) vectors;
-    L.logf ~level:`trace "lattice_of: densified: @[%a@]@;"
-      pp_zz_matrix densified;
-    L.logf ~level:`trace "lattice_of: basis: @[%a@]@;"
-      pp_zz_matrix hermitized;
-    L.logf ~level:`trace "lattice_of: dimensions-to-indices: @[%a@]@;"
-      pp_bijection bijection;
+    let generators = hermite_normal_form length bijection
+                       (List.map
+                          (zzify % Linear.QQVector.scalar_mul (QQ.of_zz lcm))
+                          vectors) in
     Lattice
-      { sparse_rep = List.map (sparsify bijection.idx_to_dim) generators
-      ; dense_rep = generators
+      { generators
       ; denominator = lcm
-      ; dimension_indices = bijection
+      ; dimensions
+      ; ordering
       }
+
+let reorder ordering t =
+  match t with
+  | ZeroLattice -> ZeroLattice
+  | Lattice { generators; denominator; dimensions; _ } ->
+     let (bijection, length) = assign_indices ordering dimensions in
+     let generators = hermite_normal_form length bijection generators in
+     Lattice
+       { generators
+       ; denominator
+       ; dimensions
+       ; ordering
+       }
 
 let basis t =
   match t with
@@ -171,7 +183,7 @@ let basis t =
        (fun v ->
          qqify v
          |> Linear.QQVector.scalar_mul (QQ.inverse (QQ.of_zz lat.denominator)))
-       lat.sparse_rep
+       lat.generators
 
 let pp fmt t =
   match t with
@@ -183,8 +195,7 @@ let pp fmt t =
         ; basis: %a
         }@]"
        ZZ.pp lat.denominator
-       (SrkUtil.pp_print_list Linear.ZZVector.pp)
-       lat.sparse_rep
+       (SrkUtil.pp_print_list Linear.ZZVector.pp) lat.generators
 
 let member v t =
   match t with
@@ -200,8 +211,46 @@ let member v t =
            let v = qqify vec in
            (Linear.QQMatrix.add_column i v mat, i + 1)
          )
-         (Linear.QQMatrix.zero, 0) lat.sparse_rep in
+         (Linear.QQMatrix.zero, 0) lat.generators in
      begin match Linear.solve matrix v with
      | Some x -> integral x
      | None -> false
      end
+
+let project t keep =
+  match t with
+  | ZeroLattice -> ZeroLattice
+  | Lattice { ordering ; denominator ; _ } ->
+     let new_order x y =
+       match keep x, keep y with
+       | true, true -> ordering x y
+       | true, false -> -1
+       | false, true -> 1
+       | false, false -> ordering x y in
+     let reordered =
+       match reorder new_order t with
+       | ZeroLattice -> assert false
+       | Lattice { generators ; _ } -> generators
+     in
+     (* Drop the vectors that have non-zero coefficient in unwanted dimensions *)
+     let keep_vector v = Linear.ZZVector.fold
+                           (fun dim scalar drop ->
+                             drop || (not (ZZ.equal scalar ZZ.zero) && not (keep dim)))
+                           v
+                           false in
+     let generators = List.filter keep_vector reordered in
+     let dimensions =
+       fold_matrix
+         (fun dim _scalar dimensions ->
+           SrkUtil.Int.Set.add dim dimensions)
+         SrkUtil.Int.Set.empty
+         SrkUtil.Int.Set.union
+         SrkUtil.Int.Set.empty
+         (List.map qqify generators)
+     in
+     Lattice {
+         generators
+       ; denominator
+       ; dimensions
+       ; ordering = new_order
+       }

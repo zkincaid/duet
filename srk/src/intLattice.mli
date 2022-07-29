@@ -14,11 +14,18 @@ type t
 val hermitize : ?ordering: (Linear.QQVector.dim -> Linear.QQVector.dim -> int)
                 -> Linear.QQVector.t list -> t
 
-(** Obtain the basis of the lattice. The zero lattice has an empty basis.
-*)
+(** Obtain the basis of the lattice. The zero lattice has an empty basis. *)
 val basis : t -> Linear.QQVector.t list
+
+(** Recompute a basis for the lattice according to a new order on dimensions *)
+val reorder : (Linear.QQVector.dim -> Linear.QQVector.dim -> int) -> t -> t
 
 (** [member v L] = true iff v is a member of the lattice L. *)
 val member : Linear.QQVector.t -> t -> bool
+
+(** [project p t] computes the projection of the lattice onto the dimensions
+    marked true by [p].
+ *)
+val project : t -> (int -> bool) -> t
 
 val pp : Format.formatter -> t -> unit
