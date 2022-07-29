@@ -50,6 +50,9 @@ let qqify v = Linear.ZZVector.fold (fun dim scalar v ->
                 v
                 Linear.QQVector.zero
 
+let qqify_denom denominator v =
+  qqify v |> Linear.QQVector.scalar_mul (QQ.inverse (QQ.of_zz denominator))
+
 let zzify v = Linear.QQVector.fold (fun dim scalar v ->
                   let (num, denom) = (QQ.numerator scalar, QQ.denominator scalar) in
                   if not (ZZ.equal denom ZZ.one) then
@@ -187,12 +190,8 @@ let reorder order t =
 let basis t =
   match t with
   | ZeroLattice -> []
-  | Lattice lat ->
-     List.map
-       (fun v ->
-         qqify v
-         |> Linear.QQVector.scalar_mul (QQ.inverse (QQ.of_zz lat.denominator)))
-       lat.generators
+  | Lattice { generators ; denominator ; _ } ->
+     List.map (qqify_denom denominator) generators
 
 let pp fmt t =
   match t with
@@ -209,18 +208,18 @@ let pp fmt t =
 let member v t =
   match t with
   | ZeroLattice -> Linear.QQVector.equal v Linear.QQVector.zero
-  | Lattice lat ->
+  | Lattice { generators ; denominator ; _ } ->
      let integral v = Linear.QQVector.fold
                         (fun _ scalar bool ->
-                          ZZ.equal (QQ.denominator scalar) ZZ.one && bool)
+                          bool && ZZ.equal (QQ.denominator scalar) ZZ.one)
                         v true
      in
      let (matrix, _) =
        List.fold_left (fun (mat, i) vec ->
-           let v = qqify vec in
+           let v = qqify_denom denominator vec in
            (Linear.QQMatrix.add_column i v mat, i + 1)
          )
-         (Linear.QQMatrix.zero, 0) lat.generators in
+         (Linear.QQMatrix.zero, 0) generators in
      begin match Linear.solve matrix v with
      | Some x -> integral x
      | None -> false
@@ -275,3 +274,9 @@ let project_lower n t =
        ; order
        }
        
+let subset t1 t2 =
+  match t1, t2 with
+  | ZeroLattice, _ -> true
+  | Lattice {generators ; denominator ; _}, t2 ->
+     List.for_all (fun g -> member g t2)
+       (List.map (qqify_denom denominator) generators)

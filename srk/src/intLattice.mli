@@ -28,11 +28,11 @@ val member : Linear.QQVector.t -> t -> bool
  *)
 val project : (int -> bool) -> t -> t
 
-(** 
-    [project_lower n t] computes the projection of the lattice onto the
+(** [project_lower n t] computes the projection of the lattice onto the
     dimensions <= n. This is more efficient than [project].
  *)
 val project_lower : int -> t -> t
-  
+
+val subset : t -> t -> bool
 
 val pp : Format.formatter -> t -> unit
