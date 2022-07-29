@@ -31,7 +31,7 @@ let pp_zz_matrix =
     where B is in row Hermite normal form and the rows of B are the basis of the 
     lattice.
     Each ZZVector.t is viewed as a row vector of B according to [dim_idx_bijection],
-    where the smallest dimension according to [ordering] is in the rightmost
+    where the smallest dimension according to [order] is in the rightmost
     position of the row/matrix.
 
     The zero lattice is distinguished because we don't know the dimension of the 
@@ -42,7 +42,7 @@ type t =
   | Lattice of { generators: Linear.ZZVector.t list
                ; denominator : ZZ.t
                ; dimensions : SrkUtil.Int.Set.t
-               ; ordering : Linear.QQVector.dim -> Linear.QQVector.dim -> int
+               ; order : Linear.QQVector.dim -> Linear.QQVector.dim -> int
                }
 
 let qqify v = Linear.ZZVector.fold (fun dim scalar v ->
@@ -80,14 +80,23 @@ let collect_dims_and_lcm_denoms vectors =
     (SrkUtil.Int.Set.empty, ZZ.one)
     vectors
 
+let collect_dimensions vectors =
+  fold_matrix
+    (fun dim _scalar dimensions ->
+      SrkUtil.Int.Set.add dim dimensions)
+    SrkUtil.Int.Set.empty
+    SrkUtil.Int.Set.union
+    SrkUtil.Int.Set.empty
+    vectors
+
 (** Return a bijection between dimensions and (array) indices,
     and the cardinality of dimensions.
-    The smallest dimension (ordered by [ordering] occurs on the right, 
+    The smallest dimension (ordered by [order] occurs on the right, 
     i.e., gets the largest array index.
 *)
-let assign_indices ordering dimensions =
+let assign_indices order dimensions =
   let dims = SrkUtil.Int.Set.elements dimensions
-             |> BatList.sort (fun x y -> -(ordering x y)) in
+             |> BatList.sort (fun x y -> -(order x y)) in
   List.fold_left (fun (bij, curr) dim ->
       ({ dim_to_idx = SrkUtil.Int.Map.add dim curr bij.dim_to_idx
        ; idx_to_dim = SrkUtil.Int.Map.add curr dim bij.idx_to_dim
@@ -145,12 +154,12 @@ let hermite_normal_form ambient_dimension bijection matrix =
   in
   List.map (sparsify bijection.idx_to_dim) generators
 
-let hermitize ?(ordering=Int.compare) vectors =
+let hermitize ?(order=Int.compare) vectors =
   if List.for_all (Linear.QQVector.equal Linear.QQVector.zero) vectors
   then ZeroLattice
   else
     let (dimensions, lcm) = collect_dims_and_lcm_denoms vectors in
-    let (bijection, length) = assign_indices ordering dimensions in
+    let (bijection, length) = assign_indices order dimensions in
     let generators = hermite_normal_form length bijection
                        (List.map
                           (zzify % Linear.QQVector.scalar_mul (QQ.of_zz lcm))
@@ -159,20 +168,20 @@ let hermitize ?(ordering=Int.compare) vectors =
       { generators
       ; denominator = lcm
       ; dimensions
-      ; ordering
+      ; order
       }
 
-let reorder ordering t =
+let reorder order t =
   match t with
   | ZeroLattice -> ZeroLattice
   | Lattice { generators; denominator; dimensions; _ } ->
-     let (bijection, length) = assign_indices ordering dimensions in
+     let (bijection, length) = assign_indices order dimensions in
      let generators = hermite_normal_form length bijection generators in
      Lattice
        { generators
        ; denominator
        ; dimensions
-       ; ordering
+       ; order
        }
 
 let basis t =
@@ -216,17 +225,17 @@ let member v t =
      | Some x -> integral x
      | None -> false
      end
-
-let project t keep =
+     
+let project keep t =
   match t with
   | ZeroLattice -> ZeroLattice
-  | Lattice { ordering ; denominator ; _ } ->
+  | Lattice { order ; denominator ; _ } ->
      let new_order x y =
        match keep x, keep y with
-       | true, true -> ordering x y
+       | true, true -> order x y
        | true, false -> -1
        | false, true -> 1
-       | false, false -> ordering x y in
+       | false, false -> order x y in
      let reordered =
        match reorder new_order t with
        | ZeroLattice -> assert false
@@ -234,23 +243,35 @@ let project t keep =
      in
      (* Drop the vectors that have non-zero coefficient in unwanted dimensions *)
      let keep_vector v = Linear.ZZVector.fold
-                           (fun dim scalar drop ->
-                             drop || (not (ZZ.equal scalar ZZ.zero) && not (keep dim)))
+                           (fun dim _scalar drop ->
+                             (* scalar should always be non-zero *)
+                             drop || not (keep dim))
                            v
                            false in
      let generators = List.filter keep_vector reordered in
-     let dimensions =
-       fold_matrix
-         (fun dim _scalar dimensions ->
-           SrkUtil.Int.Set.add dim dimensions)
-         SrkUtil.Int.Set.empty
-         SrkUtil.Int.Set.union
-         SrkUtil.Int.Set.empty
-         (List.map qqify generators)
+     let dimensions = collect_dimensions (List.map qqify generators)
      in
      Lattice {
          generators
        ; denominator
        ; dimensions
-       ; ordering = new_order
+       ; order = new_order
        }
+
+let project_lower n t =
+  match t with
+  | ZeroLattice -> ZeroLattice
+  | Lattice { generators ; denominator ; dimensions ; order } ->
+     let keep_vector v = Linear.ZZVector.fold
+                           (fun dim _scalar drop -> drop || dim > n)
+                           v
+                           false in
+     let generators = List.filter keep_vector generators in
+     let dimensions = SrkUtil.Int.Set.filter (fun dim -> dim <= n) dimensions in
+     Lattice {
+         generators
+       ; denominator
+       ; dimensions
+       ; order
+       }
+       
