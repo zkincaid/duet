@@ -14,6 +14,11 @@ type t
 val hermitize : ?order: (Linear.QQVector.dim -> Linear.QQVector.dim -> int)
                 -> Linear.QQVector.t list -> t
 
+(** [const_lattice q] is the lattice spanned by [const_linterm q], i.e.,
+    the vector with only [q] in the constant dimension.
+ *)
+val const_lattice : QQ.t -> t
+
 (** Obtain the basis of the lattice. The zero lattice has an empty basis. *)
 val basis : t -> Linear.QQVector.t list
 
@@ -26,7 +31,7 @@ val member : Linear.QQVector.t -> t -> bool
 (** [project p t] computes the projection of the lattice onto the dimensions
     marked true by [p].
  *)
-val project : (int -> bool) -> t -> t
+val project : (Linear.QQVector.dim -> bool) -> t -> t
 
 (** [project_lower n t] computes the projection of the lattice onto the
     dimensions <= n. This is more efficient than [project].
