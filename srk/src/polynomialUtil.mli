@@ -43,18 +43,18 @@ module PolyVectorContext : sig
 
   val get_mono_map: t -> int MonomialMap.t
 
-  val dim_of : Monomial.t -> t -> Monomial.dim
+  val dim_of : Monomial.t -> t -> Linear.QQVector.dim
 
-  val monomial_of : Monomial.dim -> t -> Monomial.t
+  val monomial_of : Linear.QQVector.dim -> t -> Monomial.t
 
   val num_dimensions : t -> int
 
   (** Maximum variable that appears in some monomial in the context *)
   val max_variable : t -> int option
 
-  val enum_by_dimension : t -> (Monomial.dim * Monomial.t) BatEnum.t
+  val enum_by_dimension : t -> (Linear.QQVector.dim * Monomial.t) BatEnum.t
 
-  val enum_by_monomial : t -> (Monomial.t * Monomial.dim) BatEnum.t
+  val enum_by_monomial : t -> (Monomial.t * Linear.QQVector.dim) BatEnum.t
 
   val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
