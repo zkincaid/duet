@@ -6,7 +6,7 @@ open Polynomial
 *)
 type t
 
-val make_polylattice : Ideal.t -> QQXs.t list -> t
+val make : Ideal.t -> QQXs.t list -> t
 
 val member : QQXs.t -> t -> bool
 

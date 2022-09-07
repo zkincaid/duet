@@ -26,7 +26,7 @@ let poly_of t vector =
 
 let vector_of t poly =
   PolyVectorConversion.poly_to_vector t.affine_context poly
-  
+
 let ideal t = t.ideal
 
 let affine_basis t =
@@ -49,7 +49,7 @@ let reduce ideal polys =
               else Some p')
     polys
 
-let make_polylattice ideal affine_polys : t =
+let make ideal affine_polys : t =
   let ideal = Rewrite.mk_rewrite monomial_order (Ideal.generators ideal) in
   let affine_polys = reduce ideal affine_polys in
   let affine_context = PolyVectorContext.mk_context monomial_order affine_polys in
@@ -72,8 +72,8 @@ let sum t1 t2 =
     |> Ideal.make
   in
   let affine = List.append (affine_basis t1) (affine_basis t2) in
-  make_polylattice ideal affine
-  
+  make ideal affine
+
 let variable_in_monomial dim mono =
   BatEnum.fold (fun seen (d, _pow) -> seen || d = dim) false (Monomial.enum mono)
 
@@ -133,8 +133,3 @@ let intersect t1 t2 =
     ; affine_lattice
     ; affine_context
     }
-
-    
-    
-    
-  
