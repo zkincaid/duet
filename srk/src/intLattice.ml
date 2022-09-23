@@ -18,7 +18,7 @@ module QQEndo = Linear.MakeLinearMap(QQ)(Int)(Linear.QQVector)(Linear.QQVector)
     where B is in row Hermite normal form and the rows of B are the basis of the
     lattice.
     Each ZZVector.t is viewed as a row vector of B according to [dim_idx_bijection],
-    where the smallest dimension according to [order] is in the rightmost
+    where the smallest dimension (the constant dimension) is in the rightmost
     position of the row/matrix.
 
     The zero lattice is distinguished because we don't know the dimension of the
@@ -29,7 +29,6 @@ type t =
   | Lattice of { generators: Linear.ZZVector.t list
                ; denominator : ZZ.t
                ; dimensions : SrkUtil.Int.Set.t
-               ; order : Linear.QQVector.dim -> Linear.QQVector.dim -> int
                ; inverse : QQEndo.t option ref
                }
 
@@ -82,7 +81,7 @@ let collect_dimensions vectors =
 
 (** Return a bijection between dimensions and (array) indices,
     and the cardinality of dimensions.
-    The smallest dimension (ordered by [order] occurs on the right,
+    The smallest dimension (ordered by [order]) occurs on the right,
     i.e., gets the largest array index.
 *)
 let assign_indices order dimensions =
@@ -145,12 +144,12 @@ let hermite_normal_form ambient_dimension bijection matrix =
   in
   List.map (sparsify bijection.idx_to_dim) generators
 
-let hermitize ?(order=Int.compare) vectors =
+let hermitize vectors =
   if List.for_all (Linear.QQVector.equal Linear.QQVector.zero) vectors
   then ZeroLattice
   else
     let (dimensions, lcm) = collect_dims_and_lcm_denoms vectors in
-    let (bijection, length) = assign_indices order dimensions in
+    let (bijection, length) = assign_indices Int.compare dimensions in
     let generators = hermite_normal_form length bijection
                        (List.map
                           (zzify % Linear.QQVector.scalar_mul (QQ.of_zz lcm))
@@ -159,23 +158,8 @@ let hermitize ?(order=Int.compare) vectors =
       { generators
       ; denominator = lcm
       ; dimensions
-      ; order
       ; inverse = ref None
       }
-
-let reorder order t =
-  match t with
-  | ZeroLattice -> ZeroLattice
-  | Lattice { generators; denominator; dimensions; _ } ->
-     let (bijection, length) = assign_indices order dimensions in
-     let generators = hermite_normal_form length bijection generators in
-     Lattice
-       { generators
-       ; denominator
-       ; dimensions
-       ; order
-       ; inverse = ref None
-       }
 
 let basis t =
   match t with
@@ -225,20 +209,21 @@ let member v t =
        | Some x -> integral x
        | None -> false
      end
-
+     
 let project keep t =
   match t with
   | ZeroLattice -> ZeroLattice
-  | Lattice { order ; denominator ; _ } ->
+  | Lattice { generators ; denominator ; dimensions ; _ } ->
      let new_order x y =
        match keep x, keep y with
        | true, false -> -1
        | false, true -> 1
-       | _, _ -> order x y in
+       | _, _ -> Int.compare x y in
+     (* Compute Hermite normal form with unwanted dimensions on the left *)
      let reordered =
-       match reorder new_order t with
-       | ZeroLattice -> assert false
-       | Lattice { generators ; _ } -> generators
+       let (bijection, length) = assign_indices new_order dimensions in
+       let generators = hermite_normal_form length bijection generators in
+       generators
      in
      (* Drop the vectors that have non-zero coefficient in unwanted dimensions *)
      let keep_vector v = Linear.ZZVector.fold
@@ -254,14 +239,13 @@ let project keep t =
          generators
        ; denominator
        ; dimensions
-       ; order = new_order
        ; inverse = ref None
        }
 
 let project_lower n t =
   match t with
   | ZeroLattice -> ZeroLattice
-  | Lattice { generators ; denominator ; dimensions ; order ; _ } ->
+  | Lattice { generators ; denominator ; dimensions ; _ } ->
      let keep_vector v = Linear.ZZVector.fold
                            (fun dim _scalar drop -> drop || dim > n)
                            v
@@ -272,7 +256,6 @@ let project_lower n t =
          generators
        ; denominator
        ; dimensions
-       ; order
        ; inverse = ref None
        }
 
