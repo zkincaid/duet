@@ -11,30 +11,17 @@ let empty_bijection =
   { dim_to_idx = SrkUtil.Int.Map.empty
   ; idx_to_dim = SrkUtil.Int.Map.empty }
 
-(*
-let pp_bijection fmt bijection =
-  Format.fprintf fmt "{ dim_to_idx: @[%a@] }"
-    (SrkUtil.pp_print_enum
-       (fun fmt (dim, idx) -> Format.fprintf fmt "(dim=%d, idx=%d)" dim idx))
-    (SrkUtil.Int.Map.enum bijection.dim_to_idx)
 
-let pp_zz_matrix =
-  SrkUtil.pp_print_list
-    (fun fmt entry ->
-      Format.pp_print_list
-        ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
-        Mpzf.print fmt entry
-    )
- *)
+module QQEndo = Linear.MakeLinearMap(QQ)(Int)(Linear.QQVector)(Linear.QQVector)
 
 (** A lattice is represented as a matrix 1/[denominator] B,
-    where B is in row Hermite normal form and the rows of B are the basis of the 
+    where B is in row Hermite normal form and the rows of B are the basis of the
     lattice.
     Each ZZVector.t is viewed as a row vector of B according to [dim_idx_bijection],
     where the smallest dimension according to [order] is in the rightmost
     position of the row/matrix.
 
-    The zero lattice is distinguished because we don't know the dimension of the 
+    The zero lattice is distinguished because we don't know the dimension of the
     ambient space (and we don't want to call out to Flint).
  *)
 type t =
@@ -43,6 +30,7 @@ type t =
                ; denominator : ZZ.t
                ; dimensions : SrkUtil.Int.Set.t
                ; order : Linear.QQVector.dim -> Linear.QQVector.dim -> int
+               ; inverse : QQEndo.t option ref
                }
 
 let qqify v = Linear.ZZVector.fold (fun dim scalar v ->
@@ -61,7 +49,7 @@ let zzify v = Linear.QQVector.fold (fun dim scalar v ->
                     Linear.ZZVector.add_term num dim v)
                 v
                 Linear.ZZVector.zero
-               
+
 let fold_matrix
       (rowf : Linear.QQVector.dim -> QQ.t -> 'a -> 'a)
       (row_init : 'a)
@@ -94,7 +82,7 @@ let collect_dimensions vectors =
 
 (** Return a bijection between dimensions and (array) indices,
     and the cardinality of dimensions.
-    The smallest dimension (ordered by [order] occurs on the right, 
+    The smallest dimension (ordered by [order] occurs on the right,
     i.e., gets the largest array index.
 *)
 let assign_indices order dimensions =
@@ -172,10 +160,8 @@ let hermitize ?(order=Int.compare) vectors =
       ; denominator = lcm
       ; dimensions
       ; order
+      ; inverse = ref None
       }
-
-let const_lattice r =
-  hermitize [Linear.const_linterm r]
 
 let reorder order t =
   match t with
@@ -188,6 +174,7 @@ let reorder order t =
        ; denominator
        ; dimensions
        ; order
+       ; inverse = ref None
        }
 
 let basis t =
@@ -211,22 +198,34 @@ let pp fmt t =
 let member v t =
   match t with
   | ZeroLattice -> Linear.QQVector.equal v Linear.QQVector.zero
-  | Lattice { generators ; denominator ; _ } ->
+  | Lattice { generators ; denominator ; inverse ; _ } ->
      let integral v = Linear.QQVector.fold
                         (fun _ scalar bool ->
                           bool && ZZ.equal (QQ.denominator scalar) ZZ.one)
                         v true
      in
-     let (matrix, _) =
-       List.fold_left (fun (mat, i) vec ->
-           let v = qqify_denom denominator vec in
-           (Linear.QQMatrix.add_column i v mat, i + 1)
-         )
-         (Linear.QQMatrix.zero, 0) generators in
-     match Linear.solve matrix v with
-     | Some x -> integral x
-     | None -> false
-     
+     let inv =
+       match !inverse with
+       | None ->
+          let std_vector = Linear.QQVector.of_term QQ.one in
+          let (f, _) = List.fold_left (fun (f, idx) g ->
+                           let v = qqify_denom denominator g in
+                           let f' = QQEndo.add v (std_vector idx) f in
+                           match f' with
+                           | None -> assert false
+                           | Some f' ->
+                              (f', idx + 1))
+                         (QQEndo.empty, 1) generators
+          in f
+       | Some inverse -> inverse
+     in
+     begin
+       inverse := Some inv;
+       match QQEndo.apply inv v with
+       | Some x -> integral x
+       | None -> false
+     end
+
 let project keep t =
   match t with
   | ZeroLattice -> ZeroLattice
@@ -256,12 +255,13 @@ let project keep t =
        ; denominator
        ; dimensions
        ; order = new_order
+       ; inverse = ref None
        }
 
 let project_lower n t =
   match t with
   | ZeroLattice -> ZeroLattice
-  | Lattice { generators ; denominator ; dimensions ; order } ->
+  | Lattice { generators ; denominator ; dimensions ; order ; _ } ->
      let keep_vector v = Linear.ZZVector.fold
                            (fun dim _scalar drop -> drop || dim > n)
                            v
@@ -273,8 +273,9 @@ let project_lower n t =
        ; denominator
        ; dimensions
        ; order
+       ; inverse = ref None
        }
-       
+
 let subset t1 t2 =
   match t1, t2 with
   | ZeroLattice, _ -> true
