@@ -173,8 +173,8 @@ let pp fmt t =
   | Lattice lat ->
      Format.fprintf fmt
        "@[<v 0>
-        { denominator: %a@;
-        ; basis: %a
+        { denominator: %a
+        ; basis: @[%a@]
         }@]"
        ZZ.pp lat.denominator
        (SrkUtil.pp_print_list Linear.ZZVector.pp) lat.generators
@@ -209,7 +209,7 @@ let member v t =
        | Some x -> integral x
        | None -> false
      end
-     
+
 let project keep t =
   match t with
   | ZeroLattice -> ZeroLattice
@@ -227,11 +227,11 @@ let project keep t =
      in
      (* Drop the vectors that have non-zero coefficient in unwanted dimensions *)
      let keep_vector v = Linear.ZZVector.fold
-                           (fun dim _scalar drop ->
+                           (fun dim _scalar retained ->
                              (* scalar should always be non-zero *)
-                             drop || not (keep dim))
+                             retained && (keep dim))
                            v
-                           false in
+                           true in
      let generators = List.filter keep_vector reordered in
      let dimensions = collect_dimensions (List.map qqify generators)
      in
@@ -247,9 +247,9 @@ let project_lower n t =
   | ZeroLattice -> ZeroLattice
   | Lattice { generators ; denominator ; dimensions ; _ } ->
      let keep_vector v = Linear.ZZVector.fold
-                           (fun dim _scalar drop -> drop || dim > n)
+                           (fun dim _scalar keep -> keep && dim <= n)
                            v
-                           false in
+                           true in
      let generators = List.filter keep_vector generators in
      let dimensions = SrkUtil.Int.Set.filter (fun dim -> dim <= n) dimensions in
      Lattice {
@@ -258,6 +258,40 @@ let project_lower n t =
        ; dimensions
        ; inverse = ref None
        }
+
+let sum t1 t2 =
+  match t1, t2 with
+  | ZeroLattice, _ -> t2
+  | _, ZeroLattice -> t1
+  | Lattice { generators = g1 ; denominator = denom1 ; _ },
+    Lattice { generators = g2 ; denominator = denom2 ; _ } ->
+     List.append (List.map (qqify_denom denom1) g1) (List.map (qqify_denom denom2) g2)
+     |> hermitize
+
+let intersect t1 t2 =
+  match t1, t2 with
+  | ZeroLattice, _ -> t2
+  | _, ZeroLattice -> t1
+  | Lattice { generators = g1 ; denominator = denom1 ; dimensions = dim1 ; _ },
+    Lattice { generators = g2 ; denominator = denom2 ; dimensions = dim2 ; _ } ->
+     let all_dims = SrkUtil.Int.Set.union dim1 dim2 in
+     let num_dims = SrkUtil.Int.Set.cardinal all_dims in
+     let shift_vector shift ?(transform=identity) v =
+       Linear.QQVector.enum v
+       |> BatEnum.fold (fun l (scalar, dim) -> (transform scalar, dim + shift) :: l) []
+       |> Linear.QQVector.of_list
+     in
+     let one_minus_promoted_g2 =
+       List.map
+         (fun v -> let v' = qqify_denom denom2 v in
+                   shift_vector num_dims ~transform:QQ.negate v'
+                   |> Linear.QQVector.add v')
+         g2
+     in
+     let promoted_g1 = List.map (shift_vector num_dims % qqify_denom denom1) g1 in
+     let generators = List.append one_minus_promoted_g2 promoted_g1 in
+     hermitize generators
+     |> project_lower (SrkUtil.Int.Set.max_elt all_dims)
 
 let subset t1 t2 =
   match t1, t2 with
