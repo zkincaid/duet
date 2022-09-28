@@ -17,7 +17,7 @@ let mk_polyhedron_generators dim vertices rays =
   @(List.map (fun v -> (`Ray, mk_vector v)) rays)
   |> BatList.enum
   |> Polyhedron.DD.of_generators dim
-  |> Polyhedron.DD.of_dd
+  |> Polyhedron.of_dd
   
 
 let assert_equal_polyhedron p q =

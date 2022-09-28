@@ -47,7 +47,7 @@ module WeakArithmeticTheory = struct
 
   let abstract _ tf = tf
 
-  let exp = WeakTheoryInvariants.find_tf_invs
+  let exp = WeakTheoryInvariants.compute_LIRR_invariants
 
 end
 

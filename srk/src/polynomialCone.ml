@@ -71,7 +71,7 @@ let find_implied_zero_polynomials polys =
   (List.map (PV.sparsify ctx) (Cone.lines linear_cone),
    List.map (PV.sparsify ctx) (Cone.rays linear_cone))
 
-let make_enclosing_cone basis geq_zero_polys =
+let regularize basis geq_zero_polys =
   (* Assuming that in the arguments geq_zero_polys are reduced w.r.t. basis. *)
   let rec go basis geq_zero_polys =
     let new_zero_polys, new_geq_zero_polys = find_implied_zero_polynomials geq_zero_polys in
@@ -89,16 +89,19 @@ let make_enclosing_cone basis geq_zero_polys =
   let r = BatList.map (Rewrite.reduce basis) (QQXs.one :: geq_zero_polys) in
   go basis r
 
-let add_polys_to_cone pc zero_polys nonneg_polys =
+let add_generators ?zeros ?nonnegatives pc =
+
+  let zero_polys = match zeros with None -> [] | Some p -> p in
+  let nonneg_polys = match nonnegatives with None -> [] | Some p -> p in
   let basis, cone_generators = pc in
   let new_basis = BatList.fold_left
       (fun ideal zero_poly -> Rewrite.add_saturate ideal zero_poly)
       basis
       zero_polys
   in
-  make_enclosing_cone new_basis (BatList.concat [cone_generators; nonneg_polys])
+  regularize new_basis (BatList.concat [cone_generators; nonneg_polys])
 
-let trivial = (Rewrite.mk_rewrite Monomial.degrevlex [QQXs.one], [])
+let top = (Rewrite.mk_rewrite Monomial.degrevlex [QQXs.one], [])
 
 let cone_of_polyhedron poly ctx =
   let zero_polys, geq_zero_polys = extract_polynomial_constraints ctx poly in
@@ -184,7 +187,7 @@ let to_formula srk term_of_dim (ideal, cone_generators) =
   mk_and srk (ideal_eq_zero @ gen_geq_zero)
 
 let mem p (ideal, cone_generators) =
-  let cone_generators = QQXs.one :: cone_generators in
+  let cone_generators = cone_generators in
   let reduced = Rewrite.reduce ideal p in
   let ctx = PV.min_context (BatList.enum cone_generators) in
   (* Optimization: if a monomial appears in reduced but not cone_generators
