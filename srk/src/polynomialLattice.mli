@@ -14,6 +14,10 @@ val sum : t -> t -> t
 
 val intersect : t -> t -> t
 
+val subset : t -> t -> bool
+
+val equal : t -> t -> bool
+
 (* TODO: val project : (Linear.QQVector.dim -> bool) -> t -> t *)
 
 val pp : (Format.formatter -> int -> unit)

@@ -133,3 +133,11 @@ let intersect t1 t2 =
     ; affine_lattice
     ; affine_context
     }
+
+let subset t1 t2 =
+  let aff1 = affine_basis t1 in
+  let ideal1 = ideal t1 in
+  let polys1 = List.append (Rewrite.generators ideal1) aff1 in
+  List.for_all (fun p -> member p t2) polys1
+
+let equal t1 t2 = subset t1 t2 && subset t2 t1
