@@ -33,4 +33,6 @@ val intersect : t -> t -> t
 
 val subset : t -> t -> bool
 
+val equal : t -> t -> bool
+
 val pp : Format.formatter -> t -> unit

@@ -299,3 +299,6 @@ let subset t1 t2 =
   | Lattice {generators ; denominator ; _}, t2 ->
      List.for_all (fun g -> member g t2)
        (List.map (qqify_denom denominator) generators)
+
+let equal t1 t2 =
+  subset t1 t2 && subset t2 t1
