@@ -3,7 +3,6 @@ open Polynomial
 open PolynomialUtil
 
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
-let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace
 
 let integer_hull_method = ref `GomoryChvatal
 
@@ -152,7 +151,7 @@ let polyhedron_of ctxt zeroes positives =
       These two steps implement the inverse of the linear map sending the
       fresh Y's to QQ[X].
 
-   3. Convert these generators to vectors and consider them as 
+   3. Convert these generators to vectors and consider them as
       constraints defining a polyhedron. Take the integer hull.
 
    4. Convert back to polynomials and do the substitution y_i |-> b_i.
@@ -294,4 +293,3 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
   let ideal = Rewrite.generators (PolynomialCone.get_ideal final_cone)
               |> Ideal.make in
   (final_cone, PolynomialLattice.make ideal final_lattice.basis)
-
