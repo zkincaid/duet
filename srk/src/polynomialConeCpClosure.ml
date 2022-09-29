@@ -3,6 +3,7 @@ open Polynomial
 open PolynomialUtil
 
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
+let _ = Log.set_verbosity_level "srk.polynomialConeCpClosure" `trace
 
 let integer_hull_method = ref `GomoryChvatal
 
@@ -292,5 +293,5 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
     final_cone;
   let ideal = Rewrite.generators (PolynomialCone.get_ideal final_cone)
               |> Ideal.make in
-  (final_cone, PolyLattice.make ideal final_lattice.basis)
+  (final_cone, PolynomialLattice.make ideal final_lattice.basis)
 

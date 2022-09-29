@@ -78,7 +78,7 @@ module Model = struct
          w.r.t. lattice *)
       cone : PolynomialCone.t
     (* Lattice of integers *)
-    ; lattice : PolyLattice.t
+    ; lattice : PolynomialLattice.t
     (* Positive propositional variables *)
     ; pos : Symbol.Set.t (* Positive propositional variables *) }
 
@@ -87,7 +87,7 @@ module Model = struct
   let nonnegative_cone m = m.cone
 
   let is_int m p =
-    PolyLattice.member p m.lattice
+    PolynomialLattice.member p m.lattice
 
   let is_nonneg m p = PolynomialCone.mem p m.cone
 

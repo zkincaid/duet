@@ -14,4 +14,4 @@ val set_cutting_plane_method : [`GomoryChvatal | `Normaliz] -> unit
     (The closures w.r.t. L or (affine_lattice \cup {1}) are equal.)
  *)
 val regular_cutting_plane_closure :
-  PolynomialCone.t -> QQXs.t list -> PolynomialCone.t * PolyLattice.t
+  PolynomialCone.t -> QQXs.t list -> PolynomialCone.t * PolynomialLattice.t
