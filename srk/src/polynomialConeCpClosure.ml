@@ -226,7 +226,7 @@ let compute_cut transform cone =
 
   (* 1. Expand the polynomial cone and project it onto QQ{1, y_1, ..., y_m}. *)
   let transform_polys = snd transform.rewrite_polys in
-  let expanded = PolynomialCone.add_polys_to_cone cone transform_polys [] in
+  let expanded = PolynomialCone.add_generators ~zeros:transform_polys cone in
   let codims = Linear.const_dim :: snd transform.codomain_dims in
   let projected = PolynomialCone.project expanded (fun x -> List.mem x codims) in
   L.logf ~level:`trace "compute_cut: projected cone: @[%a@]@;"
@@ -311,7 +311,7 @@ let cutting_plane_operator polynomial_cone polylattice =
       compute_transformation polylattice.affine_basis ctxt_x in
     let (linear, conic) = compute_cut tdata polynomial_cone in
     L.logf ~level:`trace "cutting_plane_operator: Cut computed@;";
-    let cut_polycone = PolynomialCone.add_polys_to_cone polynomial_cone linear conic in
+    let cut_polycone = PolynomialCone.add_generators ~zeros:linear ~nonnegatives:conic polynomial_cone in
     L.logf ~level:`trace "cutting_plane_operator: result: @[%a@]@;"
       (PolynomialCone.pp pp_dim) cut_polycone;
     let new_lattice =
@@ -321,7 +321,7 @@ let cutting_plane_operator polynomial_cone polylattice =
     | Some polylattice ->
        (cut_polycone, polylattice)
     | None ->
-       let full_ring = PolynomialCone.trivial in
+       let full_ring = PolynomialCone.top in
        (full_ring, empty_polylattice (PolynomialCone.get_ideal full_ring))
 
 (**
@@ -363,7 +363,7 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
     match polylattice with
     | Some polylattice -> closure polynomial_cone polylattice
     | None ->
-       let full_ring = PolynomialCone.trivial in
+       let full_ring = PolynomialCone.top in
        (full_ring, empty_polylattice (PolynomialCone.get_ideal full_ring))
   in
   L.logf "regular_cutting_plane_closure: concluded, closure is:@;  @[%a@]@;"

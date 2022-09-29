@@ -80,7 +80,7 @@ let find_inv_functionals dx_dims implied_ideal =
     (fun base_vec -> QQMatrix.vector_right_mul lin_part_mat base_vec)
     null_space
 
-let find_tf_invs srk tr_symbols loop_counter tf =
+let compute_LIRR_invariants srk tr_symbols loop_counter tf =
   let tf = TF.map_formula (Nonlinear.eliminate_floor_mod_div srk) tf in
   (* For each variable x, create a symbol d_x representing x' - x *)
   let (dx_subst_diff, dx_subst_x, dx_defs) =

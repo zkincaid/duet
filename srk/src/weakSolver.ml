@@ -588,6 +588,6 @@ let abstract srk cl phi =
       go new_pc
   in
   Solver.add solver [phi];
-  go PolynomialCone.trivial
+  go PolynomialCone.top
 
 let find_consequences srk phi = abstract srk (fun x -> x) phi
