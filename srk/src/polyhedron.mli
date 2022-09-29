@@ -94,6 +94,10 @@ val dual_cone : int -> t -> t
    linear (rather than affine) halfspaces. *)
 val conical_hull : t -> t
 
+(** [minimal_faces p] returns the minimal faces of [p], where each minimal
+    face is given by a point that it contains and the list of constraints
+    active at that point (and all points on the minimal face).
+ *)
 val minimal_faces : t -> (V.t * ((constraint_kind * V.t) list)) list
 
 (** [integer_hull p] computes the convex hull of the integer points contained

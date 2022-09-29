@@ -635,7 +635,8 @@ let minimal_faces polyhedron : (V.t * ((constraint_kind * V.t) list)) list =
       Linear.QQVector.pp v
       (fun fmt constraints ->
         List.iter (Format.fprintf fmt "%a@;" pp_constraint) constraints)
-      defining in
+      defining
+  in
   logf ~level:`trace "@[minimal_face: minimal faces of polyhedron @[%a@]@]"
     (pp (fun fmt i -> Format.fprintf fmt ":%d" i)) polyhedron;
   enum_generators dim polyhedron
@@ -727,8 +728,10 @@ module NormalizCone = struct
       let normalize = normalize (fun _dim -> true) in
       enum_constraints polyhedron
       /@ (map_over_constraint normalize)
-      |> (* add 1 >= 0 explicitly to make Normaliz cone pointed and
-            ready for dehomogenization *)
+      |> (* Add 1 >= 0 to ensure the constant dimension x0 is present,
+            so that the cone may be dehomogenized at x0 = 1 if needed
+            to get a polyhedron.
+          *)
         (fun enum ->
           BatEnum.push enum (`Nonneg, Linear.const_linterm (QQ.of_int 1)); enum)
       |> BatList.of_enum
@@ -810,9 +813,7 @@ module NormalizCone = struct
     let vectors = BatList.of_enum vectors in
     let dimensions = collect_dimensions vectors in
     let (bij, _cardinality) = assign_indices dimensions in
-    (* Prepend 0 because [Normaliz.new_cone] adds the inequality x0 >= 0
-       to every cone to make it pointed *)
-    let rays = BatList.fold (fun rays v -> (Mpzf.of_int 0 :: densify bij v) :: rays)
+    let rays = BatList.fold (fun rays v -> (densify bij v) :: rays)
                  [] vectors in
     let cone = Normaliz.empty_cone
                |> Normaliz.add_rays rays |> Result.get_ok
@@ -821,9 +822,6 @@ module NormalizCone = struct
       pp_list_list rays;
     let (pointed_hilbert_basis, lineality_basis) =
       (Normaliz.hilbert_basis cone,  Normaliz.get_lineality_space cone)
-      |> (fun (l1, l2) ->
-        let drop_constant_dimensions = List.map List.tl in
-        (drop_constant_dimensions l1, drop_constant_dimensions l2))
       |> (fun (l1, l2) ->
         let sparsify = List.map (sparsify bij) in
         (sparsify l1, sparsify l2))
