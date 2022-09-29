@@ -63,6 +63,14 @@ let test_translated_parallelogram height () =
   assert_equal ~cmp:Polyhedron.equal hull_gc expected_hull;
   assert_equal ~cmp:Polyhedron.equal hull_normaliz expected_hull
 
+let test_halfspace () =
+  let p = mk_polyhedron [ ([2 ; 0], 3) ] in
+  let hull_gc = Polyhedron.integer_hull `GomoryChvatal p in
+  let hull_normaliz = Polyhedron.integer_hull `Normaliz p in
+  let expected_hull = mk_polyhedron [ ([1 ; 0], 2) ] in
+  assert_equal ~cmp:Polyhedron.equal hull_gc expected_hull;
+  assert_equal ~cmp:Polyhedron.equal hull_normaliz expected_hull
+
 let suite = "Polyhedron" >::: [
       "equal1" >:: (fun () ->
         let p =
@@ -219,6 +227,18 @@ let suite = "Polyhedron" >::: [
         in
         assert_equal_polyhedron p q);
 
+      "minimal_faces_nonpointed" >:: (fun () ->
+        let p = mk_polyhedron [ ([1 ; 0], 0) ; ([-2 ; 0], -3)] in
+        let faces = Polyhedron.minimal_faces p in
+        let vertices = List.map fst faces in
+        let subset s1 s2 =
+          List.for_all (fun v -> List.exists (fun w -> Linear.QQVector.equal v w) s2) s1 in
+        let target = [Linear.QQVector.zero ; mk_qqvector [QQ.of_frac 3 2]] in
+        assert_equal (subset vertices target) true;
+        assert_equal (subset target vertices) true
+      );
+
       "integer_hull_1" >:: test_vertical_integer_hull 3;
       "integer_hull_2" >:: test_translated_parallelogram 3;
+      "integer_hull_3" >:: test_halfspace
   ]
