@@ -87,8 +87,13 @@ let spec_list = [
   ("-weaktheorysat",
    Arg.String (fun file ->
        let phi = load_formula file in
-       print_result (WeakSolver.is_sat srk (snd (Quantifier.normalize srk phi)))),
+       let normalized = (Quantifier.normalize srk phi) in
+       print_result (WeakSolver.is_sat srk (snd normalized))),
    " Test satisfiability of a non-linear ground formula using weak theory of arithmetic");
+
+  ("-normaliz",
+   Arg.Unit (fun () -> PolynomialConeCpClosure.set_cutting_plane_method `Normaliz),
+   "Set weak theory solver to use Normaliz's integer hull computation (instead of Gomory-Chvatal");
 
   ("-generator",
    Arg.Set generator_rep,

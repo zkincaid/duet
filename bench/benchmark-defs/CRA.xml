@@ -23,5 +23,10 @@
       <propertyfile>../tasks/properties/unreach-call.prp</propertyfile>
     </tasks>
   </rundefinition>
-  
+
+  <tasks name="hola">
+    <include>../tasks/HOLA/*.yml</include>
+    <propertyfile>../properties/unreach-call.prp</propertyfile>
+  </tasks>
+
 </benchmark>

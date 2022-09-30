@@ -159,8 +159,7 @@ let ensure_symbols srk =
      ("imul", `TyFun ([`TyReal; `TyReal], `TyInt));
      ("imod", `TyFun ([`TyReal; `TyReal], `TyInt));
      ("pow", (`TyFun ([`TyReal; `TyReal], `TyReal)));
-     ("log", (`TyFun ([`TyReal; `TyReal], `TyReal)));
-     ("is_int", `TyFun ([`TyReal], `TyBool))
+     ("log", (`TyFun ([`TyReal; `TyReal], `TyReal)))
     ]
 
 let uninterpret_rewriter srk =

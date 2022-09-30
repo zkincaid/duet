@@ -747,7 +747,6 @@ let analyze file =
       let rg = Interproc.make_recgraph file in
       let entry = (RG.block_entry rg main).did in
       let (ts, assertions) = make_transition_system rg in
-
       (*TSDisplay.display ts;*)
       let query = mk_query ts entry in
       assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
