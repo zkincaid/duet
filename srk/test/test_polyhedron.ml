@@ -13,18 +13,12 @@ let mk_polyhedron halfspaces =
 
 let mk_polyhedron_from_generators mk_vector dim vertices rays =
   (List.map (fun v -> (`Vertex, mk_vector v)) vertices)
-  @(List.map (fun v -> (`Ray, mk_vector v)) rays)
+  @ (List.map (fun v -> (`Ray, mk_vector v)) rays)
   |> BatList.enum
-  |> Polyhedron.of_generators dim
+  |> Polyhedron.DD.of_generators dim
+  |> Polyhedron.of_dd
 
-let mk_polyhedron_generators =
-  mk_polyhedron_from_generators mk_vector
-
-let mk_polyhedron_rational_generators dim vertices rays =
-  let qqify v = List.map (fun (a, b) -> QQ.of_frac a b) v in
-  mk_polyhedron_from_generators mk_qqvector dim
-    (List.map qqify vertices)
-    (List.map qqify rays)
+let qqify v = List.map (fun (a, b) -> QQ.of_frac a b) v
 
 let assert_equal_polyhedron p q =
   assert_equal ~cmp:Polyhedron.equal p q
@@ -48,16 +42,17 @@ let test_vertical_integer_hull k () =
   assert_equal ~cmp:Polyhedron.equal hull_normaliz expected_hull
 
 let test_translated_parallelogram height () =
-  let p = mk_polyhedron_rational_generators 2
-            [ [(1, 2); (0, 1)]
-            ; [(3, 2); (0, 1)]
-            ; [(3, 2); (height, 1)]
-            ; [(5, 2); (height, 1)] ] []
+  let p = mk_polyhedron_from_generators mk_qqvector 2
+            (List.map qqify [ [(1, 2); (0, 1)]
+                            ; [(3, 2); (0, 1)]
+                            ; [(3, 2); (height, 1)]
+                            ; [(5, 2); (height, 1)] ])
+            []
   in
   let hull_gc = Polyhedron.integer_hull `GomoryChvatal p in
   let hull_normaliz = Polyhedron.integer_hull `Normaliz p in
   let expected_hull =
-    mk_polyhedron_generators 2
+    mk_polyhedron_from_generators mk_vector 2
       [ [1; 0]; [1; height/2]; [2; height - (height/2)]; [2; height] ] []
   in
   assert_equal ~cmp:Polyhedron.equal hull_gc expected_hull;
@@ -188,7 +183,7 @@ let suite = "Polyhedron" >::: [
                          ([0; 0; 1], 0)]
         in
         let q =
-          mk_polyhedron_generators 3
+          mk_polyhedron_from_generators mk_vector 3
             [[0; 0; 0]]
             [[1; 0; 0];
              [0; 1; 0];
@@ -204,7 +199,7 @@ let suite = "Polyhedron" >::: [
                          ([0; 0; 1], 42)]
         in
         let q =
-          mk_polyhedron_generators 3
+          mk_polyhedron_from_generators mk_vector 3
             [[-1; -1; 42]]
             [[1; 1; 0];
              [0; 0; 1]]
@@ -218,7 +213,7 @@ let suite = "Polyhedron" >::: [
                          ([0; -1], -4)]
         in
         let q =
-          mk_polyhedron_generators 2
+          mk_polyhedron_from_generators mk_vector 2
             [[1; 3];
              [1; 4];
              [2; 3];
@@ -226,17 +221,6 @@ let suite = "Polyhedron" >::: [
             []
         in
         assert_equal_polyhedron p q);
-
-      "minimal_faces_nonpointed" >:: (fun () ->
-        let p = mk_polyhedron [ ([1 ; 0], 0) ; ([-2 ; 0], -3)] in
-        let faces = Polyhedron.minimal_faces p in
-        let vertices = List.map fst faces in
-        let subset s1 s2 =
-          List.for_all (fun v -> List.exists (fun w -> Linear.QQVector.equal v w) s2) s1 in
-        let target = [Linear.QQVector.zero ; mk_qqvector [QQ.of_frac 3 2]] in
-        assert_equal (subset vertices target) true;
-        assert_equal (subset target vertices) true
-      );
 
       "integer_hull_1" >:: test_vertical_integer_hull 3;
       "integer_hull_2" >:: test_translated_parallelogram 3;

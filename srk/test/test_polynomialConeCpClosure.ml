@@ -17,7 +17,7 @@ let y = QQXs.of_dim 2
 let z = QQXs.of_dim 3
 
 let ideal = Rewrite.mk_rewrite Monomial.degrevlex
-let empty_cone = PolynomialCone.make_enclosing_cone (ideal []) []
+let empty_cone = PolynomialCone.regularize (ideal []) []
 
 let test_polycone_triangle k () =
   (* Test if cuts in non-standard lattices work.
@@ -34,7 +34,7 @@ let test_polycone_triangle k () =
                     ; int(-1) * x_gen + int(2) * int(k) * y_gen
                     ]
     in
-    let cone = PolynomialCone.add_polys_to_cone empty_cone [] positives in
+    let cone = PolynomialCone.add_generators ~nonnegatives:positives empty_cone in
     let (cp, _) = regular_cutting_plane_closure cone lattice in
     cp
   in
@@ -61,11 +61,11 @@ let test_polycone_exploding_cut () =
   let open Infix in
     let lattice = [ int(2) * x * x * y ; int(2) * x * y * y ]
     in
-    let zeroes = [ x * x - y ] in
+    let zeros = [ x * x - y ] in
     let positives = [ int(3) * x * x * y + int(3) * x * y * y - int(1)
                     ; int(-1) * y * y + int(-1) * x * x * x * x * x
                     ] in
-    let cone = PolynomialCone.add_polys_to_cone empty_cone zeroes positives in
+    let cone = PolynomialCone.add_generators ~zeros ~nonnegatives:positives empty_cone in
     let (polycone, _) = regular_cutting_plane_closure cone lattice in
     let expected_zeroes = [ int(-1)  ] in
     let expected_positives = [ int(1) ] in
@@ -83,11 +83,11 @@ let test_polycone_add_zero_exploding_cut _ =
    *)
   let open Infix in
   let lattice = [ int(2) * x * x * y ; int(2) * x * y * y ] in
-  let zeroes = [ x * x - y ] in
+  let zeros = [ x * x - y ] in
   let positives = [ int(3) * x * y * y + int(3) * y * y + int(-1)
                   ; int(-1) * y * y + int(-1) * x * x * x * x * x
                   ] in
-  let cone = PolynomialCone.add_polys_to_cone empty_cone zeroes positives in
+  let cone = PolynomialCone.add_generators ~zeros ~nonnegatives:positives empty_cone in
   let (polycone, _) = regular_cutting_plane_closure cone lattice in
   let expected_zeroes = [ int(-1) ] in
   let expected_positives = [ int(1) ] in
@@ -96,10 +96,10 @@ let test_polycone_add_zero_exploding_cut _ =
 
 let half_in_lattice =
   let lattice = [ QQXs.scalar (QQ.of_frac 1 2) ] in
-  let zeroes = [ ] in
+  let zeros = [ ] in
   let positives = [ x ] in
   let (polycone, _) =
-    let c = PolynomialCone.add_polys_to_cone empty_cone zeroes positives in
+    let c = PolynomialCone.add_generators ~zeros ~nonnegatives:positives empty_cone in
     regular_cutting_plane_closure c lattice in
   assert_bool "half_in_lattice" (not ((PolynomialCone.is_proper polycone)))
 

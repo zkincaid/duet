@@ -26,6 +26,16 @@ module QQVector : sig
   val show : t -> string
   val hash : t -> int
   val split_leading : t -> (dim * scalar * t) option
+
+  (** Are all entries integers? *)
+  val is_integral : t -> bool
+
+  (** Find common denominator of all entries.  Multiplying by the cmmon
+     denominator yields an integral vector. *)
+  val common_denominator : t -> ZZ.t
+
+  (** Greatest common divisor of all entries. *)
+  val gcd_entries : t -> QQ.t
 end
 
 (** Sparse matrix with rational entries. *)
@@ -172,7 +182,6 @@ module type SparseArray = sig
   val pp : Format.formatter -> t -> unit
 end
 
-
 module type LinearSpace = sig
   type t
   type scalar
@@ -279,6 +288,56 @@ module MakeLinearMap
      be linear for the composition to be well-defined. *)
   val compose : t -> (T.t -> T.t) -> t
 end
+
+exception Not_in_context
+
+(** Translate between sparse arrays (of arbitrary dimension type) and rational
+   vectors (with dimensions drawn from an initial segment of the naturals) *)
+module type DenseConversion = sig
+  type context
+  type dim
+  type vec
+  (** [make-context [d0, ..., dn]] creates a conversion context that
+     associates each [di] with the integer [i].  [Invalid_arg] is raised if a
+     dimension appears more than once in the input list. *)
+  val make_context : dim list -> context
+
+  (** [min_context xs] creates a minimal conversion context in which each
+     dimension in each vector in [xs] appears. *)
+  val min_context : vec BatEnum.t -> context
+
+  (** Number of dimensions of the conversion context *)
+  val dim : context -> int
+
+  (** Translate an integer to a dimension.  Raises [Not_in_context] if the
+     integer is not within bounds.  *)
+  val dim_of_int : context -> int -> dim
+
+  (** Translate a dimension to an integer.  Raises [Not_in_context] if the
+     dimension does not appear in the context.  *)
+  val int_of_dim : context -> dim -> int
+
+  (** Convert a sparse array to a vector.  Raises [Not_in_context] if
+     conversion context does not contain all required dimensions. *)
+  val densify : context -> vec -> QQVector.t
+
+  (** Convert a vector to a sparse array.  Raises [Not_in_context] if the
+     integral dimensions are outside the bounds of the conversion context. *)
+  val sparsify : context -> QQVector.t -> vec
+
+  (** Does a dimension belong to a conversion context? *)
+  val mem : context -> dim -> bool
+
+  (** Pretty-print association between integers and dimensions. *)
+  val pp : (Format.formatter -> dim -> unit) -> Format.formatter -> context -> unit
+end
+
+module MakeDenseConversion
+    (D : Map.OrderedType)
+    (S : SparseArray with type dim = D.t
+                      and type scalar = QQ.t)
+  : DenseConversion with type dim = D.t
+                     and type vec = S.t
 
 (** {2 Affine terms} *)
 

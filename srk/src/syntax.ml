@@ -699,7 +699,7 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
       (pp_expr ~env srk) bthen
       (pp_expr ~env srk) belse
   | IsInt, [s] ->
-     fprintf formatter "in_int_lattice(@[%a@])"
+     fprintf formatter "is_int(@[%a@])"
        (pp_expr ~env srk) s
   | _ -> failwith "pp_expr: ill-formed expression"
 
@@ -846,7 +846,7 @@ let pp_expr_unnumbered ?(env=Env.empty) srk formatter expr =
         (go ~env srk) bthen
         (go ~env srk) belse
     | IsInt, [s] ->
-       fprintf formatter "is_integer(@[%a@])"
+       fprintf formatter "is_int(@[%a@])"
          (go ~env srk) s
     | _ -> failwith "pp_expr_unnumbered: ill-formed expression"
 

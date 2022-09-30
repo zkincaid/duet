@@ -11,8 +11,7 @@ module Linexpr0 = Apron.Linexpr0
 module Lincons0 = Apron.Lincons0
 module Dim = Apron.Dim
 
-module PVCTX = PolynomialUtil.PolyVectorContext
-module PV = PolynomialUtil.PolyVectorConversion
+module PV = Polynomial.LinearQQXs
 
 module IntSet = SrkUtil.Int.Set
 
@@ -271,13 +270,14 @@ module Solver = struct
 
   let vectorize positive =
     let ctx =
-      BatDynArray.fold_left (fun xs p -> (fst p)::xs) [] positive
-      |> PVCTX.mk_context Monomial.degrevlex
+      BatDynArray.enum positive
+      /@ fst
+      |> PV.min_context
     in
     let rays =
       Array.init
         (BatDynArray.length positive)
-        (fun i -> PV.poly_to_vector ctx (fst (BatDynArray.get positive i)))
+        (fun i -> PV.densify ctx (fst (BatDynArray.get positive i)))
     in
     (ctx, rays)
 
@@ -317,7 +317,7 @@ module Solver = struct
     let term_of = P.term_of srk term_of_dim in
     let lineality positive =
       let (ctx, rays) = vectorize positive in
-      let dim = PVCTX.num_dimensions ctx in
+      let dim = PV.dim ctx in
       let linear_cone = Cone.make ~lines:[] ~rays:(Array.to_list rays) dim in
       let cs = Cone.Solver.make rays in
       Cone.normalize linear_cone;
@@ -325,7 +325,7 @@ module Solver = struct
       |> rev_mapm (fun line ->
           match Cone.Solver.solve cs line, Cone.Solver.solve cs (V.negate line) with
           | Some u, Some v ->
-            let line_poly = PV.vector_to_poly ctx line in
+            let line_poly = PV.sparsify ctx line in
             let witness =
               W.add (combine_witness positive u) (combine_witness positive v)
             in
@@ -345,7 +345,7 @@ module Solver = struct
               Smt.Solver.add solver.sat [mk_if srk
                                            (mk_and srk (core_of_witness srk witness))
                                            line_prop];
-              `Sat (PV.vector_to_poly ctx line, W.of_list [(P.one, line_prop_id)])
+              `Sat (PV.sparsify ctx line, W.of_list [(P.one, line_prop_id)])
           | _, _ -> assert false)
     in
     let rec loop zero positive =
@@ -452,12 +452,12 @@ module Solver = struct
       not_nonneg |> check_all (fun (p, lit) ->
           try
             let (p', w) = RR.reduce rewrite p in
-            match Cone.Solver.solve cs (PV.poly_to_vector ctx p') with
+            match Cone.Solver.solve cs (PV.densify ctx p') with
             | Some u ->
               let w = W.add w (combine_witness positive u) in
               `Unsat (lit :: (core_of_witness srk w))
             | None -> ok
-          with PVCTX.Not_in_context ->
+          with Linear.Not_in_context ->
             (* p' is not in the span of the monomials that appear in the
                positive cone, and so does not belong to the cone *)
             ok)
@@ -588,6 +588,6 @@ let abstract srk cl phi =
       go new_pc
   in
   Solver.add solver [phi];
-  go PolynomialCone.trivial
+  go PolynomialCone.top
 
 let find_consequences srk phi = abstract srk (fun x -> x) phi

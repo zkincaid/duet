@@ -60,6 +60,193 @@ let pp pp_dim formatter polyhedron =
   Format.fprintf formatter "@[<v 0>%a@]"
     (SrkUtil.pp_print_enum_nobox ~pp_sep pp_elt) (P.enum polyhedron)
 
+let pp_constraint fmt = function
+  | (`Zero, v) -> Format.fprintf fmt "%a = 0" Linear.QQVector.pp v
+  | (`Nonneg, v) -> Format.fprintf fmt "%a >= 0" Linear.QQVector.pp v
+  | (`Pos, v) -> Format.fprintf fmt "%a > 0" Linear.QQVector.pp v
+
+type closed = Polka.loose Polka.t
+type nnc = Polka.strict Polka.t
+
+module DD = struct
+  open Apron
+  type 'a t = 'a Abstract0.t
+
+  let lexpr_of_vec vec =
+    let mk (coeff, dim) = (SrkApron.coeff_of_qq coeff, dim) in
+    let (const_coeff, rest) = V.pivot Linear.const_dim vec in
+    Apron.Linexpr0.of_list None
+      (BatList.of_enum (BatEnum.map mk (V.enum rest)))
+      (Some (SrkApron.coeff_of_qq const_coeff))
+
+  let vec_of_lexpr linexpr =
+    let vec = ref V.zero in
+    Linexpr0.iter (fun coeff dim ->
+        match SrkApron.qq_of_coeff coeff with
+        | Some qq -> vec := V.add_term qq dim (!vec)
+        | None -> assert false)
+      linexpr;
+    match SrkApron.qq_of_coeff (Linexpr0.get_cst linexpr) with
+    | Some qq -> V.add_term qq Linear.const_dim (!vec)
+    | None -> assert false
+
+  let lcons_of_constraint (cmp, vec) =
+    let cmp = match cmp with
+      | `Zero -> Lincons0.EQ
+      | `Pos -> Lincons0.SUP
+      | `Nonneg -> Lincons0.SUPEQ
+    in
+    Lincons0.make (lexpr_of_vec vec) cmp
+
+  let constraint_of_lcons lcons =
+    let open Lincons0 in
+    let cmp = match lcons.typ with
+      | Lincons0.EQ -> `Zero
+      | Lincons0.SUP -> `Pos
+      | Lincons0.SUPEQ -> `Nonneg
+      | _ -> assert false
+    in
+    (cmp, vec_of_lexpr lcons.linexpr0)
+
+  let project xs polyhedron =
+    Abstract0.forget_array
+      (Abstract0.manager polyhedron)
+      polyhedron
+      (Array.of_list xs)
+      false
+
+  let enum_generators polyhedron =
+    let open Apron in
+    Abstract0.to_generator_array (Abstract0.manager polyhedron) polyhedron
+    |> BatArray.enum
+    |> BatEnum.filter_map Generator0.(fun g ->
+        let vec = vec_of_lexpr g.linexpr0 in
+        match g.typ with
+        | LINE -> Some (`Line, vec)
+        | RAY -> Some (`Ray, vec)
+        | VERTEX -> Some (`Vertex, vec)
+        | LINEMOD | RAYMOD -> assert false)
+
+  let enum_constraints polyhedron =
+    Abstract0.to_lincons_array (Abstract0.manager polyhedron) polyhedron
+    |> BatArray.enum
+    |> BatEnum.map constraint_of_lcons
+
+  let pp pp_dim formatter polyhedron =
+    let pp_elt formatter = function
+      | (`Zero, t) -> Format.fprintf formatter "%a = 0" (V.pp_term pp_dim) t
+      | (`Nonneg, t) -> Format.fprintf formatter "%a >= 0" (V.pp_term pp_dim) t
+      | (`Pos, t) -> Format.fprintf formatter "%a > 0" (V.pp_term pp_dim) t
+    in
+    let pp_sep formatter () = Format.fprintf formatter "@;" in
+    Format.fprintf formatter "@[<v 0>%a@]"
+      (SrkUtil.pp_print_enum_nobox ~pp_sep pp_elt) (enum_constraints polyhedron)
+
+  let equal p q = Abstract0.is_eq (Abstract0.manager p) p q
+  let join p q = Abstract0.join (Abstract0.manager p) p q
+  let meet p q = Abstract0.meet (Abstract0.manager p) p q
+
+  let of_generators dim generators =
+    let open Apron in
+    let man = Polka.manager_alloc_loose () in
+    let (vertices, rays) =
+      BatEnum.fold Generator0.(fun (vertices, rays) (kind, vec) ->
+          match kind with
+          | `Line -> (vertices, (make (lexpr_of_vec vec) LINE)::rays)
+          | `Ray -> (vertices, (make (lexpr_of_vec vec) RAY)::rays)
+          | `Vertex -> (vec::vertices, rays))
+        ([], [])
+        generators
+    in
+    let polytope_of_point point =
+      Abstract0.of_lincons_array man 0 dim
+        (Array.init dim (fun i ->
+             (* x_i = point_i *)
+             let lexpr =
+               [(QQ.of_int (-1), i);
+                (V.coeff i point, Linear.const_dim)]
+               |> V.of_list
+               |> lexpr_of_vec
+             in
+             Lincons0.make lexpr Lincons0.EQ))
+    in
+    let polytope = (* Convex hull of vertices *)
+      BatList.reduce
+        (Abstract0.join man)
+        (List.map polytope_of_point vertices)
+    in
+    Abstract0.add_ray_array man polytope (BatArray.of_list rays)
+
+  let implies polyhedron cons =
+    Abstract0.sat_lincons
+      (Abstract0.manager polyhedron)
+      polyhedron
+      (lcons_of_constraint cons)
+
+  let meet_constraints polyhedron cons =
+    Apron.Abstract0.meet_lincons_array
+      (Abstract0.manager polyhedron)
+      polyhedron
+      (Array.of_list (List.map lcons_of_constraint cons))
+
+  (** [minimal_faces p] returns the minimal faces of [p], where each minimal
+    face is given by a point that it contains and the list of constraints
+    active at that point (and all points on the minimal face).
+   *)
+  let minimal_faces polyhedron : (V.t * ((constraint_kind * V.t) list)) list =
+    let satisfied coeffs point =
+      let homogenized_point = Linear.QQVector.add_term QQ.one Linear.const_dim point in
+      QQ.equal (Linear.QQVector.dot coeffs homogenized_point) QQ.zero in
+    let defining_equations_for v =
+      let constraints =
+        enum_constraints polyhedron
+        //@ (function
+            | (`Zero, u) -> if satisfied u v then Some (`Zero, u) else None
+            | (`Nonneg, u) -> if satisfied u v then Some (`Nonneg, u) else None
+            | (`Pos, _) -> None)
+        |> BatList.of_enum
+      in
+      (v, constraints)
+    in
+    let log_face (v, defining) =
+      logf ~level:`trace "minimal face: vertex: @[%a@]@;defining constraints: @[%a@]"
+        Linear.QQVector.pp v
+        (fun fmt constraints ->
+           List.iter (Format.fprintf fmt "%a@;" pp_constraint) constraints)
+        defining in
+    logf ~level:`trace "@[minimal_face: minimal faces of polyhedron @[%a@]@]"
+      (pp (fun fmt i -> Format.fprintf fmt ":%d" i)) polyhedron;
+    enum_generators polyhedron
+    //@ (function
+        | (`Vertex, v) -> Some v
+        | _ -> None)
+    |> BatList.of_enum
+    |> List.map defining_equations_for
+    |> (function defining ->
+        List.iter log_face defining;
+        defining)
+
+  let of_constraints man dim constraints =
+    constraints
+    /@ lcons_of_constraint
+    |> BatArray.of_enum
+    |> Abstract0.of_lincons_array man 0 dim
+end
+
+let of_dd polyhedron =
+  let open Apron in
+  BatArray.fold_left
+    (fun p lcons ->
+       P.add (DD.constraint_of_lcons lcons) p)
+    P.top
+    (Abstract0.to_lincons_array (Abstract0.manager polyhedron) polyhedron)
+
+let dd_of ?(man=Polka.manager_alloc_loose ()) dim polyhedron =
+  DD.of_constraints man dim (P.enum polyhedron)
+
+let nnc_dd_of ?(man=Polka.manager_alloc_strict ()) dim polyhedron =
+  DD.of_constraints man dim (P.enum polyhedron)
+
 let top = P.top
 let bottom = P.bottom
 
@@ -82,8 +269,8 @@ let of_formula ?(admit=false) cs phi =
     | `Atom (`Arith (`Lt, x, y)) ->
       P.singleton (`Pos, V.sub (linearize y) (linearize x))
     | `Or _ | `Not _ | `Quantify (_, _, _, _) | `Proposition _
-      | `Ite (_, _, _) | `Atom (`ArrEq _)
-      | `Atom (`IsInt _) -> invalid_arg "Polyhedron.of_formula"
+    | `Ite (_, _, _) | `Atom (`ArrEq _)
+    | `Atom (`IsInt _) -> invalid_arg "Polyhedron.of_formula"
   in
   Formula.eval (CS.get_context cs) alg phi
 
@@ -351,81 +538,12 @@ let max_constrained_dim polyhedron =
     0
     (enum_constraints polyhedron)
 
-let lexpr_of_vec vec =
-  let mk (coeff, dim) = (SrkApron.coeff_of_qq coeff, dim) in
-  let (const_coeff, rest) = V.pivot Linear.const_dim vec in
-  Apron.Linexpr0.of_list None
-    (BatList.of_enum (BatEnum.map mk (V.enum rest)))
-    (Some (SrkApron.coeff_of_qq const_coeff))
-
-let vec_of_lexpr linexpr =
-  let open Apron in
-  let vec = ref V.zero in
-  Linexpr0.iter (fun coeff dim ->
-      match SrkApron.qq_of_coeff coeff with
-      | Some qq -> vec := V.add_term qq dim (!vec)
-      | None -> assert false)
-    linexpr;
-  match SrkApron.qq_of_coeff (Linexpr0.get_cst linexpr) with
-  | Some qq -> V.add_term qq Linear.const_dim (!vec)
-  | None -> assert false
-
-let apron0_of man dim polyhedron =
-  let open Apron in
-  let lincons_of (cmp, vec) =
-    let cmp = match cmp with
-      | `Zero -> Lincons0.EQ
-      | `Pos -> Lincons0.SUP
-      | `Nonneg -> Lincons0.SUPEQ
-    in
-    Lincons0.make (lexpr_of_vec vec) cmp
-  in
-  P.enum polyhedron
-  /@ lincons_of
-  |> BatArray.of_enum
-  |> Abstract0.of_lincons_array man 0 dim
-
-let of_apron0 man abstract0 =
-  let open Apron in
-  let constraint_of lcons =
-    let open Lincons0 in
-    let cmp = match lcons.typ with
-      | Lincons0.EQ -> `Zero
-      | Lincons0.SUP -> `Pos
-      | Lincons0.SUPEQ -> `Nonneg
-      | _ -> assert false
-    in
-    (cmp, vec_of_lexpr lcons.linexpr0)
-  in
-  BatArray.fold_left
-    (fun p lcons ->
-      P.add (constraint_of lcons) p)
-    P.top
-    (Abstract0.to_lincons_array man abstract0)
-
 let project_dd xs polyhedron =
-  let open Apron in
-  let man = Polka.manager_alloc_loose () in
   let dim = 1 + max_constrained_dim polyhedron in
   let polyhedron =
     List.fold_left (project_one 10) polyhedron xs
   in
-  Abstract0.forget_array
-    man
-    (apron0_of man dim polyhedron)
-    (Array.of_list xs)
-    false
-  |> of_apron0 man
-
-let normalize_constraints polyhedron =
-  logf "polyhedron: normalize_constraints: normalizing polyhedron of size %d"
-    (P.cardinal polyhedron);
-  let man = Polka.manager_alloc_loose () in
-  let dim = 1 + max_constrained_dim polyhedron in
-  (* of_apron0 man (apron0_of man dim polyhedron) *)
-  let result = of_apron0 man (apron0_of man dim polyhedron) in
-  logf "polyhedron: normalize_constraints: normalized!";
-  result
+  of_dd (DD.project xs (dd_of dim polyhedron))
 
 let dual_cone dim polyhedron =
   (* Given polyhedron Ax >= b, form the constraint system
@@ -475,21 +593,6 @@ let dual_cone dim polyhedron =
     (BatList.of_enum (dim -- (P.cardinal polyhedron + dim - 1)))
     farkas_constraints
 
-let enum_generators dim polyhedron =
-  let open Apron in
-  let man = Polka.manager_alloc_loose () in
-  polyhedron
-  |> apron0_of man dim
-  |> Abstract0.to_generator_array man
-  |> BatArray.enum
-  |> BatEnum.filter_map Generator0.(fun g ->
-         let vec = vec_of_lexpr g.linexpr0 in
-         match g.typ with
-         | LINE -> Some (`Line, vec)
-         | RAY -> Some (`Ray, vec)
-         | VERTEX -> Some (`Vertex, vec)
-         | LINEMOD | RAYMOD -> assert false)
-
 let of_constraints constraints =
   BatEnum.fold (fun p constr -> P.add constr p) P.top constraints
 
@@ -513,7 +616,8 @@ let invertible_image mM polyhedron =
 let conical_hull polyhedron =
   let dim = (max_constrained_dim polyhedron + 1) in
   dual_cone dim polyhedron
-  |> enum_generators dim
+  |> dd_of dim
+  |> DD.enum_generators
   |> BatEnum.filter_map (function
          | `Vertex, vec ->
             assert (V.equal V.zero vec);
@@ -536,118 +640,31 @@ let equal p q =
   let dim = List.length cs in
   let csM = Linear.QQVectorSpace.matrix_of cs in
   if Linear.QQVectorSpace.equal cs (constraint_space q) then
-    let p0 = apron0_of man dim (invertible_image csM p) in
-    let q0 = apron0_of man dim (invertible_image csM q) in
-    Apron.Abstract0.is_eq man p0 q0
+    let p0 = nnc_dd_of ~man dim (invertible_image csM p) in
+    let q0 = nnc_dd_of ~man dim (invertible_image csM q) in
+    DD.equal p0 q0
   else
     false
 
-let of_generators dim generators =
-  let open Apron in
-  let man = Polka.manager_alloc_loose () in
-  let (vertices, rays) =
-    BatEnum.fold Generator0.(fun (vertices, rays) (kind, vec) ->
-        match kind with
-        | `Line -> (vertices, (make (lexpr_of_vec vec) LINE)::rays)
-        | `Ray -> (vertices, (make (lexpr_of_vec vec) RAY)::rays)
-        | `Vertex -> (vec::vertices, rays))
-      ([], [])
-      generators
+let valid_cone polyhedron =
+  let dim = max_constrained_dim polyhedron in
+  let (lines, rays) =
+    P.fold (fun (p, v) (lines, rays) ->
+        match p with
+        | `Zero -> (v::lines, rays)
+        | `Nonneg | `Pos -> (lines, v::rays))
+      polyhedron
+      ([], [V.of_term QQ.one Linear.const_dim])
   in
-  let polytope_of_point point =
-    Abstract0.of_lincons_array man 0 dim
-      (Array.init dim (fun i ->
-           (* x_i = point_i *)
-           let lexpr =
-             [(QQ.of_int (-1), i);
-              (V.coeff i point, Linear.const_dim)]
-             |> V.of_list
-             |> lexpr_of_vec
-           in
-           Lincons0.make lexpr Lincons0.EQ))
-  in
-  let polytope = (* Convex hull of vertices *)
-    BatList.reduce
-      (Abstract0.join man)
-      (List.map polytope_of_point vertices)
-  in
-  Abstract0.add_ray_array man polytope (BatArray.of_list rays)
-  |> of_apron0 man
+  Cone.make ~lines ~rays dim
 
-let pp_generator pp_dim formatter = function
-  | (`Line, t) -> Format.fprintf formatter "line: %a" (V.pp_term pp_dim) t
-  | (`Ray, t) -> Format.fprintf formatter "ray: %a" (V.pp_term pp_dim) t
-  | (`Vertex, t) -> Format.fprintf formatter "vertex: %a" (V.pp_term pp_dim) t
-
-let _pp_generators pp_dim dim formatter polyhedron =
-  let pp_sep formatter () = Format.fprintf formatter "@;" in
-  Format.fprintf formatter "@[<v 0>%a@]"
-    (SrkUtil.pp_print_enum_nobox ~pp_sep (pp_generator pp_dim))
-    (enum_generators dim polyhedron)
-
-let pp_constraint fmt = function
-  | (`Zero, v) -> Format.fprintf fmt "%a = 0" Linear.QQVector.pp v
-  | (`Nonneg, v) -> Format.fprintf fmt "%a >= 0" Linear.QQVector.pp v
-  | (`Pos, v) -> Format.fprintf fmt "%a > 0" Linear.QQVector.pp v
-
-let apron0_constraint_of cons =
-  let open Apron in
-  let (kind, v) = cons in
-  let typ = match kind with
-    | `Zero -> Lincons0.EQ
-    | `Nonneg -> Lincons0.SUPEQ
-    | `Pos -> Lincons0.SUP
-  in
-  Lincons0.make (lexpr_of_vec v) typ
-
-let implies polyhedron cons =
-  let open Apron in
-  let man = Polka.manager_alloc_loose () in
-  let (_, v) = cons in
-  let max_dim =
-    Linear.QQVector.fold (fun dim _ max_dim -> max dim max_dim)
-      v
-      (max_constrained_dim polyhedron)
-  in
-  polyhedron
-  |> apron0_of man (max_dim + 1)
-  |> (fun poly ->
-    Abstract0.sat_lincons man poly (apron0_constraint_of cons))
-
-let minimal_faces polyhedron : (V.t * ((constraint_kind * V.t) list)) list =
-  let dim = 1 + max_constrained_dim polyhedron in
-  let satisfied coeffs point =
-    let homogenized_point = Linear.QQVector.add_term QQ.one Linear.const_dim point in
-    QQ.equal (Linear.QQVector.dot coeffs homogenized_point) QQ.zero in
-  let defining_equations_for v =
-    let constraints =
-      enum_constraints polyhedron
-      //@ (function
-           | (`Zero, u) -> if satisfied u v then Some (`Zero, u) else None
-           | (`Nonneg, u) -> if satisfied u v then Some (`Nonneg, u) else None
-           | (`Pos, _) -> None)
-      |> BatList.of_enum
-    in
-    (v, constraints)
-  in
-  let log_face (v, defining) =
-    logf ~level:`trace "minimal face: vertex: @[%a@]@;defining constraints: @[%a@]"
-      Linear.QQVector.pp v
-      (fun fmt constraints ->
-        List.iter (Format.fprintf fmt "%a@;" pp_constraint) constraints)
-      defining
-  in
-  logf ~level:`trace "@[minimal_face: minimal faces of polyhedron @[%a@]@]"
-    (pp (fun fmt i -> Format.fprintf fmt ":%d" i)) polyhedron;
-  enum_generators dim polyhedron
-  //@ (function
-       | (`Vertex, v) -> Some v
-       | _ -> None)
-  |> BatList.of_enum
-  |> List.map defining_equations_for
-  |> (function defining ->
-        List.iter log_face defining;
-        defining)
+let implies polyhedron (p, v) =
+  let c = valid_cone polyhedron in
+  match p with
+  | `Zero -> Cone.mem v c && Cone.mem (V.negate v) c
+  | `Nonneg -> Cone.mem v c
+  | `Pos -> invalid_arg "Polyhedron.implies does not currently support strict \
+                         inequalities"
 
 module NormalizCone = struct
 
@@ -656,78 +673,31 @@ module NormalizCone = struct
   let pp_vectors = Format.pp_print_list ~pp_sep:Format.pp_print_cut
                      Linear.QQVector.pp
 
-  let map_over_constraint f = function
-    | (`Zero, v) -> (`Zero, f v)
-    | (`Nonneg, v) -> (`Nonneg, f v)
-    | (`Pos, v) -> (`Pos, f v)
-
-  (* TOOD: Repeated code, copied from intLattice.ml.
-     Index starts from 0, which always corresponds to the constant dimension.
-   *)
-  type dim_idx_bijection = { dim_to_idx : int SrkUtil.Int.Map.t
-                           ; idx_to_dim : int SrkUtil.Int.Map.t
-                           }
-
-  (* Return a bijection between dimensions and (array) indices,
-     and the cardinality of dimensions.
-   *)
-  let assign_indices dimensions =
-    SrkUtil.Int.Set.fold (fun dim (bij, curr) ->
-        ({ dim_to_idx = SrkUtil.Int.Map.add dim curr bij.dim_to_idx
-         ; idx_to_dim = SrkUtil.Int.Map.add curr dim bij.idx_to_dim
-         },
-         curr + 1)
-      )
-      dimensions
-      ({ dim_to_idx = SrkUtil.Int.Map.empty
-       ; idx_to_dim = SrkUtil.Int.Map.empty },
-       0)
-
   (* Rescale vector such that the selected coefficients are integral and
      relatively prime *)
-  let normalize pred v =
-    let d = Linear.QQVector.fold
-              (fun dim coeff c ->
-                if pred dim then QQ.gcd c coeff else c) v QQ.one in
-    let r = Linear.QQVector.fold
-              (fun dim coeff vector ->
-                Linear.QQVector.add_term (QQ.div coeff d) dim vector)
-              v Linear.QQVector.zero in
-    r
+  let normalize v =
+    Linear.QQVector.scalar_mul (QQ.inverse (Linear.QQVector.gcd_entries v)) v
 
-  let collect_dimensions vectors =
-    let module S = SrkUtil.Int.Set in
-    BatList.fold
-      (fun dims v ->
-        BatEnum.fold (fun dims (_coeff, dim) -> S.add dim dims)
-          dims (Linear.QQVector.enum v))
-      S.empty vectors
+  module D = Linear.MakeDenseConversion(SrkUtil.Int)(V)
 
-  let densify bij vector =
-    let lookup i =
-      let j = SrkUtil.Int.Map.find i bij.dim_to_idx in
-      j
-    in
-    BatEnum.fold (fun arr (coeff, dim) ->
-        Array.set arr (lookup dim) (Option.get (QQ.to_zz coeff));
-        arr)
-      (Array.make (SrkUtil.Int.Map.cardinal bij.dim_to_idx) ZZ.zero)
-      (Linear.QQVector.enum vector)
-    |> Array.to_list
-    |> List.map ZZ.mpz_of
+  let densify ctx v =
+    let array = Array.make (D.dim ctx) (ZZ.mpz_of ZZ.zero) in
+    BatEnum.iter
+      (fun (a, i) ->
+         array.(D.int_of_dim ctx i) <- ZZ.mpz_of (Option.get (QQ.to_zz a)))
+      (V.enum v);
+    Array.to_list array
 
-  let sparsify bij lst =
-    let lookup i = SrkUtil.Int.Map.find i bij.idx_to_dim in
-    BatList.fold_lefti
-      (fun v i coord ->
-        Linear.QQVector.add_term (QQ.of_zz (ZZ.of_mpz coord)) (lookup i) v)
-      Linear.QQVector.zero lst
+  let sparsify ctx v =
+    BatList.fold_lefti (fun vec i a ->
+        V.set (D.dim_of_int ctx i) (QQ.of_zz (ZZ.of_mpz a)) vec)
+      V.zero
+      v
 
   let normaliz_cone_by_constraints polyhedron =
     let normalized_constraints =
-      let normalize = normalize (fun _dim -> true) in
       enum_constraints polyhedron
-      /@ (map_over_constraint normalize)
+      /@ (fun (p, v) -> (p, normalize v))
       |> (* Add 1 >= 0 to ensure the constant dimension x0 is present,
             so that the cone may be dehomogenized at x0 = 1 if needed
             to get a polyhedron.
@@ -736,19 +706,19 @@ module NormalizCone = struct
           BatEnum.push enum (`Nonneg, Linear.const_linterm (QQ.of_int 1)); enum)
       |> BatList.of_enum
     in
-    let dimensions =
-      List.map (fun (_, v) -> v) normalized_constraints
-      |> collect_dimensions
+    let ctx =
+      BatList.enum normalized_constraints
+      /@ snd
+      |> D.min_context
     in
-    let (bij, _cardinality) = assign_indices dimensions in
     (* The constant dimension must be present and be the first coordinate *)
-    assert (SrkUtil.Int.Map.find Linear.const_dim bij.dim_to_idx = 0);
+    assert (D.int_of_dim ctx Linear.const_dim = 0);
     let (equalities, inequalities) =
       List.fold_left
         (fun (equalities, inequalities) (kind, v) ->
           match kind with
-          | `Zero -> (densify bij v :: equalities, inequalities)
-          | `Nonneg -> (equalities, densify bij v :: inequalities)
+          | `Zero -> (densify ctx v :: equalities, inequalities)
+          | `Nonneg -> (equalities, densify ctx v :: inequalities)
           | `Pos -> invalid_arg "normaliz_cone_of: open faces not supported yet")
         ([], [])
         normalized_constraints in
@@ -758,11 +728,11 @@ module NormalizCone = struct
                  |> Normaliz.add_inequalities inequalities |> Result.get_ok
                  |> Normaliz.new_cone
       in
-      (cone, bij)
+      (cone, ctx)
     with Invalid_argument s -> logf "here"; invalid_arg s
 
-  let polyhedron_of (equalities, inequalities, bijection) =
-    let to_constraint kind v = (kind, sparsify bijection v) in
+  let polyhedron_of (equalities, inequalities, ctx) =
+    let to_constraint kind v = (kind, sparsify ctx v) in
     let equalities = List.map (to_constraint `Zero) equalities in
     let inequalities = List.map (to_constraint `Nonneg) inequalities in
     BatList.enum (List.append equalities inequalities)
@@ -772,7 +742,7 @@ module NormalizCone = struct
     let (cone, bijection) = normaliz_cone_by_constraints polyhedron in
 
     logf ~level:`trace "polyhedron: integer_hull: computed Normaliz cone for polyhedron:@[%a@]@;"
-      (pp (PolynomialUtil.PrettyPrint.pp_numeric_dim "x")) polyhedron;
+      (pp (Polynomial.pp_numeric_dim "x")) polyhedron;
 
     let dehomogenized = Normaliz.dehomogenize cone in
     logf ~level:`trace "polyhedron: integer_hull: dehomogenized cone, computing integer hull...@;";
@@ -787,18 +757,6 @@ module NormalizCone = struct
     in
     polyhedron_of (cut_eqns, cut_ineqs, bijection)
 
-  let is_integral v =
-    Linear.QQVector.fold
-      (fun _ coeff flag ->
-        Option.is_some (QQ.to_zz coeff) && flag)
-      v true
-
-  let non_constant v =
-    Linear.QQVector.fold
-      (fun dim coeff v' ->
-        if dim <> Linear.const_dim then Linear.QQVector.add_term coeff dim v'
-        else v')
-      v Linear.QQVector.zero
 
   let pp_list_list fmt =
     let pp_comma fmt () = Format.fprintf fmt ", " in
@@ -811,9 +769,8 @@ module NormalizCone = struct
   let hilbert_basis vectors =
     let module S = SrkUtil.Int.Set in
     let vectors = BatList.of_enum vectors in
-    let dimensions = collect_dimensions vectors in
-    let (bij, _cardinality) = assign_indices dimensions in
-    let rays = BatList.fold (fun rays v -> (densify bij v) :: rays)
+    let ctx = D.min_context (BatList.enum vectors) in
+    let rays = BatList.fold (fun rays v -> (densify ctx v) :: rays)
                  [] vectors in
     let cone = Normaliz.empty_cone
                |> Normaliz.add_rays rays |> Result.get_ok
@@ -823,7 +780,7 @@ module NormalizCone = struct
     let (pointed_hilbert_basis, lineality_basis) =
       (Normaliz.hilbert_basis cone,  Normaliz.get_lineality_space cone)
       |> (fun (l1, l2) ->
-        let sparsify = List.map (sparsify bij) in
+        let sparsify = List.map (sparsify ctx) in
         (sparsify l1, sparsify l2))
     in
     logf ~level:`trace "@[<v 0>Hilbert basis: vector_input: @[<v 0>%a@]@;
@@ -840,7 +797,7 @@ module NormalizCone = struct
                   @ List.map Linear.QQVector.negate lineality_basis)
 
   let cut_face vertex (defining : (constraint_kind * V.t) list) =
-    if is_integral vertex then
+    if V.is_integral vertex then
       defining
     else
       let basis =
@@ -849,11 +806,11 @@ module NormalizCone = struct
             | (`Nonneg, v) -> BatList.enum [v]
             | (`Pos, _v) -> assert false)
           (BatList.enum defining)
-        /@ (non_constant % (normalize (fun dim -> dim <> Linear.const_dim)))
+        /@ (normalize % snd % V.pivot Linear.const_dim)
         |> hilbert_basis
       in
       basis /@
-        (fun vector ->
+      (fun vector ->
           let constant_term = QQ.negate (Linear.QQVector.dot vector vertex)
                               |> QQ.floor |> QQ.of_zz
           in
@@ -864,26 +821,21 @@ module NormalizCone = struct
 
   let elementary_gc polyhedron =
     logf ~level:`trace "elementary_gc: Computing minimal faces...@;";
-    let faces = minimal_faces polyhedron in
+    let faces = DD.minimal_faces polyhedron in
     logf ~level:`trace "elementary_gc: Computed minimal faces: found %d@;"
       (List.length faces);
-    if List.for_all (fun (v, _) -> is_integral v) faces
+    if List.for_all (fun (v, _) -> V.is_integral v) faces
     then
       begin
         logf "elementary_gc: all faces are integral@;";
         `Fixed polyhedron
       end
     else
-      let man = Polka.manager_alloc_loose () in
-      let dim = max_constrained_dim polyhedron + 1 in
-      let apron_poly = apron0_of man dim polyhedron in
       let adjoin_constraint (changed, curr_polyhedron) cons =
         (* TODO: Test if meet is faster than implication check; if so,
            we should do meet directly once [changed] is true.
          *)
-        let implied = Apron.Abstract0.sat_lincons man curr_polyhedron
-                        (apron0_constraint_of cons) in
-        if implied then
+        if DD.implies curr_polyhedron cons then
           begin
             logf ~level:`trace "@[elementary_gc: polyhedron implies %a@]@;"
               pp_constraint cons;
@@ -893,9 +845,7 @@ module NormalizCone = struct
           begin
             logf ~level:`trace "@[elementary_gc: computing meet with %a@]@;"
               pp_constraint cons;
-            let intersected = Apron.Abstract0.meet_lincons_array man
-                                curr_polyhedron
-                                (Array.make 1 (apron0_constraint_of cons)) in
+            let intersected = DD.meet_constraints curr_polyhedron [cons] in
             (true, intersected)
           end
       in
@@ -910,14 +860,15 @@ module NormalizCone = struct
             (List.length new_face);
           List.fold_left adjoin_constraint curr new_face
         )
-        (false, apron_poly)
+        (false, polyhedron)
         faces
       |> (fun (changed, poly) ->
-        let p = of_apron0 man poly in
-        if changed then `Changed p
-        else `Fixed p)
+        if changed then `Changed poly
+        else `Fixed poly)
 
   let gomory_chvatal polyhedron =
+    let dim = 1 + max_constrained_dim polyhedron in
+    let man = Polka.manager_alloc_loose () in
     let rec iter polyhedron i =
       let elem_closure =  elementary_gc polyhedron in
       match elem_closure with
@@ -928,8 +879,8 @@ module NormalizCone = struct
          logf ~level:`trace "elementary_gc: entering round %d@;" (i + 1);
           iter poly (i + 1)
     in
-    iter polyhedron 0
-
+    iter (dd_of ~man dim polyhedron) 0
+    |> of_dd
 end
 
 let integer_hull = function

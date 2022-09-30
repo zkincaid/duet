@@ -3,16 +3,20 @@ open BatPervasives
 
 module L = Log.Make(struct let name = "srk.intLattice" end)
 
-type dim_idx_bijection = { dim_to_idx : int SrkUtil.Int.Map.t
-                         ; idx_to_dim : int SrkUtil.Int.Map.t
-                         }
-
-let empty_bijection =
-  { dim_to_idx = SrkUtil.Int.Map.empty
-  ; idx_to_dim = SrkUtil.Int.Map.empty }
-
-
 module QQEndo = Linear.MakeLinearMap(QQ)(Int)(Linear.QQVector)(Linear.QQVector)
+
+(* Hermite order assigns the least dimension (according to [order])
+   the largest index (integer) *)
+let make_hermite_order order : (module Map.OrderedType with type t = int) =
+  (module
+     struct
+       type t = int
+       let compare x y = -(order x y)
+     end)
+
+module DefaultOrder = (val make_hermite_order Int.compare)
+
+module D = Linear.MakeDenseConversion(DefaultOrder)(Linear.QQVector)
 
 (** A lattice is represented as a matrix 1/[denominator] B,
     where B is in row Hermite normal form and the rows of B are the basis of the
@@ -30,6 +34,7 @@ type t =
                ; denominator : ZZ.t
                ; dimensions : SrkUtil.Int.Set.t
                ; inverse : QQEndo.t option ref
+               (* ; dimension_indices : D.context *)
                }
 
 let qqify v = Linear.ZZVector.fold (fun dim scalar v ->
@@ -79,43 +84,27 @@ let collect_dimensions vectors =
     SrkUtil.Int.Set.empty
     vectors
 
-(** Return a bijection between dimensions and (array) indices,
-    and the cardinality of dimensions.
-    The smallest dimension (ordered by [order]) occurs on the right,
-    i.e., gets the largest array index.
-*)
-let assign_indices order dimensions =
-  let dims = SrkUtil.Int.Set.elements dimensions
-             |> BatList.sort (fun x y -> -(order x y)) in
-  List.fold_left (fun (bij, curr) dim ->
-      ({ dim_to_idx = SrkUtil.Int.Map.add dim curr bij.dim_to_idx
-       ; idx_to_dim = SrkUtil.Int.Map.add curr dim bij.idx_to_dim
-       },
-       curr + 1)
-    )
-    (empty_bijection, 0)
-    dims
+let make_context (type context)
+      (module D : Linear.DenseConversion with type context = context and type dim = int)
+      dimensions = D.make_context (SrkUtil.Int.Set.elements dimensions)
 
-let densify length dim_to_idx vector =
-  Linear.ZZVector.fold (fun dim coeff arr ->
-      let idx = SrkUtil.Int.Map.find dim dim_to_idx in
-      if idx >= length then
-        invalid_arg "densify_and_zzify: index out of bounds"
-      else
-        begin
-          Array.set arr idx (ZZ.mpz_of coeff);
-          arr
-        end)
-    vector
-    (Array.make length (Mpzf.of_int 0))
+let densify (type context)
+      (module D : Linear.DenseConversion with type context = context and type dim = int)
+      ctxt vector =
+  let arr = Array.make (D.dim ctxt) (Mpzf.of_int 0) in
+  BatEnum.iter
+    (fun (coeff, dim) ->
+      arr.(D.int_of_dim ctxt dim) <- ZZ.mpz_of coeff)
+    (Linear.ZZVector.enum vector);
+  arr
 
-let sparsify idx_to_dim arr =
-  Array.fold_left (fun (v, idx) entry ->
-      let dim = SrkUtil.Int.Map.find idx idx_to_dim in
-      (Linear.ZZVector.add_term entry dim v,
-       idx + 1))
-    (Linear.ZZVector.zero, 0) arr
-  |> fst
+let sparsify (type context)
+      (module D : Linear.DenseConversion with type context = context and type dim = int)
+      ctxt arr =
+  BatArray.fold_lefti (fun v i entry ->
+      Linear.ZZVector.add_term entry (D.dim_of_int ctxt i) v)
+    Linear.ZZVector.zero
+    arr
 
 (*
    ZZ L = (1/d) ZZ (d L) = (1/d) ZZ B = ZZ (1/d B).
@@ -135,22 +124,25 @@ let dense_hermite_normal_form matrix =
   if verbose then Flint.set_debug false else ();
   basis
 
-let hermite_normal_form ambient_dimension bijection matrix =
+let hermite_normal_form
+      (type a)
+      (module D : Linear.DenseConversion with type context = a and type dim = int)
+      ctxt matrix =
   let densified =
-    List.map (Array.to_list % densify ambient_dimension bijection.dim_to_idx) matrix in
+    List.map (Array.to_list % densify (module D) ctxt) matrix in
   let hermitized = dense_hermite_normal_form densified in
   let generators =
       List.map (Array.of_list % (List.map ZZ.of_mpz)) hermitized
   in
-  List.map (sparsify bijection.idx_to_dim) generators
+  List.map (sparsify (module D) ctxt) generators
 
 let hermitize vectors =
   if List.for_all (Linear.QQVector.equal Linear.QQVector.zero) vectors
   then ZeroLattice
   else
     let (dimensions, lcm) = collect_dims_and_lcm_denoms vectors in
-    let (bijection, length) = assign_indices Int.compare dimensions in
-    let generators = hermite_normal_form length bijection
+    let ctxt = make_context (module D) dimensions in
+    let generators = hermite_normal_form (module D) ctxt
                        (List.map
                           (zzify % Linear.QQVector.scalar_mul (QQ.of_zz lcm))
                           vectors) in
@@ -220,9 +212,12 @@ let project keep t =
        | false, true -> 1
        | _, _ -> Int.compare x y in
      (* Compute Hermite normal form with unwanted dimensions on the left *)
+     let module Reordered =
+       (Linear.MakeDenseConversion(val make_hermite_order new_order)(Linear.QQVector))
+     in
      let reordered =
-       let (bijection, length) = assign_indices new_order dimensions in
-       let generators = hermite_normal_form length bijection generators in
+       let ctxt = make_context (module Reordered) dimensions in
+       let generators = hermite_normal_form (module Reordered) ctxt generators in
        generators
      in
      (* Drop the vectors that have non-zero coefficient in unwanted dimensions *)

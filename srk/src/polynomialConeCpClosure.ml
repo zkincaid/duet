@@ -1,6 +1,7 @@
 open BatPervasives
 open Polynomial
-open PolynomialUtil
+
+module PV = Polynomial.LinearQQXs
 
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 
@@ -10,16 +11,13 @@ module MonomialSet = BatSet.Make(Monomial)
 
 let set_cutting_plane_method how = integer_hull_method := how
 
-let pp_dim = PrettyPrint.pp_numeric_dim "x"
+let pp_dim = Polynomial.pp_numeric_dim "x"
 
 let pp_poly_list pp_dim =
   Format.pp_print_list ~pp_sep:(fun fmt _ -> Format.pp_print_text fmt ", ")
     (QQXs.pp pp_dim)
 
 let pp_vectors pp_elem = SrkUtil.pp_print_list pp_elem
-
-let context_of ?ordering:(ordering=Monomial.degrevlex) polys =
-  PolyVectorContext.mk_context ordering polys
 
 type affine_basis =
   { basis : QQXs.t list }
@@ -30,10 +28,8 @@ let make_affine_basis ideal affine_polys : affine_basis =
                                  if QQXs.equal p' QQXs.zero then None
                                  else Some p')
                        affine_polys in
-  let ctxt = context_of affine_polys in
-  let open PolynomialUtil in
-  let vectors =
-    List.map (PolyVectorConversion.poly_to_vector ctxt) affine_polys in
+  let ctx = PV.min_context (BatList.enum affine_polys) in
+  let vectors = List.map (PV.densify_affine ctx) affine_polys in
   let lattice = IntLattice.hermitize vectors in
   L.logf ~level:`trace "polylattice_spanned_by:
                         @[input affine polynomials: @[%a@] @]@;
@@ -43,9 +39,8 @@ let make_affine_basis ideal affine_polys : affine_basis =
     (pp_poly_list pp_dim) affine_polys
     (pp_vectors Linear.QQVector.pp) vectors
     IntLattice.pp lattice;
-
   let basis = IntLattice.basis lattice
-              |> List.map (fun v -> PolyVectorConversion.vector_to_poly ctxt v)
+              |> List.map (fun v -> PV.sparsify_affine ctx v)
   in
   { basis }
 
@@ -69,24 +64,23 @@ let pp_transformation_data pp_dim fmt transformation_data =
     (pp_poly_list pp_dim)
     (fst transformation_data.rewrite_polys :: snd transformation_data.rewrite_polys)
 
-(** [compute_transformation_data affine_basis ctxt]
+(** [compute_transformation_data affine_basis ctx]
     computes fresh dimensions Y = y_0, ..., y_n, with y_0 corresponding to 1,
     the substitution y_i |-> b_i for 0 <= i <= n,
     and the rewrite polynomials { f_i = y_i - b_i : 0 <= i <= n }.
 
-    The dimensions Y are fresh with respect to [ctxt], which should include all
+    The dimensions Y are fresh with respect to [ctx], which should include all
     monomials of all generators in the polynomial cone and [affine_basis],
     so that the dimensions are indeed fresh.
-*)
-let compute_transformation affine_basis ctxt : transformation_data =
-  let fresh_start = Option.value ~default:0 (PolyVectorContext.max_variable ctxt) + 1 in
-
+ *)
+let compute_transformation affine_basis ctx : transformation_data =
+  let fresh_start = PV.dim ctx + 1 in
   L.logf ~level:`trace
     "compute_transformation:
      @[transformation context: @[%a@]@]@;
      @[fresh variables range from %d to %d@]@;
      "
-    (PolyVectorContext.pp pp_dim) ctxt
+    (PV.pp (Monomial.pp pp_dim)) ctx
     fresh_start (fresh_start + List.length affine_basis);
 
   let transformation_poly dim basis_poly =
@@ -119,12 +113,12 @@ let compute_transformation affine_basis ctxt : transformation_data =
     (pp_transformation_data pp_dim) data;
   data
 
-let polyhedron_of ctxt zeroes positives =
+let polyhedron_of ctx zeroes positives =
   L.logf ~level:`trace
     "polyhedron_of: conversion context for polyhedron is: @[%a@]@;"
-    (PolyVectorContext.pp pp_dim)
-    ctxt;
-  let to_vector = PolyVectorConversion.poly_to_vector ctxt in
+    (PV.pp (Monomial.pp pp_dim))
+    ctx;
+  let to_vector = PV.densify_affine ctx in
   let (linear_constraints, conic_constraints) =
     ( List.map (fun poly -> (`Zero, to_vector poly)) zeroes
     , List.map (fun poly -> (`Nonneg, to_vector poly)) positives ) in
@@ -160,7 +154,7 @@ let compute_cut transform cone =
 
   (* 1. Expand the polynomial cone and project it onto QQ{1, y_1, ..., y_m}. *)
   let transform_polys = snd transform.rewrite_polys in
-  let expanded = PolynomialCone.add_polys_to_cone cone transform_polys [] in
+  let expanded = PolynomialCone.add_generators ~zeros:transform_polys cone in
   let codims = Linear.const_dim :: snd transform.codomain_dims in
   let projected = PolynomialCone.project expanded (fun x -> List.mem x codims) in
   L.logf ~level:`trace "compute_cut: projected cone: @[%a@]@;"
@@ -180,14 +174,16 @@ let compute_cut transform cone =
     (pp_poly_list pp_dim) linear_positives;
 
   (* 2. Integer hull *)
-  let open PolynomialUtil in
   (* Conversion context to polyhedron.
      [linear_zeroes] and [linear_positives] are those of the expanded cone corresponding to
      [transform], so the fresh y_i's are already among them.
    *)
-  let ctxt = context_of
-               (List.concat [[QQXs.one] ; linear_zeroes; linear_positives]) in
-  let polyhedron_to_hull = polyhedron_of ctxt linear_zeroes linear_positives in
+  let ctx =
+    (List.concat [[QQXs.one] ; linear_zeroes; linear_positives])
+    |> BatList.enum
+    |> PV.min_context
+  in
+  let polyhedron_to_hull = polyhedron_of ctx linear_zeroes linear_positives in
 
   L.logf ~level:`trace "compute_cut: polyhedron to hull: @[%a@]@;computing integer hull...@;"
     (Polyhedron.pp pp_dim) polyhedron_to_hull;
@@ -201,8 +197,7 @@ let compute_cut transform cone =
   let (new_zeroes, new_positives) =
     BatEnum.fold (fun (zeroes, positives) (kind, v) ->
         let sub = snd transform.substitutions in
-        let poly = PolyVectorConversion.vector_to_poly ctxt v
-                   |> QQXs.substitute sub in
+        let poly = QQXs.substitute sub (PV.sparsify_affine ctx v) in
         match kind with
         | `Zero -> (poly :: zeroes, positives)
         | `Nonneg -> (zeroes, poly :: positives)
@@ -234,13 +229,17 @@ let cutting_plane_operator polynomial_cone affine_basis =
     let (zeroes, positives) =
       ( Rewrite.generators (PolynomialCone.get_ideal polynomial_cone)
       , PolynomialCone.get_cone_generators polynomial_cone) in
-    let ctxt_x = context_of (List.concat [zeroes ; positives ; affine_basis.basis]) in
+    let ctx_x = List.concat [zeroes ; positives ; affine_basis.basis]
+                |> BatList.enum
+                |> PV.min_context
+    in
     let tdata =
       (* Introduce fresh dimensions/variables and associated data *)
-      compute_transformation affine_basis.basis ctxt_x in
+      compute_transformation affine_basis.basis ctx_x in
     let (linear, conic) = compute_cut tdata polynomial_cone in
     L.logf ~level:`trace "cutting_plane_operator: Cut computed@;";
-    let cut_polycone = PolynomialCone.add_polys_to_cone polynomial_cone linear conic in
+    let cut_polycone = PolynomialCone.add_generators
+                         ~zeros:linear ~nonnegatives:conic polynomial_cone in
     L.logf ~level:`trace "cutting_plane_operator: result: @[%a@]@;"
       (PolynomialCone.pp pp_dim) cut_polycone;
     let new_basis =

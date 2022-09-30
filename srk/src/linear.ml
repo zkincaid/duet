@@ -53,6 +53,13 @@ module QQVector = struct
       Some (d, b, v')
     with Not_found ->
       None
+
+  let is_integral v =
+    BatEnum.for_all (fun (a, _) -> Option.is_some (QQ.to_zz a)) (enum v)
+
+  let common_denominator v = fold (fun _ a d -> ZZ.lcm d (QQ.denominator a)) v ZZ.one
+
+  let gcd_entries v = fold (fun _ a d -> QQ.gcd d a) v QQ.one
 end
 
 module QQMatrix = struct
@@ -369,6 +376,106 @@ module QQFun = MakeLinearMap(QQ)(SrkUtil.Int)(QQVector)(struct
     let is_zero = QQ.equal QQ.zero
   end)
 
+exception Not_in_context
+
+module type DenseConversion = sig
+  type context
+  type dim
+  type vec
+  val make_context : dim list -> context
+  val min_context : vec BatEnum.t -> context
+  val dim : context -> int
+  val dim_of_int : context -> int -> dim
+  val int_of_dim : context -> dim -> int
+  val densify : context -> vec -> QQVector.t
+  val sparsify : context -> QQVector.t -> vec
+  val mem : context -> dim -> bool
+  val pp : (Format.formatter -> dim -> unit) -> Format.formatter -> context -> unit
+end
+
+module MakeDenseConversion
+    (D : Map.OrderedType)
+    (V : SparseArray with type dim = D.t
+                       and type scalar = QQ.t) =
+struct
+  module M = BatMap.Make(D)
+
+  type context =
+    { dim_to_int : int M.t
+    ; int_to_dim : D.t array }
+
+  type dim = D.t
+
+  type vec = V.t
+
+  let make_context dims =
+    let int_to_dim = Array.of_list dims in
+    let dim_to_int =
+      BatArray.fold_lefti (fun m i d ->
+          if M.mem d m then
+            invalid_arg "MakeDense.mk_context: duplicate dimensions"
+          else
+            M.add d i m)
+        M.empty
+        int_to_dim
+    in
+    { dim_to_int; int_to_dim }
+
+  let min_context vecs =
+    let dim = ref 0 in
+    let dim_to_int =
+      BatEnum.fold (fun m vec ->
+          V.fold (fun d _ m ->
+              if M.mem d m then
+                m
+              else
+                let m' = M.add d (!dim) m in
+                incr dim;
+                m')
+            vec
+            m)
+        M.empty
+        vecs
+    in
+    let int_to_dim =
+      Array.make (!dim) (Obj.magic ())
+    in
+    M.iter (fun d i -> int_to_dim.(i) <- d) dim_to_int;
+    { dim_to_int; int_to_dim }
+
+  let dim ctx = Array.length ctx.int_to_dim
+
+  let dim_of_int ctx i =
+    if i < 0 || i >= (dim ctx) then
+      raise Not_in_context
+    else
+      ctx.int_to_dim.(i)
+
+  let int_of_dim ctx d =
+    try M.find d ctx.dim_to_int
+    with Not_found -> raise Not_in_context
+
+  let mem ctx d = M.mem d ctx.dim_to_int
+
+  let densify ctx vec =
+    V.fold (fun d a v ->
+        QQVector.set (int_of_dim ctx d) a v)
+      vec
+      QQVector.zero
+
+  let sparsify ctx vec =
+    QQVector.fold (fun i a v ->
+        V.add_term a (dim_of_int ctx i) v)
+      vec
+      V.zero
+
+  let pp pp_dim formatter ctx =
+    let pp_elt formatter i =
+      Format.fprintf formatter "@[<hov 1>%3d <-> %a@]" i pp_dim ctx.int_to_dim.(i)
+    in
+    Format.fprintf formatter "@[<v 0>%a@]"
+      (SrkUtil.pp_print_enum_nobox pp_elt) (0 -- (dim ctx - 1))
+end
 
 let solve_exn mat b =
   (* Verify that every non-zero row of b is also non-zero in m *)

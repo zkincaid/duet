@@ -15,8 +15,13 @@
       <propertyfile>../properties/unreach-call.prp</propertyfile>
     </tasks>
     <tasks name="NLA">
-      <include>../tasks/nla-digbench/*.yml</include>
+       <includesfile>../tasks/reach_safety_loops_nla.set</includesfile>
+      <propertyfile>../tasks/properties/unreach-call.prp</propertyfile>
+    </tasks>
+    <tasks name="loops">
+      <includesfile>../tasks/reach_safety_loops.set</includesfile>
       <propertyfile>../tasks/properties/unreach-call.prp</propertyfile>
     </tasks>
   </rundefinition>
+  
 </benchmark>

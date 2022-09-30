@@ -110,6 +110,7 @@ end
 module type Multivariate = sig
   type t
   type scalar
+  type dim = Monomial.t
 
   val equal : t -> t -> bool
   val add : t -> t -> t
@@ -166,6 +167,8 @@ module type Multivariate = sig
 
   (** Maximum total degree of a monomial term *)
   val degree : t -> int
+
+  val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
 end
                     
 (** Multi-variate polynomials over a ring *)
@@ -214,6 +217,19 @@ module QQXs : sig
     (QQ.t * Monomial.t * t)
 
   val degree : t -> int
+end
+
+(** Conversion between multivariate polynomials with rational coefficients and
+   rational vectors. *)
+module LinearQQXs : sig
+  include Linear.DenseConversion
+    with type vec = QQXs.t
+     and type dim = Monomial.t
+
+  (** Densify, associating [Linear.const_dim] with [Monomial.one]. *)
+  val densify_affine : context -> QQXs.t -> Linear.QQVector.t
+  (** Sparsify, associating [Linear.const_dim] with [Monomial.one]. *)
+  val sparsify_affine : context -> Linear.QQVector.t -> QQXs.t
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system
@@ -354,3 +370,6 @@ module RewriteWitness : sig
   val generators : t -> (QQXs.t * Witness.t) list
   val forget : t -> Rewrite.t
 end
+
+val pp_ascii_dim : Format.formatter -> int -> unit
+val pp_numeric_dim : string -> Format.formatter -> int -> unit

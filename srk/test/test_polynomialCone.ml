@@ -51,8 +51,8 @@ let test_make_enclosing1 () =
      y - x;
      z - y;]
   in
-  let pc = make_enclosing_cone basis geq_zero_polys in
-  let q = make_enclosing_cone
+  let pc = regularize basis geq_zero_polys in
+  let q = regularize
       (Rewrite.mk_rewrite Monomial.degrevlex [y; x])
       [(int 1) ; z]
   in
@@ -74,8 +74,8 @@ let test_make_enclosing2 () =
      y * y - z * z * z;
      z * z * z - y * y;]
   in
-  let pc = make_enclosing_cone basis geq_zero_polys in
-  let q = make_enclosing_cone
+  let pc = regularize basis geq_zero_polys in
+  let q = regularize
       (Rewrite.mk_rewrite Monomial.degrevlex [y * y; z * z * z; x])
       [(int 1)]
   in
@@ -96,8 +96,8 @@ let test_make_enclosing3 () =
      y - z;
      z - x;]
   in
-  let pc = make_enclosing_cone basis geq_zero_polys in
-  let q = make_enclosing_cone
+  let pc = regularize basis geq_zero_polys in
+  let q = regularize
       (Rewrite.mk_rewrite Monomial.degrevlex [x; y; z])
       [(int 1)]
   in
@@ -119,9 +119,9 @@ let test_proj1 () =
      y - x;
      z - y;]
   in
-  let pc = make_enclosing_cone basis geq_zero_polys in
+  let pc = regularize basis geq_zero_polys in
   let pc = project pc (fun d -> d != Char.code 'y') in
-  let q = make_enclosing_cone
+  let q = regularize
       (Rewrite.mk_rewrite Monomial.degrevlex [x])
       [(int 1) ; z]
   in
@@ -141,9 +141,9 @@ let test_proj2 () =
     [y - x * y;
      z - y;]
   in
-  let pc = make_enclosing_cone basis geq_zero_polys in
+  let pc = regularize basis geq_zero_polys in
   let pc = project pc (fun d -> d != Char.code 'y') in
-  let q = make_enclosing_cone
+  let q = regularize
       (Rewrite.mk_rewrite Monomial.degrevlex [x])
       [(int 1) ; z]
   in
@@ -163,9 +163,9 @@ let test_proj3 () =
     [y - x * y;
      z - y;]
   in
-  let pc = make_enclosing_cone basis geq_zero_polys in
+  let pc = regularize basis geq_zero_polys in
   let pc = project pc (fun d -> d != Char.code 'y') in
-  let q = make_enclosing_cone
+  let q = regularize
       (Rewrite.mk_rewrite Monomial.degrevlex [x * x])
       [(int 1)]
   in
@@ -182,10 +182,10 @@ let test_intersec1 () =
      z - y;]
   in
   let geq_polys2 = [y - x] in
-  let pc1 = make_enclosing_cone x_zero geq_polys1 in
-  let pc2 = make_enclosing_cone x_zero geq_polys2 in
+  let pc1 = regularize x_zero geq_polys1 in
+  let pc2 = regularize x_zero geq_polys2 in
   let pc = intersection pc1 pc2 in
-  let q = make_enclosing_cone (x_zero) [] in
+  let q = regularize (x_zero) [] in
   assert_equal_pc q pc
 
 let test_intersec2 () =
@@ -210,10 +210,10 @@ let test_intersec2 () =
     [x - y;]
   in
 
-  let pc1 = make_enclosing_cone basis1 geq_polys1 in
-  let pc2 = make_enclosing_cone basis2 geq_polys2 in
+  let pc1 = regularize basis1 geq_polys1 in
+  let pc2 = regularize basis2 geq_polys2 in
   let pc = intersection pc1 pc2 in
-  let q = make_enclosing_cone
+  let q = regularize
       (Rewrite.mk_rewrite Monomial.degrevlex [x * y - x])
       [int 1; x; y - int 1 ]
   in
@@ -240,10 +240,10 @@ let test_intersec3 () =
     [int 0 - int 1]
   in
 
-  let pc1 = make_enclosing_cone basis1 geq_polys1 in
-  let pc2 = make_enclosing_cone basis2 geq_polys2 in
+  let pc1 = regularize basis1 geq_polys1 in
+  let pc2 = regularize basis2 geq_polys2 in
   let pc = intersection pc1 pc2 in
-  let q = make_enclosing_cone
+  let q = regularize
       (Rewrite.mk_rewrite Monomial.degrevlex [x ])
       [int 1; y - int 1 ]
   in
@@ -270,10 +270,10 @@ let test_intersec4 () =
     []
   in
 
-  let pc1 = make_enclosing_cone basis1 geq_polys1 in
-  let pc2 = make_enclosing_cone basis2 geq_polys2 in
+  let pc1 = regularize basis1 geq_polys1 in
+  let pc2 = regularize basis2 geq_polys2 in
   let pc = intersection pc1 pc2 in
-  let q = make_enclosing_cone
+  let q = regularize
       (Rewrite.mk_rewrite Monomial.degrevlex [ x - x * x ])
       [x;  int 1 - x ]
   in
@@ -292,7 +292,7 @@ let test_proper1 () =
     [y - int 1;
     ]
   in
-  let pc = make_enclosing_cone basis geq_polys in
+  let pc = regularize basis geq_polys in
   assert_bool "should be proper" (is_proper pc)
 
 let test_proper2 () =
@@ -308,7 +308,7 @@ let test_proper2 () =
     [x * y - int 1;
     ]
   in
-  let pc = make_enclosing_cone basis geq_polys in
+  let pc = regularize basis geq_polys in
   assert_bool "should be non proper" (not (is_proper pc))
 
 let test_mem () =
@@ -317,16 +317,16 @@ let test_mem () =
   let y = dim 'y' in
   let b =
     Rewrite.mk_rewrite Monomial.degrevlex [x] in
-  let pc = make_enclosing_cone b [] in
+  let pc = regularize b [] in
   assert_bool "xy should be in the cone" (mem (x * y) pc)
 
-let test_trivial () =
+let test_top () =
    let open QQXsInfix in
   let b =
     Rewrite.mk_rewrite Monomial.degrevlex [] in
-  let pc = make_enclosing_cone b [int 1; int 0 - int 1] in
-   assert_equal_pc pc trivial;
-   assert_bool "trivial should be non proper" (not (is_proper trivial))
+  let pc = regularize b [int 1; int 0 - int 1] in
+   assert_equal_pc pc top;
+   assert_bool "top should be non proper" (not (is_proper top))
 
 
 
@@ -344,7 +344,7 @@ let suite = "PolynomialCone" >::: [
     "test_proper1" >:: test_proper1;
     "test_proper2" >:: test_proper2;
     "test_mem" >:: test_mem;
-    "test_trivial" >:: test_trivial
+    "test_top" >:: test_top
 
     ; "sat1" >:: (fun () ->
         let phi =
@@ -359,4 +359,37 @@ let suite = "PolynomialCone" >::: [
           (int 0) <= x && (int 0) <= y && !(x + y <= (int 0))
         in
         assert_equal (WeakSolver.is_sat srk phi) `Sat)
+
+    ; "lattice_unsat" >:: (fun () ->
+        let phi =
+          let open Infix in
+          let open Syntax in
+          (mk_is_int srk (q + r))
+          && (mk_is_int srk (s - r))
+          && !(mk_is_int srk ((int 2) * q + (int 2) * r))
+        in
+        assert_equal (WeakSolver.is_sat srk phi) `Unsat)
+
+    ; "lattice_sat" >:: (fun () ->
+        let phi =
+          let open Infix in
+          let open Syntax in
+          (mk_is_int srk ((int 2) * q + r))
+          && (mk_is_int srk r)
+          && !(mk_is_int srk (r * r))
+          && !(mk_is_int srk q)
+        in
+        assert_equal (WeakSolver.is_sat srk phi) `Sat)
+
+    ; "cutting_plane" >:: (fun () ->
+        let phi =
+          let open Infix in
+          let open Syntax in
+          mk_is_int srk (q / (int 2))
+          && (int 0) <= q
+          && q <= (int 1)
+          && !(q <= (int 0))
+        in
+        assert_equal (WeakSolver.is_sat srk phi) `Unsat)
+
   ]

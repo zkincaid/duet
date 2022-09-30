@@ -177,7 +177,6 @@ module Sign = struct
       M.fold (fun term sign xs ->
           let term_sign =
             match sign with
-            (* TODO: For strict inequalities Pos, Neg, check if term is interger, if so make it 1 <= term *)
             | Pos -> if ArithTerm.typ srk term = `TyInt then
                 mk_leq srk (mk_one srk) term
               else

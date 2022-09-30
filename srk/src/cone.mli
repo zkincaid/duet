@@ -75,7 +75,7 @@ val image : QQMatrix.t -> t -> t
 (** [join C1 c2] is the smallest cone that contains C1 and C2. *)
 val join : t -> t -> t
 
-(** [join C1 c2] is the smallest cone that contains C1 and C2. *)
+(** [meet C1 c2] is the greatest cone that is contained in both C1 and C2. *)
 val meet : t -> t -> t
 
 (** [dual C1] computes the dual cone of [C1]: [ v in dual C <==> vc >= 0 for

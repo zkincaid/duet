@@ -1,5 +1,4 @@
 open Polynomial
-open PolynomialUtil
 
 module L = Log.Make(struct let name = "srk.polyLattice" end)
 
@@ -9,38 +8,34 @@ module L = Log.Make(struct let name = "srk.polyLattice" end)
 type t =
   { ideal : Rewrite.t
   ; affine_lattice : IntLattice.t
-  ; affine_context : PolyVectorContext.t
+  ; affine_context : LinearQQXs.context
   }
 
 (* Some graded order *)
 let monomial_order = Polynomial.Monomial.degrevlex
 
+(*
 let zero =
   { ideal = Rewrite.mk_rewrite monomial_order []
   ; affine_lattice = IntLattice.hermitize []
-  ; affine_context = PolyVectorContext.mk_context monomial_order []
+  ; affine_context = LinearQQXs.min_context (BatList.enum [])
   }
-
-let poly_of t vector =
-  PolyVectorConversion.vector_to_poly t.affine_context vector
-
-let vector_of t poly =
-  PolyVectorConversion.poly_to_vector t.affine_context poly
+ *)
 
 let ideal t = t.ideal
 
 let affine_basis t =
-  List.map (poly_of t) (IntLattice.basis t.affine_lattice)
+  List.map (LinearQQXs.sparsify_affine t.affine_context) (IntLattice.basis t.affine_lattice)
 
 let pp pp_dim fmt t =
   Format.fprintf fmt
     "{ affine_basis: @[<v 0>%a@]@;
        ideal: @[<v 0>%a@]
      }"
-    (PrettyPrint.pp_poly_list pp_dim)
-    (List.map (poly_of t) (IntLattice.basis t.affine_lattice))
+    (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+       (QQXs.pp pp_dim))
+    (List.map (LinearQQXs.sparsify t.affine_context) (IntLattice.basis t.affine_lattice))
     (Rewrite.pp pp_dim) t.ideal
-
 
 let reduce ideal polys =
   BatList.filter_map
@@ -52,8 +47,8 @@ let reduce ideal polys =
 let make ideal affine_polys : t =
   let ideal = Rewrite.mk_rewrite monomial_order (Ideal.generators ideal) in
   let affine_polys = reduce ideal affine_polys in
-  let affine_context = PolyVectorContext.mk_context monomial_order affine_polys in
-  let vectors = List.map (PolyVectorConversion.poly_to_vector affine_context)
+  let affine_context = LinearQQXs.min_context (BatList.enum affine_polys) in
+  let vectors = List.map (LinearQQXs.densify_affine affine_context)
                   affine_polys in
   let affine_lattice = IntLattice.hermitize vectors in
   { ideal ; affine_lattice ; affine_context }
@@ -61,8 +56,10 @@ let make ideal affine_polys : t =
 let member poly t =
   try
     Rewrite.reduce t.ideal poly
-    |> (fun p -> IntLattice.member (vector_of t p) t.affine_lattice)
-  with PolyVectorContext.Not_in_context ->
+    |> (fun p -> IntLattice.member (LinearQQXs.densify_affine t.affine_context p)
+                   t.affine_lattice)
+  with Linear.Not_in_context ->
+    (* TODO: Suggest moving this exception into Linear.DenseConversion *)
     false
 
 let sum t1 t2 =
@@ -74,6 +71,7 @@ let sum t1 t2 =
   let affine = List.append (affine_basis t1) (affine_basis t2) in
   make ideal affine
 
+(*
 let variable_in_monomial dim mono =
   BatEnum.fold (fun seen (d, _pow) -> seen || d = dim) false (Monomial.enum mono)
 
@@ -113,7 +111,7 @@ let intersect t1 t2 =
     let affine_context =
       PolyVectorContext.mk_context ~increasing:true elim_order weighted_affine in
     let affine_lattice =
-      List.map (PolyVectorConversion.poly_to_vector affine_context) weighted_affine
+      List.map (LinearQQXs.densify_affine affine_context) weighted_affine
       |> IntLattice.hermitize
       |> (fun lattice ->
         match first_dim_containing_variable fresh affine_context with
@@ -133,6 +131,7 @@ let intersect t1 t2 =
     ; affine_lattice
     ; affine_context
     }
+ *)
 
 let subset t1 t2 =
   let aff1 = affine_basis t1 in
