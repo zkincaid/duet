@@ -76,10 +76,10 @@ let test_hnf () =
   let basis1 = IntLattice.basis lattice1 in
   let expected_basis1 = [ [1 ; 2 ; 0 ; 0] ; [0 ; 0 ; 1 ; 0] ; [0 ; 0 ; 0 ; 1] ]
                         |> List.map mk_vector in
+  List.iter2 assert_equal_qqvector basis1 expected_basis1;
   let basis2 = IntLattice.basis lattice2 in
   let expected_basis2 = [ [2 ; 0 ; -2 ; 0] ; [0 ; 1 ; 2 ; 0] ]
                         |> List.map mk_vector in
-  List.iter2 assert_equal_qqvector basis1 expected_basis1;
   List.iter2 assert_equal_qqvector basis2 expected_basis2
 
 let test_member () =
