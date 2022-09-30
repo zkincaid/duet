@@ -24,8 +24,8 @@ module DLTS = struct
 end
 module WAT = struct
   include Iteration.MakeDomain(Iteration.Product
-                                 (Iteration.WeakArithmeticTheory)
-                                 (Iteration.WeakTheoryGuard))
+                                 (Iteration.LIRR)
+                                 (Iteration.LIRRGuard))
   let star srk tf = closure (abstract srk tf)
 end
 
@@ -44,7 +44,7 @@ let assert_implies_nonlinear phi psi =
                       (Formula.show srk psi))
 
 let assert_implies_wat phi psi =
-  match WeakSolver.is_sat srk (mk_and srk [phi; mk_not srk psi]) with
+  match LirrSolver.is_sat srk (mk_and srk [phi; mk_not srk psi]) with
     | `Unsat -> ()
   | `Sat | `Unknown ->
     assert_failure (Printf.sprintf "%s\ndoes not imply in weak theory\n%s"

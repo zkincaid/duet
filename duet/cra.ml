@@ -768,7 +768,7 @@ let analyze file =
           dump_goal loc path_condition;
           if !monotone then
             begin
-            match WeakSolver.is_sat Ctx.context path_condition with
+            match LirrSolver.is_sat Ctx.context path_condition with
               | `Sat -> Report.log_error loc msg
           | `Unsat -> Report.log_safe ()
           | `Unknown ->
@@ -1194,11 +1194,11 @@ let _ =
          K.domain := (module Product(LossyTranslation)(PolyhedronGuard))),
      " Disable non-monotone analysis features");
   CmdLine.register_config
-    ("-weaktheory",
+    ("-lirr",
      Arg.Unit (fun () ->
          let open Iteration in
          monotone := true;
-         K.domain := (module Product(WeakArithmeticTheory)(WeakTheoryGuard))),
+         K.domain := (module Product(LIRR)(LIRRGuard))),
      " Use weak arithmetic theory");
   CmdLine.register_config
     ("-termination-no-exp",

@@ -15,7 +15,7 @@ module PV = Polynomial.LinearQQXs
 
 module IntSet = SrkUtil.Int.Set
 
-include Log.Make(struct let name = "srk.weaksolver" end)
+include Log.Make(struct let name = "srk.lirrSolver" end)
 
 let pp_dim srk = (fun formatter i -> pp_symbol srk formatter (symbol_of_int i))
 

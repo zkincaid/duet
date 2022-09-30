@@ -33,9 +33,9 @@ module type Domain = sig
   val tr_symbols : 'a t -> (symbol * symbol) list
 end
 
-module WeakArithmeticTheory : PreDomain
+module LIRR : PreDomain
 
-module WeakTheoryGuard : PreDomainIter
+module LIRRGuard : PreDomainIter
 
 module WedgeGuard : PreDomainWedgeIter
 

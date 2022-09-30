@@ -351,14 +351,14 @@ let suite = "PolynomialCone" >::: [
           let open Infix in
           (int 0) <= x && (int 0) <= y && !((int 0) <= x + y)
         in
-        assert_equal (WeakSolver.is_sat srk phi) `Unsat)
+        assert_equal (LirrSolver.is_sat srk phi) `Unsat)
 
     ; "sat2" >:: (fun () ->
         let phi =
           let open Infix in
           (int 0) <= x && (int 0) <= y && !(x + y <= (int 0))
         in
-        assert_equal (WeakSolver.is_sat srk phi) `Sat)
+        assert_equal (LirrSolver.is_sat srk phi) `Sat)
 
     ; "lattice_unsat" >:: (fun () ->
         let phi =
@@ -368,7 +368,7 @@ let suite = "PolynomialCone" >::: [
           && (mk_is_int srk (s - r))
           && !(mk_is_int srk ((int 2) * q + (int 2) * r))
         in
-        assert_equal (WeakSolver.is_sat srk phi) `Unsat)
+        assert_equal (LirrSolver.is_sat srk phi) `Unsat)
 
     ; "lattice_sat" >:: (fun () ->
         let phi =
@@ -379,7 +379,7 @@ let suite = "PolynomialCone" >::: [
           && !(mk_is_int srk (r * r))
           && !(mk_is_int srk q)
         in
-        assert_equal (WeakSolver.is_sat srk phi) `Sat)
+        assert_equal (LirrSolver.is_sat srk phi) `Sat)
 
     ; "cutting_plane" >:: (fun () ->
         let phi =
@@ -390,6 +390,6 @@ let suite = "PolynomialCone" >::: [
           && q <= (int 1)
           && !(q <= (int 0))
         in
-        assert_equal (WeakSolver.is_sat srk phi) `Unsat)
+        assert_equal (LirrSolver.is_sat srk phi) `Unsat)
 
   ]

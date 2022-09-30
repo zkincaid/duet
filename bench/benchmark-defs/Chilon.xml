@@ -1,10 +1,10 @@
 <?xml version="1.0"?>
 <!DOCTYPE benchmark PUBLIC "+//IDN sosy-lab.org//DTD BenchExec benchmark 1.18//EN" "https://www.sosy-lab.org/benchexec/benchmark-1.18.dtd">
-<benchmark tool="tools.wtsolver"
-           displayName="WT-QFNRA"
+<benchmark tool="tools.chilonsolver"
+           displayName="Chilon"
            timelimit="15min">
   <rundefinition>
-	<option name="-weaktheorysat" />
+	<option name="-lirrsat" />
     <tasks name="QFNRATest">
       <includesfile>../tasks/qfnra_test.set</includesfile>
       <propertyfile>../tasks/properties/sat.prp</propertyfile>
