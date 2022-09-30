@@ -11,7 +11,7 @@ class Tool(benchexec.tools.template.BaseTool):
         return util.find_executable("duet.exe")
 
     def name(self):
-        return "WeakTheory"
+        return "ChilonInv"
 
     def determine_result(self, returncode, returnsignal, output, isTimeout):
         output = "\n".join(output)

@@ -1,6 +1,6 @@
 (** Polynomial cone abstract domain. A polynomial cone corresponds to a set of
    polynomials.  It is used to maintain a maximal set of non-negative
-   polynomials w.r.t. the weak theory. *)
+   polynomials w.r.t. the theory of LIRR. *)
 open Polynomial
 open Syntax
 

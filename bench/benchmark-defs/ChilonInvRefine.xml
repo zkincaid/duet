@@ -1,11 +1,11 @@
 <?xml version="1.0"?>
 <!DOCTYPE benchmark PUBLIC "+//IDN sosy-lab.org//DTD BenchExec benchmark 1.18//EN" "https://www.sosy-lab.org/benchexec/benchmark-1.18.dtd">
-<benchmark tool="tools.crawt"
-           displayName="WTInvRefine"
+<benchmark tool="tools.chiloninv"
+           displayName="ChilonInvRefine"
            timelimit="15min">
   <rundefinition>
     <option name="-cra" />
-    <option name="-weaktheory" />
+    <option name="-lirr" />
     <option name="-cra-refine" />
 
     <tasks name="C4B">

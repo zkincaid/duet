@@ -4,11 +4,11 @@ open BatPervasives
 module TF = TransitionFormula
 module P = Polynomial
 module PC = PolynomialCone
-module WTS = WeakSolver
+module WTS = LirrSolver
 module V = Linear.QQVector
 
 
-include Log.Make(struct let name = "WeakTheoryInvariants" end)
+include Log.Make(struct let name = "LirrInvariants" end)
 
 let pp_dim srk = (fun formatter i ->
     try Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i)

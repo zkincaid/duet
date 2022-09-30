@@ -14,7 +14,7 @@ class Tool(benchexec.tools.smtlib2.Smtlib2Tool):
         return '1.0'
 
     def name(self):
-        return "WTQFNRASolver"
+        return "ChilonSolver"
 
     def cmdline(self, executable, options, tasks, propertyfile=None, rlimits={}):
         assert len(tasks) <= 1, "only one inputfile supported"

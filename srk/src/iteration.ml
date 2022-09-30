@@ -40,18 +40,18 @@ module type Domain = sig
   val tr_symbols : 'a t -> (symbol * symbol) list
 end
 
-module WeakArithmeticTheory = struct
+module LIRR = struct
   type 'a t = 'a TF.t
 
   let pp srk _ formatter tf = let f = TF.formula tf in Formula.pp srk formatter f
 
   let abstract _ tf = tf
 
-  let exp = WeakTheoryInvariants.compute_LIRR_invariants
+  let exp = LirrInvariants.compute_LIRR_invariants
 
 end
 
-module WeakTheoryGuard = struct
+module LIRRGuard = struct
   type 'a t =
     { precondition : PolynomialCone.t;
       postcondition : PolynomialCone.t }
@@ -69,13 +69,13 @@ module WeakTheoryGuard = struct
       let exists x =
         TF.exists tf x && not (Symbol.Set.mem x post_symbols)
       in
-      WeakSolver.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
+      LirrSolver.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
     in
     let postcondition =
       let exists x =
         TF.exists tf x && not (Symbol.Set.mem x pre_symbols)
       in
-      WeakSolver.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
+      LirrSolver.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
     in
     let pp_dim = (fun formatter i ->
       try Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i)
