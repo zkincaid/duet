@@ -125,7 +125,7 @@ let polyhedron_of ctx zeroes positives =
   let p = Polyhedron.of_constraints
             (BatList.enum (List.append linear_constraints conic_constraints)) in
   L.logf ~level:`trace
-    "@[polyhedron_of: @[<v 0>zeroes: @[<v 0>%a@]@; positives: @[%a@]@]@; is: %a@]@;"
+    "@[polyhedron_of: @[<v 0>zeroes: @[<v 0>%a@]@; positives: @[%a@]@]@. is: %a@]@;"
     (pp_poly_list pp_dim) zeroes
     (pp_poly_list pp_dim) positives
     (Polyhedron.pp pp_dim) p;
@@ -185,10 +185,16 @@ let compute_cut transform cone =
   in
   let polyhedron_to_hull = polyhedron_of ctx linear_zeroes linear_positives in
 
-  L.logf ~level:`trace "compute_cut: polyhedron to hull: @[%a@]@;computing integer hull...@;"
-    (Polyhedron.pp pp_dim) polyhedron_to_hull;
+  L.logf ~level:`trace
+    "compute_cut: polyhedron to hull: @[%a@]@;computing integer hull using %s...@;"
+    (Polyhedron.pp pp_dim) polyhedron_to_hull
+    (match !integer_hull_method with
+     | `GomoryChvatal -> "Gomory-Chvatal"
+     | `Normaliz -> "Normaliz"
+    );
 
-  let hull = Polyhedron.integer_hull !integer_hull_method polyhedron_to_hull in
+  let hull = Polyhedron.integer_hull ~decompose:false
+               !integer_hull_method polyhedron_to_hull in
   L.logf ~level:`trace
     "compute_cut: computed integer hull: @[%a@]@;"
     (Polyhedron.pp pp_dim) hull;
