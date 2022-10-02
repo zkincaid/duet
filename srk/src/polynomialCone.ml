@@ -176,6 +176,37 @@ let intersection (i1, c1) (i2, c2) =
   in
   (ideal2, cone)
 
+let inverse_homomorphism pc hom =
+  let (dims, transform_polys, _substitution) =
+    List.fold_left (fun (dims, transforms, subst) (y, image) ->
+        ( y :: dims
+        , QQXs.sub (QQXs.of_dim y) image :: transforms
+        , SrkUtil.Int.Map .add y image subst))
+      ([], [], SrkUtil.Int.Map.empty) hom
+  in
+  let expanded = add_generators ~zeros:transform_polys pc in
+  (* The constant dimension is always present in a polynomial cone and
+     1 is always preserved by ring homomorphisms.
+   *)
+  let dims = Linear.const_dim :: dims in
+  project expanded (fun x -> List.mem x dims)
+
+let inverse_linear_map pc hom =
+  let preimage = inverse_homomorphism pc hom in
+  let (linear_zeros, linear_positives) =
+    (* Projection uses a graded elimination order keeping Y.
+       TODO: Figure out if we actually need this.
+     *)
+    (* TODO: The documentating comment for [restrict] mentions "polynomials over
+       monomials satisfying the predicate", and this means higher powers
+       of the monomials that are kept. Am I misunderstanding something?
+     *)
+    let p = restrict
+              (fun m -> QQXs.degree (QQXs.add_term QQ.one m QQXs.zero) <= 1) preimage in
+    ( Rewrite.generators (get_ideal p)
+    , get_cone_generators p) in
+  (linear_zeros, linear_positives)
+
 let to_formula srk term_of_dim (ideal, cone_generators) =
   let open Syntax in
   let ideal_eq_zero = BatList.map (fun p -> mk_eq srk (mk_real srk QQ.zero) (QQXs.term_of srk term_of_dim p))
