@@ -26,15 +26,10 @@ On MacOS, you can install these packages (except Java) with:
  brew install opam gmp mpfr ntl python
 ```
 
-Next, install the [Normaliz library](https://github.com/Normaliz) and Ocaml bindings to it.
-```
-opam pin add normalizffi https://github.com/nclskoh/normalizffi.git
-```
-
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
  opam remote add sv https://github.com/zkincaid/sv-opam.git#modern
- opam install ocamlgraph batteries ppx_deriving z3 apron ounit menhir cil OCRS ntl
+ opam install ocamlgraph batteries ppx_deriving z3 apron ounit menhir cil OCRS ntl normalizffi
 ```
 
 ### Building Duet
@@ -80,16 +75,32 @@ The `-proofspace` flag implements a software model checking procedure for multi-
 
 ### Compositional recurrence analysis
 
-The `-cra` flags an invariant generation procedure for sequential programs.  The analysis is described in
+The `-cra` flag is an invariant generation procedure for sequential programs.  The analysis is described in
 * Azadeh Farzan and Zachary Kincaid: [Compositional Recurrence Analysis](http://www.cs.princeton.edu/~zkincaid/pub/fmcad15.pdf).  FMCAD 2015.
 * Zachary Kincaid, John Cyphert, Jason Breck, Thomas Reps: [Non-Linear Reasoning For Invariant Synthesis](http://www.cs.princeton.edu/~zkincaid/pub/popl18a.pdf).  POPL 2018.
 
 Typically, it is best to run CRA with `-cra-split-loops`.  By default, the `-cra` runs the analysis as described in POPL'18.  The FMCAD'15 analysis can be run by setting the `-cra-no-matrix` flag.
 
+Several other analyses are available using the `-cra-X` family of flags (see `./duet.exe --help` for a full list).
+* `-cra-prsd`: Zachary Kincaid, Jason Breck, John Cyphert, and Tom Rep: [Closed Forms for Numerical Loops](https://www.cs.princeton.edu/~zkincaid/pub/popl19a.pdf).  POPL 2019.
+* `-cra-vas` and `-cra-vass`: Jake Silverman and Zachary Kincaid: [Loop Summarization with Rational Vector Addition Systems](https://www.cs.princeton.edu/~zkincaid/pub/cav19.pdf).  CAV 2019.
+* `-lirr`: Zachary Kincaid, Nicolas Koh, Shaowei Zhu: *When Less is More: Consequence-finding in a Weak Theory of Arithmetic*.  To appear in POPL 2023.
+
 The interprocedural variant is described in
 * Zachary Kincaid, Jason Breck, Ashkan Forouhi Boroujeni, Thomas Reps:  [Compositional Recurrence Analysis Revisited](http://www.cs.princeton.edu/~zkincaid/pub/pldi17.pdf). PLDI 2017.
 
 is available in the *Newton-ark2* branch of this repository.  Build instructions to come.
+
+### Algebraic termination analysis
+
+The `-termination` flag implements algebraic termination analysis, as described in
+* Shaowei Zhu, Zachary Kincaid: [Termination Analysis Without the Tears](https://www.cs.princeton.edu/~zkincaid/pub/pldi21.pdf). PLDI 2021.
+* Reflections on Termination of Linear Loops: [Reflections on Termination of Linear Loops](https://www.cs.princeton.edu/~zkincaid/pub/cav21.pdf). CAV 2021.
+
+By default, the termination analyzer uses a portfolio of different approaches
+for proving termination, which can be selectively disabled using the
+`-termination-no-X` family of flags (see `./duet.exe --help` for a full list).
+Most of the `-cra-X` family of flags are also compatible with `-termination`.
 
 Architecture
 ============
