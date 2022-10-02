@@ -3,82 +3,102 @@ open BatPervasives
 
 module L = Log.Make(struct let name = "srk.intLattice" end)
 
+module QQEndo = Linear.MakeLinearMap(QQ)(Int)(Linear.QQVector)(Linear.QQVector)
+
 module D = Linear.MakeDenseConversion(SrkUtil.Int)(Linear.QQVector)
 
-let pp_zz_matrix =
-  SrkUtil.pp_print_list
-    (fun fmt entry ->
-      Format.pp_print_list
-        ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
-        Mpzf.print fmt entry
-    )
+(** A lattice is represented as a matrix 1/[denominator] B,
+    where B is in row Hermite normal form and the rows of B are the basis of the
+    lattice.
+    Each ZZVector.t is viewed as a row vector of B according to [dim_idx_bijection],
+    where the smallest dimension (the constant dimension) is in the rightmost
+    position of the row/matrix.
 
-(** A lattice is represented as a matrix 1/d B,
-    where B is in row Hermite normal form
-    and the rows of B are the basis of the lattice.
-    In particular, the rows are linearly independent.
-
-    The empty lattice is distinguished because we don't want to call out
-    to Flint for empty lattices.
+    The zero lattice is distinguished because we don't know the dimension of the
+    ambient space (and we don't want to call out to Flint).
  *)
 type t =
-  | EmptyLattice
-  | Lattice of { sparse_rep: Linear.ZZVector.t list
-               ; dense_rep: ZZ.t Array.t list
+  | ZeroLattice
+  | Lattice of { generators: Linear.ZZVector.t list
                ; denominator : ZZ.t
-               ; dimension_indices : D.context
+               ; dimensions : SrkUtil.Int.Set.t
+               ; inverse : QQEndo.t option ref
                }
 
-let dims_and_lcm_denoms vectors =
-  let dims_and_lcm_denoms' v =
-    BatEnum.fold (fun (dimensions, lcm) (q, dim) ->
-        (SrkUtil.Int.Set.add dim dimensions, ZZ.lcm lcm (QQ.denominator q)))
-      (SrkUtil.Int.Set.empty, ZZ.of_int 1)
-      (Linear.QQVector.enum v)
-  in
+let qqify v = Linear.ZZVector.fold (fun dim scalar v ->
+                  Linear.QQVector.add_term (QQ.of_zz scalar) dim v)
+                v
+                Linear.QQVector.zero
+
+let qqify_denom denominator v =
+  qqify v |> Linear.QQVector.scalar_mul (QQ.inverse (QQ.of_zz denominator))
+
+let zzify v = Linear.QQVector.fold (fun dim scalar v ->
+                  let (num, denom) = (QQ.numerator scalar, QQ.denominator scalar) in
+                  if not (ZZ.equal denom ZZ.one) then
+                    invalid_arg "IntLattice: zzify: Denominator is not 1"
+                  else
+                    Linear.ZZVector.add_term num dim v)
+                v
+                Linear.ZZVector.zero
+
+let fold_matrix
+      (rowf : Linear.QQVector.dim -> QQ.t -> 'a -> 'a)
+      (row_init : 'a)
+      (colf : 'b -> 'a -> 'b)
+      (col_init : 'b)
+      vectors =
   List.fold_left
-    (fun (dimensions, lcm) v -> let (dims, m) = dims_and_lcm_denoms' v in
-                                (SrkUtil.Int.Set.union dimensions dims, ZZ.lcm lcm m))
+    (fun b vec ->
+      Linear.QQVector.fold rowf vec row_init |> colf b)
+    col_init vectors
+
+let collect_dims_and_lcm_denoms vectors =
+  fold_matrix
+    (fun dim scalar (dimensions, lcm) ->
+      SrkUtil.Int.Set.add dim dimensions, ZZ.lcm lcm (QQ.denominator scalar))
+    (SrkUtil.Int.Set.empty, ZZ.one)
+    (fun (dims1, lcm1) (dims2, lcm2) ->
+      (SrkUtil.Int.Set.union dims1 dims2, ZZ.lcm lcm1 lcm2))
     (SrkUtil.Int.Set.empty, ZZ.one)
     vectors
 
-let make_context dimensions = D.make_context (SrkUtil.Int.Set.elements dimensions)
+let collect_dimensions vectors =
+  fold_matrix
+    (fun dim _scalar dimensions ->
+      SrkUtil.Int.Set.add dim dimensions)
+    SrkUtil.Int.Set.empty
+    SrkUtil.Int.Set.union
+    SrkUtil.Int.Set.empty
+    vectors
 
-let densify_and_zzify ctx denom_to_clear vector =
-  let arr = Array.make (D.dim ctx) (Mpzf.of_int 0) in
+let make_context ?(order=Int.compare) dimensions =
+  SrkUtil.Int.Set.elements dimensions
+  |> BatList.sort (fun x y -> -(order x y))
+  |> D.make_context
+
+let densify ctxt vector =
+  let arr = Array.make (D.dim ctxt) (Mpzf.of_int 0) in
   BatEnum.iter
     (fun (coeff, dim) ->
-       match QQ.to_zz (QQ.mul coeff (QQ.of_zz denom_to_clear)) with
-       | Some zz -> arr.(D.int_of_dim ctx dim) <- ZZ.mpz_of zz
-       | None -> invalid_arg "densify_and_zzify: argument supplied does not \
-                              clear denominator")
-    (Linear.QQVector.enum vector);
+      arr.(D.int_of_dim ctxt dim) <- ZZ.mpz_of coeff)
+    (Linear.ZZVector.enum vector);
   arr
 
-let sparsify ctx arr =
+let sparsify ctxt arr =
   BatArray.fold_lefti (fun v i entry ->
-      Linear.ZZVector.add_term entry (D.dim_of_int ctx i) v)
+      Linear.ZZVector.add_term entry (D.dim_of_int ctxt i) v)
     Linear.ZZVector.zero
     arr
 
 (*
    ZZ L = (1/d) ZZ (d L) = (1/d) ZZ B = ZZ (1/d B).
  *)
-let hermite_normal_form matrix =
+let dense_hermite_normal_form matrix =
   let level = `trace in
-  let verbose =
-    if
-      (* Log.level_leq (!Log.verbosity_level) level || *)
-      Log.level_leq (!L.my_verbosity_level) level
-    then true else false in
+  let verbose = Log.level_leq (!L.my_verbosity_level) level in
   if verbose then Flint.set_debug true else ();
   let mat = Flint.new_matrix matrix in
-  L.logf ~level "hermite_normal_form: testing new matrix@;";
-  let (denom, m) =  Flint.denom_matrix_of_rational_matrix mat in
-  L.logf ~level "hermite_normal_form: new matrix: @[denom: %a@;matrix: %a@]"
-    Mpzf.print denom
-    pp_zz_matrix m;
-
   Flint.hermitize mat;
   let rank = Flint.rank mat in
   let basis =
@@ -89,118 +109,170 @@ let hermite_normal_form matrix =
   if verbose then Flint.set_debug false else ();
   basis
 
-let lattice_of vectors =
+let hermite_normal_form
+      ctxt matrix =
+  let densified =
+    List.map (Array.to_list % densify ctxt) matrix in
+  let hermitized = dense_hermite_normal_form densified in
+  let generators =
+      List.map (Array.of_list % (List.map ZZ.of_mpz)) hermitized
+  in
+  List.map (sparsify ctxt) generators
+
+let hermitize vectors =
   if List.for_all (Linear.QQVector.equal Linear.QQVector.zero) vectors
-  then EmptyLattice
+  then ZeroLattice
   else
-    let (dimensions, lcm) = dims_and_lcm_denoms vectors in
-    let ctx = make_context dimensions in
-    let densified = List.map (fun v ->
-                        v
-                        |> densify_and_zzify ctx lcm
-                        |> Array.to_list)
-                      vectors in
-    let hermitized = hermite_normal_form densified in
-    let generators =
-      List.map (fun xs -> Array.of_list (List.map ZZ.of_mpz xs)) hermitized
-    in
-    L.logf ~level:`trace "lattice_of: input vectors: @[%a@]@;"
-      (SrkUtil.pp_print_list Linear.QQVector.pp) vectors;
-    L.logf ~level:`trace "lattice_of: densified: @[%a@]@;"
-      pp_zz_matrix densified;
-    L.logf ~level:`trace "lattice_of: basis: @[%a@]@;"
-      pp_zz_matrix hermitized;
-    L.logf ~level:`trace "lattice_of: dimensions-to-indices: @[%a@]@;"
-      (D.pp Format.pp_print_int) ctx;
+    let (dimensions, lcm) = collect_dims_and_lcm_denoms vectors in
+    let ctxt = make_context dimensions in
+    let generators = hermite_normal_form ctxt
+                       (List.map
+                          (zzify % Linear.QQVector.scalar_mul (QQ.of_zz lcm))
+                          vectors) in
     Lattice
-      { sparse_rep = List.map (sparsify ctx) generators
-      ; dense_rep = generators
+      { generators
       ; denominator = lcm
-      ; dimension_indices = ctx
+      ; dimensions
+      ; inverse = ref None
       }
 
 let basis t =
   match t with
-  | EmptyLattice -> (ZZ.one, [])
-  | Lattice lat -> (lat.denominator, lat.sparse_rep)
+  | ZeroLattice -> []
+  | Lattice { generators ; denominator ; _ } ->
+     List.map (qqify_denom denominator) generators
 
 let pp fmt t =
   match t with
-  | EmptyLattice -> Format.fprintf fmt "{empty lattice}"
+  | ZeroLattice -> Format.fprintf fmt "{zero lattice}"
   | Lattice lat ->
      Format.fprintf fmt
        "@[<v 0>
-        { denominator: %a@;
-        ; basis: %a 
+        { denominator: %a
+        ; basis: @[%a@]
         }@]"
        ZZ.pp lat.denominator
-       (SrkUtil.pp_print_list Linear.ZZVector.pp)
-       lat.sparse_rep
-
-let _flint_member v t =
-  match t with
-  | EmptyLattice -> false
-  | Lattice lat ->
-     let embedding_dim = Array.length (List.hd lat.dense_rep) in
-     let mat =
-       List.map (fun row -> List.map ZZ.mpz_of (Array.to_list row)) lat.dense_rep
-       |> Flint.new_matrix
-     in
-     (* The generators should be linearly independent *)
-     let rank = List.length lat.dense_rep in
-     let extended_basis = Flint.extend_hnf_to_basis mat in
-     let transposed = Flint.transpose extended_basis in
-     let inv = Flint.matrix_inverse transposed in
-     let vec = densify_and_zzify lat.dimension_indices ZZ.one v
-               |> (fun arr -> Flint.new_matrix [Array.to_list arr])
-               |> Flint.transpose in
-     let (denom, preimage) = Flint.matrix_multiply inv vec
-                             |> Flint.denom_matrix_of_rational_matrix in
-     let preimage_vector = List.concat preimage in
-     let (prefix, suffix) = BatList.takedrop rank preimage_vector in
-     (* The unique solution to B^T y = v must have all zeroes in the extended
-        part of the basis to fall within the QQ-span of the lattice,
-        and then have ZZ entries to be within the ZZ-span of the lattice.
-      *)
-     let (transposed_denom, transposed_matrix) =
-       Flint.denom_matrix_of_rational_matrix transposed in
-     let (target_denom, target_vector) = Flint.denom_matrix_of_rational_matrix vec in
-     L.logf
-       "@[<v 0>Lattice: %a
-        @; embedding dimension: %d | rank: %d
-        @; Transposed: (1/%a) %a
-        @; v in B^T x = v: (1/%a) %a
-        @; Preimage: %a
-        @]"
-       pp t
-       embedding_dim
-       rank
-       Mpzf.print transposed_denom
-       pp_zz_matrix transposed_matrix
-       Mpzf.print target_denom
-       pp_zz_matrix target_vector
-       pp_zz_matrix preimage;
-     (List.for_all (fun x -> Mpzf.cmp_int x 0 = 0) suffix)
-     && (List.for_all (fun x -> Mpzf.cmp_int (Mpzf.fdiv_r x denom) 0 = 0) prefix)
+       (SrkUtil.pp_print_list Linear.ZZVector.pp) lat.generators
 
 let member v t =
   match t with
-  | EmptyLattice -> false
-  | Lattice lat ->
-     let (matrix, _) =
-       List.fold_left (fun (mat, i) vec ->
-           let v = Linear.ZZVector.fold (fun dim scalar v ->
-                       Linear.QQVector.add_term (QQ.of_zz scalar) dim v)
-                     vec
-                     Linear.QQVector.zero in
-           (Linear.QQMatrix.add_column i v mat, i + 1)
-         )
-         (Linear.QQMatrix.zero, 0) lat.sparse_rep in
-     begin match Linear.solve matrix v with
-     | Some x -> (Linear.QQVector.fold
-                    (fun _ scalar bool ->
-                      ZZ.equal (QQ.denominator scalar) ZZ.one && bool)
-                    x)
-                   true
-     | None -> false
+  | ZeroLattice -> Linear.QQVector.equal v Linear.QQVector.zero
+  | Lattice { generators ; denominator ; inverse ; _ } ->
+     let integral v = Linear.QQVector.fold
+                        (fun _ scalar bool ->
+                          bool && ZZ.equal (QQ.denominator scalar) ZZ.one)
+                        v true
+     in
+     let inv =
+       match !inverse with
+       | None ->
+          let std_vector = Linear.QQVector.of_term QQ.one in
+          let (f, _) = List.fold_left (fun (f, idx) g ->
+                           let v = qqify_denom denominator g in
+                           let f' = QQEndo.add v (std_vector idx) f in
+                           match f' with
+                           | None -> assert false
+                           | Some f' ->
+                              (f', idx + 1))
+                         (QQEndo.empty, 1) generators
+          in f
+       | Some inverse -> inverse
+     in
+     begin
+       inverse := Some inv;
+       match QQEndo.apply inv v with
+       | Some x -> integral x
+       | None -> false
      end
+
+let project keep t =
+  match t with
+  | ZeroLattice -> ZeroLattice
+  | Lattice { generators ; denominator ; dimensions ; _ } ->
+     let new_order x y =
+       match keep x, keep y with
+       | true, false -> -1
+       | false, true -> 1
+       | _, _ -> Int.compare x y in
+     (* Compute Hermite normal form with unwanted dimensions on the left *)
+     let reordered =
+       let ctxt = make_context ~order:new_order dimensions in
+       hermite_normal_form ctxt generators
+     in
+     (* Drop the vectors that have non-zero coefficient in unwanted dimensions *)
+     let keep_vector v = Linear.ZZVector.fold
+                           (fun dim _scalar retained ->
+                             (* scalar should always be non-zero *)
+                             retained && (keep dim))
+                           v
+                           true in
+     let generators = List.filter keep_vector reordered in
+     let dimensions = collect_dimensions (List.map qqify generators)
+     in
+     Lattice {
+         generators
+       ; denominator
+       ; dimensions
+       ; inverse = ref None
+       }
+
+let project_lower n t =
+  match t with
+  | ZeroLattice -> ZeroLattice
+  | Lattice { generators ; denominator ; dimensions ; _ } ->
+     let keep_vector v = Linear.ZZVector.fold
+                           (fun dim _scalar keep -> keep && dim <= n)
+                           v
+                           true in
+     let generators = List.filter keep_vector generators in
+     let dimensions = SrkUtil.Int.Set.filter (fun dim -> dim <= n) dimensions in
+     Lattice {
+         generators
+       ; denominator
+       ; dimensions
+       ; inverse = ref None
+       }
+
+let sum t1 t2 =
+  match t1, t2 with
+  | ZeroLattice, _ -> t2
+  | _, ZeroLattice -> t1
+  | Lattice { generators = g1 ; denominator = denom1 ; _ },
+    Lattice { generators = g2 ; denominator = denom2 ; _ } ->
+     List.append (List.map (qqify_denom denom1) g1) (List.map (qqify_denom denom2) g2)
+     |> hermitize
+
+let intersect t1 t2 =
+  match t1, t2 with
+  | ZeroLattice, _ -> t2
+  | _, ZeroLattice -> t1
+  | Lattice { generators = g1 ; denominator = denom1 ; dimensions = dim1 ; _ },
+    Lattice { generators = g2 ; denominator = denom2 ; dimensions = dim2 ; _ } ->
+     let all_dims = SrkUtil.Int.Set.union dim1 dim2 in
+     let num_dims = SrkUtil.Int.Set.cardinal all_dims in
+     let shift_vector shift ?(transform=identity) v =
+       Linear.QQVector.enum v
+       |> BatEnum.fold (fun l (scalar, dim) -> (transform scalar, dim + shift) :: l) []
+       |> Linear.QQVector.of_list
+     in
+     let one_minus_promoted_g2 =
+       List.map
+         (fun v -> let v' = qqify_denom denom2 v in
+                   shift_vector num_dims ~transform:QQ.negate v'
+                   |> Linear.QQVector.add v')
+         g2
+     in
+     let promoted_g1 = List.map (shift_vector num_dims % qqify_denom denom1) g1 in
+     let generators = List.append one_minus_promoted_g2 promoted_g1 in
+     hermitize generators
+     |> project_lower (SrkUtil.Int.Set.max_elt all_dims)
+
+let subset t1 t2 =
+  match t1, t2 with
+  | ZeroLattice, _ -> true
+  | Lattice {generators ; denominator ; _}, t2 ->
+     List.for_all (fun g -> member g t2)
+       (List.map (qqify_denom denominator) generators)
+
+let equal t1 t2 =
+  subset t1 t2 && subset t2 t1

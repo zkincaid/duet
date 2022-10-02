@@ -3,6 +3,11 @@
   (action (write-file link_flags.sexp "(-cclib -Wl,-keep_dwarf_unwind)"))
   (enabled_if (= %{ocaml-config:system} macosx)))
 
+; (rule
+;   (target link_flags.sexp)
+;   (action (write-file link_flags.sexp %{ocaml-config:system}))
+;   (enabled_if (<> %{ocaml-config:system} macosx)))
+
 (rule
   (target link_flags.sexp)
   (action (write-file link_flags.sexp "()"))

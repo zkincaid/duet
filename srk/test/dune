@@ -8,8 +8,8 @@
   (action (write-file link_flags.sexp "()"))
   (enabled_if (<> %{ocaml-config:system} macosx)))
 
-(test
-  (name test_srk)
+(tests
+  (names test_srk)
   (modes native)
   (link_flags (:standard) (:include link_flags.sexp))
   (libraries srk oUnit apron apron.boxMPQ apron.octMPQ apron.polkaMPQ)

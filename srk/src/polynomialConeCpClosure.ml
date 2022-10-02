@@ -5,9 +5,7 @@ module PV = Polynomial.LinearQQXs
 
 module L = Log.Make(struct let name = "srk.polynomialConeCpClosure" end)
 
-let integer_hull_method = ref `GomoryChvatal
-
-module MonomialSet = BatSet.Make(Monomial)
+let integer_hull_method = ref (`GomoryChvatal : [`GomoryChvatal | `Normaliz])
 
 let set_cutting_plane_method how = integer_hull_method := how
 
@@ -19,61 +17,50 @@ let pp_poly_list pp_dim =
 
 let pp_vectors pp_elem = SrkUtil.pp_print_list pp_elem
 
-let zzvector_to_qqvector vec =
-  BatEnum.fold
-    (fun v (scalar, dim) -> Linear.QQVector.add_term (QQ.of_zz scalar) dim v)
-    Linear.QQVector.zero
-    (Linear.ZZVector.enum vec)
+type affine_basis =
+  { basis : QQXs.t list }
 
-(** A polynomial lattice L is of the form I + ZZ B,
-    where I is an ideal and B is a finite set of polynomials that include 1
-    and are reduced with respect to B.
-    (The lattice is the same whether they are reduced or not.)
-    1 is implicit in [affine_basis].
-*)
-type polylattice =
-  { ideal : Rewrite.t
-  ; affine_basis : QQXs.t list
-  ; lattice_context : PV.context
-  ; int_lattice : IntLattice.t
+module MonomialSet =
+  BatSet.Make(struct type t = Monomial.t
+                     let compare x y = match Monomial.degrevlex x y with
+                       | `Lt -> -1
+                       | `Eq -> 0
+                       | `Gt -> 1
+              end)
+
+type context = { conversion : PV.context ; fresh : int }
+
+let make_context polys =
+  let highest_dim_in_mono mono =
+    BatEnum.fold
+      (fun curr (dim, _power) ->
+        Int.max dim curr)
+      (Linear.const_dim) (Monomial.enum mono)
+  in
+  let (monos, fresh) =
+    polys
+    |> List.fold_left
+         (fun (monos, fresh) poly ->
+           QQXs.enum poly
+           |> BatEnum.fold (fun (s, curr_fresh) (_coeff, mono) ->
+                  ( MonomialSet.add mono s
+                  , Int.max (highest_dim_in_mono mono + 1) curr_fresh))
+                (monos, fresh))
+         (MonomialSet.empty, Linear.const_dim)
+  in
+  { conversion = PV.make_context (MonomialSet.elements monos)
+  ; fresh
   }
 
-let affine_generators polylattice = polylattice.affine_basis
-
-let ideal_of polylattice = polylattice.ideal
-
-let pp_polylattice pp_dim fmt polylattice =
-  Format.fprintf fmt
-    "{ affine_basis: @[<v 0>%a@]@;
-       ideal: @[<v 0>%a@]
-     }"
-    (pp_poly_list pp_dim) polylattice.affine_basis
-    (Rewrite.pp pp_dim) polylattice.ideal
-
-let empty_polylattice ideal =
-  { ideal
-  ; affine_basis = []
-  ; lattice_context = PV.make_context []
-  ; int_lattice = IntLattice.lattice_of []
-  }
-
-let polylattice_spanned_by ideal affine_polys : polylattice option =
+let make_affine_basis ideal affine_polys : affine_basis =
   let affine_polys = BatList.filter_map
                        (fun p -> let p' = Rewrite.reduce ideal p in
                                  if QQXs.equal p' QQXs.zero then None
                                  else Some p')
-                       (QQXs.one :: affine_polys) in
-  let ctxt = PV.min_context (BatList.enum affine_polys) in
-  let vectors = List.map (PV.densify_affine ctxt) affine_polys in
-  let lattice = IntLattice.lattice_of vectors in
-  let (denominator, basis) = IntLattice.basis lattice in
-  let (one, others) =
-    List.partition
-      (fun v ->
-        Linear.QQVector.equal (zzvector_to_qqvector v)
-          (Linear.const_linterm (QQ.of_zz denominator)))
-      basis
-  in
+                       affine_polys in
+  let ctx = make_context affine_polys in
+  let vectors = List.map (PV.densify_affine ctx.conversion) affine_polys in
+  let lattice = IntLattice.hermitize vectors in
   L.logf ~level:`trace "polylattice_spanned_by:
                         @[input affine polynomials: @[%a@] @]@;
                         @[transformed vectors: @[%a@] @]@;
@@ -82,39 +69,10 @@ let polylattice_spanned_by ideal affine_polys : polylattice option =
     (pp_poly_list pp_dim) affine_polys
     (pp_vectors Linear.QQVector.pp) vectors
     IntLattice.pp lattice;
-
-  let result =
-    if (List.length one <> 1)
-    then
-      (* Since we add 1 above, this can only happen if the Hermite normal
-     form contains 1/n for some integer n > 1.
-     In that case, the cutting plane closure will be inconsistent:
-     n(1/n) - 1 >= 0 --> 1/n - 1 >= 0 --> n <= 1, a contradiction.
-     If the input polynomials have only integer coefficients,
-     this cannot happen.
-       *)
-      None
-    else
-      let affine_basis =
-        List.map (fun v ->
-            zzvector_to_qqvector v
-            |> Linear.QQVector.scalar_mul (QQ.inverse (QQ.of_zz denominator))
-            |> PV.sparsify_affine ctxt) others in
-      Some { affine_basis
-           ; ideal
-           ; lattice_context = ctxt
-           ; int_lattice = lattice
-        }
+  let basis = IntLattice.basis lattice
+              |> List.map (fun v -> PV.sparsify_affine ctx.conversion v)
   in
-  result
-
-let in_polylattice poly polylattice =
-  try
-    Rewrite.reduce polylattice.ideal poly
-    |> PV.densify_affine polylattice.lattice_context
-    |> (fun v -> IntLattice.member v polylattice.int_lattice)
-  with Linear.Not_in_context ->
-    false
+  { basis }
 
 type transformation_data =
   (** Pairs are s.t. the first component is for the polynomial 1, and the second
@@ -136,24 +94,24 @@ let pp_transformation_data pp_dim fmt transformation_data =
     (pp_poly_list pp_dim)
     (fst transformation_data.rewrite_polys :: snd transformation_data.rewrite_polys)
 
-(** [compute_transformation_data affine_basis ctxt]
+(** [compute_transformation_data affine_basis ctx]
     computes fresh dimensions Y = y_0, ..., y_n, with y_0 corresponding to 1,
     the substitution y_i |-> b_i for 0 <= i <= n,
     and the rewrite polynomials { f_i = y_i - b_i : 0 <= i <= n }.
 
-    The dimensions Y are fresh with respect to [ctxt], which should include all
+    The dimensions Y are fresh with respect to [ctx], which should include all
     monomials of all generators in the polynomial cone and [affine_basis],
     so that the dimensions are indeed fresh.
-*)
-let compute_transformation affine_basis ctxt : transformation_data =
-  let fresh_start = PV.dim ctxt + 1 in
+ *)
+let compute_transformation affine_basis ctx : transformation_data =
+  let fresh_start = ctx.fresh in
   L.logf ~level:`trace
     "compute_transformation:
      @[transformation context: @[%a@]@]@;
      @[fresh variables range from %d to %d@]@;
      "
-    (PV.pp (Monomial.pp pp_dim)) ctxt
-    fresh_start (fresh_start + List.length affine_basis);
+    (PV.pp (Monomial.pp pp_dim)) ctx.conversion
+    fresh_start (fresh_start + List.length affine_basis + 1);
 
   let transformation_poly dim basis_poly =
     QQXs.sub (QQXs.of_dim dim) basis_poly in
@@ -185,19 +143,19 @@ let compute_transformation affine_basis ctxt : transformation_data =
     (pp_transformation_data pp_dim) data;
   data
 
-let polyhedron_of ctxt zeroes positives =
+let polyhedron_of ctx zeroes positives =
   L.logf ~level:`trace
     "polyhedron_of: conversion context for polyhedron is: @[%a@]@;"
     (PV.pp (Monomial.pp pp_dim))
-    ctxt;
-  let to_vector = PV.densify_affine ctxt in
+    ctx;
+  let to_vector = PV.densify_affine ctx in
   let (linear_constraints, conic_constraints) =
     ( List.map (fun poly -> (`Zero, to_vector poly)) zeroes
     , List.map (fun poly -> (`Nonneg, to_vector poly)) positives ) in
   let p = Polyhedron.of_constraints
             (BatList.enum (List.append linear_constraints conic_constraints)) in
   L.logf ~level:`trace
-    "@[polyhedron_of: @[<v 0>zeroes: @[<v 0>%a@]@; positives: @[%a@]@]@; is: %a@]@;"
+    "@[polyhedron_of: @[<v 0>zeroes: @[<v 0>%a@]@; positives: @[%a@]@]@. is: %a@]@;"
     (pp_poly_list pp_dim) zeroes
     (pp_poly_list pp_dim) positives
     (Polyhedron.pp pp_dim) p;
@@ -217,7 +175,7 @@ let polyhedron_of ctxt zeroes positives =
       These two steps implement the inverse of the linear map sending the
       fresh Y's to QQ[X].
 
-   3. Convert these generators to vectors and consider them as 
+   3. Convert these generators to vectors and consider them as
       constraints defining a polyhedron. Take the integer hull.
 
    4. Convert back to polynomials and do the substitution y_i |-> b_i.
@@ -250,17 +208,20 @@ let compute_cut transform cone =
      [linear_zeroes] and [linear_positives] are those of the expanded cone corresponding to
      [transform], so the fresh y_i's are already among them.
    *)
-  let ctxt =
-    (List.concat [[QQXs.one] ; linear_zeroes; linear_positives])
-    |> BatList.enum
-    |> PV.min_context
+  let ctx = make_context (List.concat [[QQXs.one] ; linear_zeroes; linear_positives])
   in
-  let polyhedron_to_hull = polyhedron_of ctxt linear_zeroes linear_positives in
+  let polyhedron_to_hull = polyhedron_of ctx.conversion linear_zeroes linear_positives in
 
-  L.logf ~level:`trace "compute_cut: polyhedron to hull: @[%a@]@;computing integer hull...@;"
-    (Polyhedron.pp pp_dim) polyhedron_to_hull;
+  L.logf ~level:`trace
+    "compute_cut: polyhedron to hull: @[%a@]@;computing integer hull using %s...@;"
+    (Polyhedron.pp pp_dim) polyhedron_to_hull
+    (match !integer_hull_method with
+     | `GomoryChvatal -> "Gomory-Chvatal"
+     | `Normaliz -> "Normaliz"
+    );
 
-  let hull = Polyhedron.integer_hull !integer_hull_method polyhedron_to_hull in
+  let hull = Polyhedron.integer_hull ~decompose:true
+               !integer_hull_method polyhedron_to_hull in
   L.logf ~level:`trace
     "compute_cut: computed integer hull: @[%a@]@;"
     (Polyhedron.pp pp_dim) hull;
@@ -269,7 +230,7 @@ let compute_cut transform cone =
   let (new_zeroes, new_positives) =
     BatEnum.fold (fun (zeroes, positives) (kind, v) ->
         let sub = snd transform.substitutions in
-        let poly = QQXs.substitute sub (PV.sparsify_affine ctxt v) in
+        let poly = QQXs.substitute sub (PV.sparsify_affine ctx.conversion v) in
         match kind with
         | `Zero -> (poly :: zeroes, positives)
         | `Nonneg -> (zeroes, poly :: positives)
@@ -293,36 +254,30 @@ let compute_cut transform cone =
    computes one round of (cutting plane closure + regular closure),
    and returns the new coherent (C', L').
  *)
-let cutting_plane_operator polynomial_cone polylattice =
-  if (not (PolynomialCone.is_proper polynomial_cone)) || polylattice.affine_basis = []
+let cutting_plane_operator polynomial_cone affine_basis =
+  if (not (PolynomialCone.is_proper polynomial_cone)) || affine_basis.basis = []
   then
-    (polynomial_cone, polylattice)
+    (polynomial_cone, affine_basis)
   else
     let (zeroes, positives) =
       ( Rewrite.generators (PolynomialCone.get_ideal polynomial_cone)
       , PolynomialCone.get_cone_generators polynomial_cone) in
-    let ctxt_x =
-      List.concat [zeroes ; positives ; polylattice.affine_basis]
-      |> BatList.enum
-      |> PV.min_context
+    let ctx_x = List.concat [zeroes ; positives ; affine_basis.basis]
+                |> make_context
     in
     let tdata =
       (* Introduce fresh dimensions/variables and associated data *)
-      compute_transformation polylattice.affine_basis ctxt_x in
+      compute_transformation affine_basis.basis ctx_x in
     let (linear, conic) = compute_cut tdata polynomial_cone in
     L.logf ~level:`trace "cutting_plane_operator: Cut computed@;";
-    let cut_polycone = PolynomialCone.add_generators ~zeros:linear ~nonnegatives:conic polynomial_cone in
+    let cut_polycone = PolynomialCone.add_generators
+                         ~zeros:linear ~nonnegatives:conic polynomial_cone in
     L.logf ~level:`trace "cutting_plane_operator: result: @[%a@]@;"
       (PolynomialCone.pp pp_dim) cut_polycone;
-    let new_lattice =
-      polylattice_spanned_by (PolynomialCone.get_ideal cut_polycone) polylattice.affine_basis
+    let new_basis =
+      make_affine_basis (PolynomialCone.get_ideal cut_polycone) affine_basis.basis
     in
-    match new_lattice with
-    | Some polylattice ->
-       (cut_polycone, polylattice)
-    | None ->
-       let full_ring = PolynomialCone.top in
-       (full_ring, empty_polylattice (PolynomialCone.get_ideal full_ring))
+    (cut_polycone, new_basis)
 
 (**
    [regular_cutting_plane_closure C L] computes the smallest regular
@@ -332,10 +287,11 @@ let cutting_plane_operator polynomial_cone polylattice =
    Termination is guaranteed by the Hilbert Basis theorem.
  *)
 let regular_cutting_plane_closure polynomial_cone lattice_polys =
+  let lattice_polys = QQXs.one :: lattice_polys in
 
-  L.logf "regular_cutting_plane_closure:
-          @[CP closure of: @[<v 0>%a@] @]@;
-          @[with respect to @[%a@] @]@;"
+  L.logf "regular_cutting_plane_closure:@.
+          CP closure of: @[<hov>%a@]@;
+          with respect to @[%a@]@;"
     (PolynomialCone.pp pp_dim) polynomial_cone
     (pp_poly_list pp_dim) lattice_polys;
 
@@ -343,31 +299,28 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
        and the cutting plane closure does not introduce new monomials.
    *)
   let num_rounds = ref 0 in
-  let rec closure cone lattice =
-    let (cone', lattice') = cutting_plane_operator cone lattice in
+  let rec closure cone affine_basis =
+    let (cone', affine_basis') = cutting_plane_operator cone affine_basis in
     if PolynomialCone.leq cone' cone then
       begin
         L.logf "regular_cutting_plane_closure: closure took %d rounds@;" !num_rounds;
-        (cone', lattice')
+        (cone', affine_basis')
       end
     else
       begin
         L.logf "regular_cutting_plane_closure: closure round %d@;" !num_rounds;
         num_rounds := !num_rounds + 1;
-        closure cone' lattice'
+        closure cone' affine_basis'
       end
   in
-  let polylattice = polylattice_spanned_by (PolynomialCone.get_ideal polynomial_cone)
-                      lattice_polys in
+  let affine_basis = make_affine_basis (PolynomialCone.get_ideal polynomial_cone)
+                       lattice_polys in
   let (final_cone, final_lattice) =
-    match polylattice with
-    | Some polylattice -> closure polynomial_cone polylattice
-    | None ->
-       let full_ring = PolynomialCone.top in
-       (full_ring, empty_polylattice (PolynomialCone.get_ideal full_ring))
+    closure polynomial_cone affine_basis
   in
   L.logf "regular_cutting_plane_closure: concluded, closure is:@;  @[%a@]@;"
     (PolynomialCone.pp pp_dim)
     final_cone;
-  (final_cone, final_lattice)
-
+  let ideal = Rewrite.generators (PolynomialCone.get_ideal final_cone)
+              |> Ideal.make in
+  (final_cone, PolynomialLattice.make ideal final_lattice.basis)
