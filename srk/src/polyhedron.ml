@@ -670,7 +670,7 @@ module NormalizCone = struct
 
   open Normalizffi
 
-  let pp_vectors = Format.pp_print_list ~pp_sep:Format.pp_print_cut
+  let _pp_vectors = Format.pp_print_list ~pp_sep:Format.pp_print_cut
                      Linear.QQVector.pp
 
   (* Rescale vector such that the selected coefficients are integral and
@@ -783,7 +783,7 @@ module NormalizCone = struct
         let sparsify = List.map (sparsify ctx) in
         (sparsify l1, sparsify l2))
     in
-    logf ~level:`trace "@[<v 0>Hilbert basis: vector_input: @[<v 0>%a@]@;
+    (* logf ~level:`trace "@[<v 0>Hilbert basis: vector_input: @[<v 0>%a@]@;
                         HB vector input had %d vectors."
       pp_vectors vectors
       (List.length vectors);
@@ -791,205 +791,111 @@ module NormalizCone = struct
                         pointed HB has %d vectors, linear HB has %d vectors@]"
       pp_vectors pointed_hilbert_basis
       pp_vectors lineality_basis
-      (List.length pointed_hilbert_basis) (List.length lineality_basis);
+      (List.length pointed_hilbert_basis) (List.length lineality_basis); *)
     BatList.enum (pointed_hilbert_basis
                   @ lineality_basis
                   @ List.map Linear.QQVector.negate lineality_basis)
 
 
-  module Delta = struct
-    (* [fractional_cutting_planes_at_face point active_constraints]
+  (* [fractional_cutting_planes_at_face point active_constraints]
        returns pairs [constraint >= constant], such that
        [constraint = constant] is a cutting plane of the polyhedron
        defined by [active_constraints] and contains [point],
        and where [constant] is non-integer (so that the cutting plane
        makes progress when cut).
-     *)
-    let fractional_cutting_planes_at_face
-          point (active : (constraint_kind * V.t) BatEnum.t)
-        : (V.t * QQ.t) BatEnum.t option =
-      if V.is_integral point then
-        None
-      else
-        let basis =
-          BatEnum.concat_map (function
-              | (`Zero, v) -> BatList.enum [v ; Linear.QQVector.negate v]
-              | (`Nonneg, v) -> BatList.enum [v]
-              | (`Pos, _v) -> assert false)
-            active
-          /@ (normalize % snd % V.pivot Linear.const_dim)
-          |> hilbert_basis
-        in
-        Some (basis //@
-                (fun vector ->
-                  let constant_term = Linear.QQVector.dot vector point in
-                  if ZZ.equal (QQ.denominator constant_term) ZZ.one then
-                    None
-                  else
-                    Some (vector, constant_term))
-          )
-
-    let elementary_gc polyhedron =
-      logf ~level:`trace "elementary_gc: Computing minimal faces...@;";
-      let faces = DD.minimal_faces polyhedron in
-      logf ~level:`trace "elementary_gc: Computed minimal faces: found %d@;"
-        (List.length faces);
-      let cuts =
-        List.fold_left (fun curr (v, active) ->
-            let frac_cuts = fractional_cutting_planes_at_face v (BatList.enum active) in
-            match frac_cuts with
-            | None -> curr
-            | Some cuts ->
-               BatEnum.push curr (v, cuts);
-               curr)
-          (BatEnum.empty ())
-          faces
+   *)
+  let fractional_cutting_planes_at_face
+        point (active : (constraint_kind * V.t) BatEnum.t)
+      : (V.t * QQ.t) BatEnum.t option =
+    if V.is_integral point then
+      None
+    else
+      let basis =
+        BatEnum.concat_map (function
+            | (`Zero, v) -> BatList.enum [v ; Linear.QQVector.negate v]
+            | (`Nonneg, v) -> BatList.enum [v]
+            | (`Pos, _v) -> assert false)
+          active
+        /@ (normalize % snd % V.pivot Linear.const_dim)
+        |> hilbert_basis
       in
-      if BatEnum.is_empty cuts then
-        begin
-          logf "elementary_gc: all faces are integral@;";
-          `Fixed polyhedron
-        end
-      else
-        let changed = ref false in
-        let adjoin_constraint curr_polyhedron (lhs, rhs) =
-          (* TODO: Test if meet is faster than implication check; if so,
+      Some (basis //@
+              (fun vector ->
+                let constant_term = Linear.QQVector.dot vector point in
+                if ZZ.equal (QQ.denominator constant_term) ZZ.one then
+                  None
+                else
+                  Some (vector, constant_term))
+        )
+
+  let elementary_gc polyhedron =
+    logf ~level:`trace "elementary_gc: Computing minimal faces...@;";
+    let faces = DD.minimal_faces polyhedron in
+    logf ~level:`trace "elementary_gc: Computed minimal faces: found %d@;"
+      (List.length faces);
+    let cuts =
+      List.fold_left (fun curr (v, active) ->
+          let frac_cuts = fractional_cutting_planes_at_face v (BatList.enum active) in
+          match frac_cuts with
+          | None -> curr
+          | Some cuts ->
+             BatEnum.push curr (v, cuts);
+             curr)
+        (BatEnum.empty ())
+        faces
+    in
+    if BatEnum.is_empty cuts then
+      begin
+        logf "elementary_gc: all faces are integral@;";
+        `Fixed polyhedron
+      end
+    else
+      let changed = ref false in
+      let adjoin_constraint curr_polyhedron (lhs, rhs) =
+        (* TODO: Test if meet is faster than implication check; if so,
              we should do meet directly once [changed] is true.
-           *)
-          let constant_term = QQ.negate rhs |> QQ.floor |> QQ.of_zz in
-          let new_constraint =
-            Linear.QQVector.add_term constant_term Linear.const_dim lhs in
-          if DD.implies curr_polyhedron (`Nonneg, new_constraint) then
-            begin
-              logf ~level:`trace "@[elementary_gc: polyhedron implies %a >= 0@]@;"
-                Linear.QQVector.pp new_constraint;
-              curr_polyhedron
-            end
-          else
-            begin
-              logf ~level:`trace "@[elementary_gc: computing meet with %a >= 0@]@;"
-                Linear.QQVector.pp new_constraint;
-              let intersected = DD.meet_constraints
-                                  curr_polyhedron [(`Nonneg, new_constraint)] in
-              changed := true;
-              intersected
-            end
-        in
-        let polyhedron =
-          BatEnum.fold (fun poly (_point, cutting_planes) ->
-              BatEnum.fold adjoin_constraint poly cutting_planes)
-            polyhedron cuts
-        in
-        if !changed then `Changed polyhedron else `Fixed polyhedron
-
-    let gomory_chvatal polyhedron =
-      let dim = 1 + max_constrained_dim polyhedron in
-      let man = Polka.manager_alloc_loose () in
-      let rec iter polyhedron i =
-        let elem_closure =  elementary_gc polyhedron in
-        match elem_closure with
-        | `Fixed poly ->
-           logf ~level:`info "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
-           poly
-        | `Changed poly ->
-           logf ~level:`trace "elementary_gc: entering round %d@;" (i + 1);
-           iter poly (i + 1)
+         *)
+        let constant_term = QQ.negate rhs |> QQ.floor |> QQ.of_zz in
+        let new_constraint =
+          Linear.QQVector.add_term constant_term Linear.const_dim lhs in
+        if DD.implies curr_polyhedron (`Nonneg, new_constraint) then
+          begin
+            logf ~level:`trace "@[elementary_gc: polyhedron implies %a >= 0@]@;"
+              Linear.QQVector.pp new_constraint;
+            curr_polyhedron
+          end
+        else
+          begin
+            logf ~level:`trace "@[elementary_gc: computing meet with %a >= 0@]@;"
+              Linear.QQVector.pp new_constraint;
+            let intersected = DD.meet_constraints
+                                curr_polyhedron [(`Nonneg, new_constraint)] in
+            changed := true;
+            intersected
+          end
       in
-      iter (dd_of ~man dim polyhedron) 0
-      |> of_dd
-
-  end
-
-  module Monolithic = struct
-    let cut_face vertex (defining : (constraint_kind * V.t) list) =
-      if V.is_integral vertex then
-        defining
-      else
-        let basis =
-          BatEnum.concat_map (function
-              | (`Zero, v) -> BatList.enum [v ; Linear.QQVector.negate v]
-              | (`Nonneg, v) -> BatList.enum [v]
-              | (`Pos, _v) -> assert false)
-            (BatList.enum defining)
-          /@ (normalize % snd % V.pivot Linear.const_dim)
-          |> hilbert_basis
-        in
-        basis /@
-          (fun vector ->
-            let constant_term = QQ.negate (Linear.QQVector.dot vector vertex)
-                                |> QQ.floor |> QQ.of_zz
-            in
-            let new_constraint = Linear.QQVector.add vector
-                                   (Linear.const_linterm constant_term) in
-            (`Nonneg, new_constraint))
-        |> BatList.of_enum
-
-    let elementary_gc polyhedron =
-      logf ~level:`trace "elementary_gc: Computing minimal faces...@;";
-      let faces = DD.minimal_faces polyhedron in
-      logf ~level:`trace "elementary_gc: Computed minimal faces: found %d@;"
-        (List.length faces);
-      if List.for_all (fun (v, _) -> V.is_integral v) faces
-      then
-        begin
-          logf "elementary_gc: all faces are integral@;";
-          `Fixed polyhedron
-        end
-      else
-        let adjoin_constraint (changed, curr_polyhedron) cons =
-          (* TODO: Test if meet is faster than implication check; if so,
-           we should do meet directly once [changed] is true.
-           *)
-          if DD.implies curr_polyhedron cons then
-            begin
-              logf ~level:`trace "@[elementary_gc: polyhedron implies %a@]@;"
-                pp_constraint cons;
-              (changed, curr_polyhedron)
-            end
-          else
-            begin
-              logf ~level:`trace "@[elementary_gc: computing meet with %a@]@;"
-                pp_constraint cons;
-              let intersected = DD.meet_constraints curr_polyhedron [cons] in
-              (true, intersected)
-            end
-        in
-        List.fold_left
-          (fun curr (vertex, defining) ->
-            logf ~level:`trace "elementary_gc: cutting face at vertex = %a; defining = @[%a@]@;"
-              Linear.QQVector.pp vertex
-              (Format.pp_print_list pp_constraint)
-              defining;
-            let new_face = cut_face vertex defining in
-            logf ~level:`trace "elementary_gc: face has been cut, new face has %d constraints@;"
-              (List.length new_face);
-            List.fold_left adjoin_constraint curr new_face
-          )
-          (false, polyhedron)
-          faces
-        |> (fun (changed, poly) ->
-          if changed then `Changed poly
-          else `Fixed poly)
-
-    let gomory_chvatal polyhedron =
-      let dim = 1 + max_constrained_dim polyhedron in
-      let man = Polka.manager_alloc_loose () in
-      let rec iter polyhedron i =
-        let elem_closure =  elementary_gc polyhedron in
-        match elem_closure with
-        | `Fixed poly ->
-           logf ~level:`info "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
-           poly
-        | `Changed poly ->
-           logf ~level:`trace "elementary_gc: entering round %d@;" (i + 1);
-           iter poly (i + 1)
+      let polyhedron =
+        BatEnum.fold (fun poly (_point, cutting_planes) ->
+            BatEnum.fold adjoin_constraint poly cutting_planes)
+          polyhedron cuts
       in
-      iter (dd_of ~man dim polyhedron) 0
-      |> of_dd
-  end
+      if !changed then `Changed polyhedron else `Fixed polyhedron
 
-  let gomory_chvatal = Delta.gomory_chvatal
-  let _ = Monolithic.gomory_chvatal 
+  let gomory_chvatal polyhedron =
+    let dim = 1 + max_constrained_dim polyhedron in
+    let man = Polka.manager_alloc_loose () in
+    let rec iter polyhedron i =
+      let elem_closure =  elementary_gc polyhedron in
+      match elem_closure with
+      | `Fixed poly ->
+         logf ~level:`info "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
+         poly
+      | `Changed poly ->
+         logf ~level:`trace "elementary_gc: entering round %d@;" (i + 1);
+         iter poly (i + 1)
+    in
+    iter (dd_of ~man dim polyhedron) 0
+    |> of_dd
 
 end
 
