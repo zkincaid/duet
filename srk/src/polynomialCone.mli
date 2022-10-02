@@ -21,6 +21,27 @@ val project : t -> (int -> bool) -> t
    what dimensions to keep. *)
 (*val project_cone : QQXs.t BatList.t -> (int -> bool) -> QQXs.t BatList.t*)
 
+(** [inverse_homomorphism C [(y1, fn) ..., (yn, fn)]] computes the inverse image
+    F^{-1}(C), where F : QQ[y1, ..., yn] -> QQ[xs] is the ring homomorphism sending
+    [yi] to [fi].
+    It is assumed that the variables [y1, ..., yn] are all distinct from [xs].
+
+    TODO: [QQXs.dim] is currently [Monomial.t], but the [QQXs] interface also
+    mentions [int] as dimension.
+ *)
+val inverse_homomorphism : t -> (int * QQXs.t) list -> t
+
+(** [inverse_linear_map C [(y1, fn) ..., (yn, fn)]] = (lines, rays)
+    computes the inverse image F^{-1}(C), where F : QQ[y1, ..., yn]^1 -> QQ[xs]
+    is the linear map sending [yi] to [fi].
+    This inverse image is a convex cone in the vector space QQ[y1, ..., yn]^1
+    of linear polynomials in [ys], and is thus presented as a set of
+    lines (two-sided generators) and a set of rays.
+
+    It is assumed that the variables [y1, ..., yn] are all distinct from [xs].
+ *)
+val inverse_linear_map : t -> (int * QQXs.t) list -> (QQXs.t list * QQXs.t list)
+
 (** Get the ideal part of a polynomial cone. *)
 val get_ideal : t -> Rewrite.t
 
