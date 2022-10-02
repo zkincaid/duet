@@ -670,7 +670,7 @@ module NormalizCone = struct
 
   open Normalizffi
 
-  let _pp_vectors = Format.pp_print_list ~pp_sep:Format.pp_print_cut
+  let pp_vectors = Format.pp_print_list ~pp_sep:Format.pp_print_cut
                      Linear.QQVector.pp
 
   (* Rescale vector such that the selected coefficients are integral and
@@ -783,7 +783,7 @@ module NormalizCone = struct
         let sparsify = List.map (sparsify ctx) in
         (sparsify l1, sparsify l2))
     in
-    (* logf ~level:`trace "@[<v 0>Hilbert basis: vector_input: @[<v 0>%a@]@;
+    logf ~level:`trace "@[<v 0>Hilbert basis: vector_input: @[<v 0>%a@]@;
                         HB vector input had %d vectors."
       pp_vectors vectors
       (List.length vectors);
@@ -791,7 +791,7 @@ module NormalizCone = struct
                         pointed HB has %d vectors, linear HB has %d vectors@]"
       pp_vectors pointed_hilbert_basis
       pp_vectors lineality_basis
-      (List.length pointed_hilbert_basis) (List.length lineality_basis); *)
+      (List.length pointed_hilbert_basis) (List.length lineality_basis);
     BatList.enum (pointed_hilbert_basis
                   @ lineality_basis
                   @ List.map Linear.QQVector.negate lineality_basis)
