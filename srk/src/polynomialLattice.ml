@@ -14,6 +14,28 @@ type t =
 (* Some graded order *)
 let monomial_order = Polynomial.Monomial.degrevlex
 
+module MonomialSet =
+  BatSet.Make(struct type t = Monomial.t
+                     let compare x y = match Monomial.degrevlex x y with
+                       | `Lt -> -1
+                       | `Eq -> 0
+                       | `Gt -> 1
+              end)
+
+(* TODO: Check if we can disregard monomial order and just use [min_context].
+   In projection, we need monomials weighted with fresh dimensions/variables
+   to occur as higher dimensions when densifying into vectors for integer
+   lattice projection.
+ *)
+let make_context polys =
+  let monos = List.fold_left
+                (fun monos poly ->
+                  BatEnum.fold (fun s (_coeff, mono) -> MonomialSet.add mono s)
+                    monos (QQXs.enum poly))
+                MonomialSet.empty polys
+  in
+  LinearQQXs.make_context (MonomialSet.elements monos)
+
 (*
 let zero =
   { ideal = Rewrite.mk_rewrite monomial_order []
@@ -47,7 +69,7 @@ let reduce ideal polys =
 let make ideal affine_polys : t =
   let ideal = Rewrite.mk_rewrite monomial_order (Ideal.generators ideal) in
   let affine_polys = reduce ideal affine_polys in
-  let affine_context = LinearQQXs.min_context (BatList.enum affine_polys) in
+  let affine_context = make_context affine_polys in
   let vectors = List.map (LinearQQXs.densify_affine affine_context)
                   affine_polys in
   let affine_lattice = IntLattice.hermitize vectors in
