@@ -135,7 +135,6 @@ let compute_cut cone affine_basis =
       ( Rewrite.generators (PolynomialCone.get_ideal cone)
       , PolynomialCone.get_cone_generators cone) in
     let fresh = fresh_dim (List.concat [zeroes ; positives ; affine_basis.basis]) in
-    Format.printf "Here@.";
     let (transform, _new_fresh) = make_transformation affine_basis.basis fresh in
     let (linear_zeroes, linear_positives) =
       PolynomialCone.inverse_linear_map cone transform.linear_map
