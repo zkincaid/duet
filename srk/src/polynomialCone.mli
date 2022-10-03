@@ -29,7 +29,7 @@ val project : t -> (int -> bool) -> t
     TODO: [QQXs.dim] is currently [Monomial.t], but the [QQXs] interface also
     mentions [int] as dimension.
  *)
-val inverse_homomorphism : t -> (int * QQXs.t) list -> t
+val inverse_homomorphism : t -> (Monomial.dim * QQXs.t) list -> t
 
 (** [inverse_linear_map C [(y1, fn) ..., (yn, fn)]] = (lines, rays)
     computes the inverse image F^{-1}(C), where F : QQ[y1, ..., yn]^1 -> QQ[xs]
@@ -40,7 +40,7 @@ val inverse_homomorphism : t -> (int * QQXs.t) list -> t
 
     It is assumed that the variables [y1, ..., yn] are all distinct from [xs].
  *)
-val inverse_linear_map : t -> (int * QQXs.t) list -> (QQXs.t list * QQXs.t list)
+val inverse_linear_map : t -> (Monomial.dim * QQXs.t) list -> (QQXs.t list * QQXs.t list)
 
 (** Get the ideal part of a polynomial cone. *)
 val get_ideal : t -> Rewrite.t

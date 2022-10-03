@@ -15,8 +15,6 @@ let pp_poly_list pp_dim =
   Format.pp_print_list ~pp_sep:(fun fmt _ -> Format.pp_print_text fmt ", ")
     (QQXs.pp pp_dim)
 
-let pp_vectors pp_elem = SrkUtil.pp_print_list pp_elem
-
 type affine_basis =
   { basis : QQXs.t list }
 
@@ -28,29 +26,39 @@ module MonomialSet =
                        | `Gt -> 1
               end)
 
-type context = { conversion : PV.context ; fresh : int }
+let _highest_dim_in_mono mono =
+  BatEnum.fold
+    (fun curr (dim, _power) ->
+      Int.max dim curr)
+    (Linear.const_dim) (Monomial.enum mono)
 
+let fresh_dim polys =
+  let fresh =
+    List.fold_left
+      (fun curr_fresh poly ->
+        QQXs.dimensions poly
+        |> SrkUtil.Int.Set.max_elt_opt
+        |> (fun d ->
+         match d with
+         | Some d ->
+            Int.max curr_fresh (d + 1)
+         | None -> curr_fresh))
+      Linear.const_dim
+      polys in
+  if fresh < 0 then 0 else fresh
+
+(** TODO: Check if we need degrevlex order when densifying into vectors for
+    integer hull. *)
 let make_context polys =
-  let highest_dim_in_mono mono =
-    BatEnum.fold
-      (fun curr (dim, _power) ->
-        Int.max dim curr)
-      (Linear.const_dim) (Monomial.enum mono)
-  in
-  let (monos, fresh) =
+  let monos =
     polys
     |> List.fold_left
-         (fun (monos, fresh) poly ->
+         (fun monos poly ->
            QQXs.enum poly
-           |> BatEnum.fold (fun (s, curr_fresh) (_coeff, mono) ->
-                  ( MonomialSet.add mono s
-                  , Int.max (highest_dim_in_mono mono + 1) curr_fresh))
-                (monos, fresh))
-         (MonomialSet.empty, Linear.const_dim)
+           |> BatEnum.fold (fun s (_coeff, mono) -> MonomialSet.add mono s) monos)
+         MonomialSet.empty
   in
-  { conversion = PV.make_context (MonomialSet.elements monos)
-  ; fresh
-  }
+  PV.make_context (MonomialSet.elements monos)
 
 let make_affine_basis ideal affine_polys : affine_basis =
   let affine_polys = BatList.filter_map
@@ -59,89 +67,46 @@ let make_affine_basis ideal affine_polys : affine_basis =
                                  else Some p')
                        affine_polys in
   let ctx = make_context affine_polys in
-  let vectors = List.map (PV.densify_affine ctx.conversion) affine_polys in
+  let vectors = List.map (PV.densify_affine ctx) affine_polys in
   let lattice = IntLattice.hermitize vectors in
-  L.logf ~level:`trace "polylattice_spanned_by:
-                        @[input affine polynomials: @[%a@] @]@;
-                        @[transformed vectors: @[%a@] @]@;
-                        @[lattice: @[%a@] @]@;
-                        "
-    (pp_poly_list pp_dim) affine_polys
-    (pp_vectors Linear.QQVector.pp) vectors
-    IntLattice.pp lattice;
+  L.logf ~level:`trace "make_affine_basis: of polynomials: @[%a@]@."
+    (pp_poly_list pp_dim) affine_polys;
   let basis = IntLattice.basis lattice
-              |> List.map (fun v -> PV.sparsify_affine ctx.conversion v)
+              |> List.map (fun v -> PV.sparsify_affine ctx v)
   in
   { basis }
 
-type transformation_data =
-  (** Pairs are s.t. the first component is for the polynomial 1, and the second
-      component is for the rest.
-   *)
-  (** The fresh dimensions/variables introduced *)
-  { codomain_dims: Monomial.dim * Monomial.dim list
+type transformation =
+  { linear_map : (Monomial.dim * QQXs.t) list
   (** \y_dim. y_dim -> b *)
-  ; substitutions: (Monomial.dim -> QQXs.t) * (Monomial.dim -> QQXs.t)
-  (** { y_i - b_i }, where each b_i is in the lattice and y_i is fresh *)
-  ; rewrite_polys: QQXs.t * QQXs.t list
+  ; substitutions: (Monomial.dim -> QQXs.t)
   }
 
-let pp_transformation_data pp_dim fmt transformation_data =
-  Format.fprintf fmt
-    "@[<v 0>{ codomain_dims: @[%a@]@;  rewrites: @[<v 0>%a@] }@]"
-    (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ") pp_dim)
-    (fst transformation_data.codomain_dims :: snd transformation_data.codomain_dims)
-    (pp_poly_list pp_dim)
-    (fst transformation_data.rewrite_polys :: snd transformation_data.rewrite_polys)
+let pp_transformation pp_dim fmt transformation =
+  Format.fprintf fmt "%a"
+    (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+       (fun fmt (a, b) ->
+         Format.fprintf fmt "%d |-> %a" a (QQXs.pp pp_dim) b))
+    transformation.linear_map
 
-(** [compute_transformation_data affine_basis ctx]
-    computes fresh dimensions Y = y_0, ..., y_n, with y_0 corresponding to 1,
-    the substitution y_i |-> b_i for 0 <= i <= n,
-    and the rewrite polynomials { f_i = y_i - b_i : 0 <= i <= n }.
-
-    The dimensions Y are fresh with respect to [ctx], which should include all
-    monomials of all generators in the polynomial cone and [affine_basis],
-    so that the dimensions are indeed fresh.
- *)
-let compute_transformation affine_basis ctx : transformation_data =
-  let fresh_start = ctx.fresh in
-  L.logf ~level:`trace
-    "compute_transformation:
-     @[transformation context: @[%a@]@]@;
-     @[fresh variables range from %d to %d@]@;
-     "
-    (PV.pp (Monomial.pp pp_dim)) ctx.conversion
-    fresh_start (fresh_start + List.length affine_basis + 1);
-
-  let transformation_poly dim basis_poly =
-    QQXs.sub (QQXs.of_dim dim) basis_poly in
-
+let make_transformation image fresh : transformation * int =
   let adjoin substitution dim basis_poly =
     (fun i -> if i = dim then basis_poly else substitution i) in
-
-  let codomain_one = fresh_start in
-  let rewrite_one = transformation_poly codomain_one (QQXs.one) in
   let identity_subst = fun i -> QQXs.of_dim i in
-  let substitute_one = adjoin identity_subst codomain_one QQXs.one in
-
-  let (codomain_rest, substitution_rest, rewrite_rest) =
-    (* { y_i - b_i } *)
-    BatList.fold_lefti (fun (codims, substitution, rewrites) dim poly ->
-        let new_dim = dim + (codomain_one + 1) in
-        ( new_dim :: codims
-        , adjoin substitution new_dim poly
-        , transformation_poly new_dim poly :: rewrites))
-      ([], identity_subst, []) affine_basis in
-
-  let data =
-    { codomain_dims = (codomain_one, codomain_rest)
-    ; substitutions = (substitute_one, substitution_rest)
-    ; rewrite_polys = (rewrite_one, rewrite_rest)
-    }
-  in
-  L.logf ~level:`trace "compute_transformation: @[%a@]@;"
-    (pp_transformation_data pp_dim) data;
-  data
+  let (new_fresh, linear_map, substitutions) =
+    List.fold_left
+      (fun (curr_fresh, map, subst) poly ->
+        (curr_fresh + 1
+        , (curr_fresh, poly) :: map
+        , adjoin subst curr_fresh poly))
+      (fresh, [], identity_subst)
+      image in
+  let transformation = { linear_map ; substitutions } in
+  L.logf ~level:`trace
+    "make_transformation: @[%a@], new fresh = %d@;"
+    (pp_transformation pp_dim) transformation
+    new_fresh;
+  ( transformation, new_fresh )
 
 let polyhedron_of ctx zeroes positives =
   L.logf ~level:`trace
@@ -161,123 +126,69 @@ let polyhedron_of ctx zeroes positives =
     (Polyhedron.pp pp_dim) p;
   p
 
-(**
-   [compute_cut T C] computes [cl_{ZZ B}(C \cap QQ B)], where
-   B = T.substitutions(T.codomain_dims) = { b_0 = 1, b_1, ..., b_n } is the
-   basis for the lattice.
-
-   1. Expand the cone C to contain the rewrite polynomials
-      { y_i - b_i : 1 <= i <= n } of T in its ideal, and have its Groebner
-      basis be with respect to an elimination order X > Y.
-      (We can ignore 1.)
-
-   2. Intersect with QQ[Y]^1, the affine space with dimensions Y.
-      These two steps implement the inverse of the linear map sending the
-      fresh Y's to QQ[X].
-
-   3. Convert these generators to vectors and consider them as
-      constraints defining a polyhedron. Take the integer hull.
-
-   4. Convert back to polynomials and do the substitution y_i |-> b_i.
- *)
-let compute_cut transform cone =
-
-  (* 1. Expand the polynomial cone and project it onto QQ{1, y_1, ..., y_m}. *)
-  let transform_polys = snd transform.rewrite_polys in
-  let expanded = PolynomialCone.add_generators ~zeros:transform_polys cone in
-  let codims = Linear.const_dim :: snd transform.codomain_dims in
-  let projected = PolynomialCone.project expanded (fun x -> List.mem x codims) in
-  L.logf ~level:`trace "compute_cut: projected cone: @[%a@]@;"
-    (PolynomialCone.pp pp_dim) projected;
-  let (linear_zeroes, linear_positives) =
-    (* Projection uses a graded elimination order keeping Y *)
-    let p = PolynomialCone.restrict
-              (fun m -> QQXs.degree (QQXs.add_term QQ.one m QQXs.zero) <= 1) projected in
-    ( Rewrite.generators (PolynomialCone.get_ideal p)
-    , PolynomialCone.get_cone_generators p)
-  in
-  L.logf ~level:`trace
-    "compute_cut:
-     @[zeroes: @[%a@]@]@;
-     @[positives: @[%a@]@]@;"
-    (pp_poly_list pp_dim) linear_zeroes
-    (pp_poly_list pp_dim) linear_positives;
-
-  (* 2. Integer hull *)
-  (* Conversion context to polyhedron.
-     [linear_zeroes] and [linear_positives] are those of the expanded cone corresponding to
-     [transform], so the fresh y_i's are already among them.
-   *)
-  let ctx = make_context (List.concat [[QQXs.one] ; linear_zeroes; linear_positives])
-  in
-  let polyhedron_to_hull = polyhedron_of ctx.conversion linear_zeroes linear_positives in
-
-  L.logf ~level:`trace
-    "compute_cut: polyhedron to hull: @[%a@]@;computing integer hull using %s...@;"
-    (Polyhedron.pp pp_dim) polyhedron_to_hull
-    (match !integer_hull_method with
-     | `GomoryChvatal -> "Gomory-Chvatal"
-     | `Normaliz -> "Normaliz"
-    );
-
-  let hull = Polyhedron.integer_hull ~decompose:true
-               !integer_hull_method polyhedron_to_hull in
-  L.logf ~level:`trace
-    "compute_cut: computed integer hull: @[%a@]@;"
-    (Polyhedron.pp pp_dim) hull;
-
-  (* 3. Substitute back *)
-  let (new_zeroes, new_positives) =
-    BatEnum.fold (fun (zeroes, positives) (kind, v) ->
-        let sub = snd transform.substitutions in
-        let poly = QQXs.substitute sub (PV.sparsify_affine ctx.conversion v) in
-        match kind with
-        | `Zero -> (poly :: zeroes, positives)
-        | `Nonneg -> (zeroes, poly :: positives)
-        | `Pos -> failwith "compute_cut: Image of polynomial cone should not contain open faces"
-      )
-      ([], []) (Polyhedron.enum_constraints hull)
-  in
-
-  L.logf ~level:`trace
-    "compute_cut: result is:
-     @[zeroes: @[%a@]@]@;
-     @[positives: @[%a@]@]@;"
-    (pp_poly_list pp_dim) new_zeroes
-    (pp_poly_list pp_dim) new_positives;
-
-  (new_zeroes, new_positives)
-
-
-(**
-   [cutting_plane_operator C L], where (C, L) is a coherent cone-lattice pair,
-   computes one round of (cutting plane closure + regular closure),
-   and returns the new coherent (C', L').
- *)
-let cutting_plane_operator polynomial_cone affine_basis =
-  if (not (PolynomialCone.is_proper polynomial_cone)) || affine_basis.basis = []
-  then
-    (polynomial_cone, affine_basis)
+let compute_cut cone affine_basis =
+  if (not (PolynomialCone.is_proper cone)) || affine_basis.basis = [] then
+    ([], [])
   else
+    (* 1. Compute inverse linear map of cone under affine basis linear map *)
     let (zeroes, positives) =
-      ( Rewrite.generators (PolynomialCone.get_ideal polynomial_cone)
-      , PolynomialCone.get_cone_generators polynomial_cone) in
-    let ctx_x = List.concat [zeroes ; positives ; affine_basis.basis]
-                |> make_context
+      ( Rewrite.generators (PolynomialCone.get_ideal cone)
+      , PolynomialCone.get_cone_generators cone) in
+    let fresh = fresh_dim (List.concat [zeroes ; positives ; affine_basis.basis]) in
+    Format.printf "Here@.";
+    let (transform, _new_fresh) = make_transformation affine_basis.basis fresh in
+    let (linear_zeroes, linear_positives) =
+      PolynomialCone.inverse_linear_map cone transform.linear_map
     in
-    let tdata =
-      (* Introduce fresh dimensions/variables and associated data *)
-      compute_transformation affine_basis.basis ctx_x in
-    let (linear, conic) = compute_cut tdata polynomial_cone in
-    L.logf ~level:`trace "cutting_plane_operator: Cut computed@;";
-    let cut_polycone = PolynomialCone.add_generators
-                         ~zeros:linear ~nonnegatives:conic polynomial_cone in
-    L.logf ~level:`trace "cutting_plane_operator: result: @[%a@]@;"
-      (PolynomialCone.pp pp_dim) cut_polycone;
-    let new_basis =
-      make_affine_basis (PolynomialCone.get_ideal cut_polycone) affine_basis.basis
+    L.logf ~level:`trace
+      "compute_cut:
+       @[zeroes: @[%a@]@]@;
+       @[positives: @[%a@]@]@;"
+      (pp_poly_list pp_dim) linear_zeroes
+      (pp_poly_list pp_dim) linear_positives;
+
+    (* 2. Integer hull *)
+    let ctx = make_context (List.concat [linear_zeroes; linear_positives]) in
+    let polyhedron_to_hull = polyhedron_of ctx linear_zeroes linear_positives
     in
-    (cut_polycone, new_basis)
+
+    L.logf ~level:`trace
+      "compute_cut: polyhedron to hull: @[%a@]@;computing integer hull using %s...@;"
+      (Polyhedron.pp pp_dim) polyhedron_to_hull
+      (match !integer_hull_method with
+       | `GomoryChvatal -> "Gomory-Chvatal"
+       | `Normaliz -> "Normaliz"
+      );
+
+    let hull = Polyhedron.integer_hull ~decompose:true
+                 !integer_hull_method polyhedron_to_hull
+    in
+    L.logf ~level:`trace
+      "compute_cut: computed integer hull: @[%a@]@;"
+      (Polyhedron.pp pp_dim) hull;
+
+    (* 3. Substitute back to compute the forward image *)
+    let (new_zeroes, new_positives) =
+      BatEnum.fold (fun (zeroes, positives) (kind, v) ->
+          let sub = transform.substitutions in
+          let poly = QQXs.substitute sub (PV.sparsify_affine ctx v)
+          in
+          match kind with
+          | `Zero -> (poly :: zeroes, positives)
+          | `Nonneg -> (zeroes, poly :: positives)
+          | `Pos -> failwith "compute_cut: Image of polynomial cone should not contain open faces"
+        )
+        ([], []) (Polyhedron.enum_constraints hull)
+    in
+
+    L.logf ~level:`trace
+      "compute_cut: result is:
+       @[zeroes: @[%a@]@]@;
+       @[positives: @[%a@]@]@;"
+      (pp_poly_list pp_dim) new_zeroes
+      (pp_poly_list pp_dim) new_positives;
+
+    (new_zeroes, new_positives)
 
 (**
    [regular_cutting_plane_closure C L] computes the smallest regular
@@ -295,22 +206,27 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
     (PolynomialCone.pp pp_dim) polynomial_cone
     (pp_poly_list pp_dim) lattice_polys;
 
-  (* The transformation is fixed for all iterations, because the lattice is fixed
-       and the cutting plane closure does not introduce new monomials.
-   *)
   let num_rounds = ref 0 in
   let rec closure cone affine_basis =
-    let (cone', affine_basis') = cutting_plane_operator cone affine_basis in
-    if PolynomialCone.leq cone' cone then
+
+    let (new_zeroes, new_positives) = compute_cut cone affine_basis in
+    let new_cone = PolynomialCone.add_generators
+                     ~zeros:new_zeroes
+                     ~nonnegatives:new_positives cone in
+    if PolynomialCone.leq new_cone cone then
+      (* A better way is to augment [add_generators] to tell us if the cone
+         has truly expanded. *)
       begin
         L.logf "regular_cutting_plane_closure: closure took %d rounds@;" !num_rounds;
-        (cone', affine_basis')
+        (new_cone, affine_basis)
       end
     else
       begin
         L.logf "regular_cutting_plane_closure: closure round %d@;" !num_rounds;
         num_rounds := !num_rounds + 1;
-        closure cone' affine_basis'
+        let new_affine_basis =
+          make_affine_basis (PolynomialCone.get_ideal new_cone) affine_basis.basis in
+        closure new_cone new_affine_basis
       end
   in
   let affine_basis = make_affine_basis (PolynomialCone.get_ideal polynomial_cone)
