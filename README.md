@@ -26,10 +26,8 @@ On MacOS, you can install these packages (except Java) with:
  brew install opam gmp mpfr ntl python
 ```
 
-Next, install the [Normaliz library](https://github.com/Normaliz) and Ocaml bindings to it.
-```
-opam pin add normalizffi https://github.com/nclskoh/normalizffi.git
-```
+Next, install Ocaml bindings to [Normaliz](https://github.com/Normaliz) and [Flint](https://flintlib.org/).
+Installation instructions are available [here](https://github.com/nclskoh/normalizffi.git).
 
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
