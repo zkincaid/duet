@@ -338,32 +338,6 @@ let eliminate_floor_mod_div srk phi =
         [mk_or srk
            [ mk_eq srk t (mk_int srk 0)
            ; mk_eq srk s (mk_mul srk [mk_const srk sym ; t])]]
-        (*
-         TODO: the following encodes integer division.  Only real division is
-         supported by the IR, but we could make use of this encoding by
-         pattern-matching on floor(a/b) where a & b are integral.
-
-         begin match expr_typ srk s, expr_typ srk t with
-         | `TyInt, `TyReal
-           | `TyReal, `TyInt
-           | `TyReal, `TyReal ->
-            [mk_or srk
-               [ mk_eq srk t (mk_int srk 0)
-               ; mk_eq srk s (mk_mul srk [mk_const srk sym ; t])]]
-         | `TyInt, `TyInt ->
-            let rem = mk_symbol srk ~name:"remainder" `TyInt
-                      |> mk_const srk in
-            let quotient = mk_const srk sym in
-            let sum = mk_add srk [mk_mul srk [quotient ; t] ; rem] in
-            [mk_or srk
-               [ mk_eq srk t (mk_int srk 0) (* t = 0 *)
-               (* or s = qt + r and 0 <= r < |t| *)
-               ; mk_and srk ( mk_eq srk s sum :: (constraints_for_rem rem t true) )
-               ]
-            ]
-         | _, _ -> invalid_arg "nonlinear: impossible case"
-         end
-        *)
       | _ -> []
     end
   in
