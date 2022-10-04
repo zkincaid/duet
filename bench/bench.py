@@ -9,7 +9,6 @@ import tempfile
 import types
 import statistics
 from collections import defaultdict
-from tabulate import tabulate
 
 # Configuration -- can be reconfigured via the command line
 tools = ['ComPACT','CPAchecker','UAutomizer','2ls','Termite']
@@ -98,12 +97,11 @@ def recent_result_data(tools, suites, num_runs_to_fetch=1):
                                 open(table).readlines()))[3:]
         multirun_data.append(data)
     return multirun_data
-    
+
 def summarize_result(tool, suite, average_over_runs=1):
     multirun_data = recent_result_data([tool],[suite], num_runs_to_fetch=average_over_runs)
     multirun_results = []
     for run in range(average_over_runs):
-    # data = recent_result_data([tool],[suite])
         data = multirun_data[run]
         result = types.SimpleNamespace()
         result.total = 0
@@ -113,12 +111,11 @@ def summarize_result(tool, suite, average_over_runs=1):
         result.timeout = 0
         result.memout = 0
         result.unknown = 0
-        # result.times_excluding_timeouts = []
-        result.time_by_verdict = defaultdict(float) 
-        result.task_times_by_verdict = defaultdict(list) 
+        result.time_by_verdict = defaultdict(float)
+        result.task_times_by_verdict = defaultdict(list)
         result.maxvar_by_verdict = defaultdict(float)
         result.num_by_verdict = defaultdict(int)
-        result.correct_by_verdict = defaultdict(int) 
+        result.correct_by_verdict = defaultdict(int)
         result.timeout_by_verdict = defaultdict(int)
         result.memout_by_verdict = defaultdict(int)
         for entry in data:
@@ -130,13 +127,13 @@ def summarize_result(tool, suite, average_over_runs=1):
                     v = 'unknown'
                 result.num_by_verdict[v] += 1
                 t = float(entry[4])
-                result.time_by_verdict[v] = result.time_by_verdict[v] + t 
+                result.time_by_verdict[v] = result.time_by_verdict[v] + t
                 result.task_times_by_verdict[v].append(t)
                 if entry[2] == 'TIMEOUT':
                     result.timeout += 1
-                    result.timeout_by_verdict[v] = result.timeout_by_verdict[v] + 1 
+                    result.timeout_by_verdict[v] = result.timeout_by_verdict[v] + 1
                 else:
-                    # result.time_by_verdict[v] = result.time_by_verdict[v] + t 
+                    # result.time_by_verdict[v] = result.time_by_verdict[v] + t
                     if entry[3] == 'correct':
                         result.correct += 1
                         result.correct_by_verdict[v] = result.correct_by_verdict[v] + 1
@@ -166,11 +163,12 @@ def summarize_result(tool, suite, average_over_runs=1):
     ar.time = mean_run_time
 
     max_time_var = 0.0
-    for task_id in range(len(r)):
+    for task_id in range(len(multirun_results)):
         times_per_task = []
         for run in range(average_over_runs):
-            times_per_task.append(float(multirun_results[run][task_id][4]))
-        var_this_task = statistics.variance(times_per_task)
+            if len(multirun_data[run][task_id]) > 4:
+                times_per_task.append(float(multirun_data[run][task_id][4]))
+        var_this_task = 0.0 if average_over_runs == 1 else statistics.variance(times_per_task)
         max_time_var = max(max_time_var, var_this_task)
     ar.maxvar = max_time_var
 
@@ -179,7 +177,7 @@ def summarize_result(tool, suite, average_over_runs=1):
     ar.memout = r.memout
     ar.unknown = r.unknown
 
-    ar.time_by_verdict = defaultdict(float) 
+    ar.time_by_verdict = defaultdict(float)
     ar.maxvar_by_verdict = defaultdict(float)
     for v in ['true', 'false', 'unknown']:
         multi_run_times = []
@@ -192,8 +190,9 @@ def summarize_result(tool, suite, average_over_runs=1):
         for task_id in range(len(r.task_times_by_verdict[v])):
             times_per_task = []
             for run in range(average_over_runs):
-                times_per_task.append(multirun_results[run][task_id])
-            var_this_task = statistics.variance(times_per_task)
+                if len(multirun_data[run][task_id]) > 4:
+                    times_per_task.append(multirun_data[run][task_id][4])
+            var_this_task = 0.0 if average_over_runs == 1 else statistics.variance(times_per_task)
             max_time_var = max(max_time_var, var_this_task)
         ar.maxvar_by_verdict[v] = max_time_var
 
@@ -206,7 +205,7 @@ def summarize_result(tool, suite, average_over_runs=1):
 def summary_by_verdict(average_over_runs=1):
     res = {}
 
-    
+
     num = {}
     total_correct = {}
     total_time = {}
@@ -225,17 +224,17 @@ def summary_by_verdict(average_over_runs=1):
         r = {}
         for t in tools:
             r[t] = summarize_result(t, s)
-        res[s] = r 
+        res[s] = r
 
     for suite in suites:
         for verd in ['true', 'false', 'unknown']:
             row_name = suite + ' - ' + verd
             for tool in tools:
-                r = res[suite][tool] 
+                r = res[suite][tool]
                 num_suite = r.num_by_verdict[verd]
                 total_correct[tool] += r.correct_by_verdict[verd]
                 total_time[tool] += r.time_by_verdict[verd]
-                max_variance[tool] = max(max_variance[tool]. r.maxvar)
+                max_variance[tool] = max(max_variance[tool], r.maxvar)
                 num_timeout[tool] += r.timeout_by_verdict[verd]
                 num_memout[tool] += r.memout_by_verdict[verd]
             num[row_name] = num_suite
@@ -285,7 +284,7 @@ def summary(average_over_runs=1):
     total_time = {}
     max_variance = {}
     num_timeout = {}
-    
+
     for tool in tools:
         total_correct[tool] = 0
         total_time[tool] = 0
@@ -304,10 +303,10 @@ def summary(average_over_runs=1):
             num_suite = r.total
             row[tool] = r
             total_correct[tool] += r.correct
-            
+
             total_time[tool] += r.time
             best_time_suite = min(best_time_suite, r.time)
-            max_variance[tool] = max(max_variance[tool]. r.maxvar)
+            max_variance[tool] = max(max_variance[tool], r.maxvar)
             num_timeout[tool] += r.timeout
 
         best_time[suite] = best_time_suite
@@ -376,7 +375,7 @@ def make_table():
                 tmp.write(os.path.join(os.getcwd(), recent_result(tool,suite)))
                 tmp.write('" />\n')
             tmp.write("</union>\n")
-        tmp.write(table_end)            
+        tmp.write(table_end)
         tmp.close()
         os.system("table-generator -x %s -o results" % tmp_file)
 
@@ -394,7 +393,7 @@ def cactus_data(data, out):
         if prev != times[instance]:
             prev = times[instance]
             out.write("%d %f\n" % (instance, times[instance - 1]))
-    out.write("%d %f\n" % (last, times[last - 1]))
+   out.write("%d %f\n" % (last, times[last - 1]))
 
 def cactus_plot():
 
@@ -503,7 +502,7 @@ def scatter_plot():
                 max_time = max(max_time,time1,time2)
 
     out.close()
-    
+
     subst = dict(min = min_time,
                  max = max_time,
                  x = tools[0],
@@ -560,6 +559,6 @@ if __name__ == "__main__":
     elif (command == "summary"):
         summary()
     elif (command == "summarybyverdict"):
-        summary_by_verdict()
+       summary_by_verdict()
     else:
         print("Unknown command")
