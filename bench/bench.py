@@ -393,7 +393,7 @@ def cactus_data(data, out):
         if prev != times[instance]:
             prev = times[instance]
             out.write("%d %f\n" % (instance, times[instance - 1]))
-   out.write("%d %f\n" % (last, times[last - 1]))
+    out.write("%d %f\n" % (last, times[last - 1]))
 
 def cactus_plot():
 
