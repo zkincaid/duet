@@ -670,9 +670,6 @@ module NormalizCone = struct
 
   open Normalizffi
 
-  let pp_vectors = Format.pp_print_list ~pp_sep:Format.pp_print_cut
-                     Linear.QQVector.pp
-
   (* Rescale vector such that the selected coefficients are integral and
      relatively prime *)
   let normalize v =
@@ -757,85 +754,50 @@ module NormalizCone = struct
     in
     polyhedron_of (cut_eqns, cut_ineqs, bijection)
 
-
-  let pp_list_list fmt =
-    let pp_comma fmt () = Format.fprintf fmt ", " in
-    Format.fprintf fmt "@[<v 0>%a@]"
-      (Format.pp_print_list
-         (Format.pp_print_list ~pp_sep:pp_comma
-            (fun fmt x -> Format.fprintf fmt "%s" (Mpzf.to_string x)))
-      )
-
-  let hilbert_basis vectors =
-    let module S = SrkUtil.Int.Set in
-    let vectors = BatList.of_enum vectors in
-    let ctx = D.min_context (BatList.enum vectors) in
-    let rays = BatList.fold (fun rays v -> (densify ctx v) :: rays)
-                 [] vectors in
-    let cone = Normaliz.empty_cone
-               |> Normaliz.add_rays rays |> Result.get_ok
-               |> Normaliz.new_cone in
-    logf ~level:`trace "Computing Hilbert basis for rays:@; @[%a@]@;"
-      pp_list_list rays;
-    let (pointed_hilbert_basis, lineality_basis) =
-      (Normaliz.hilbert_basis cone,  Normaliz.get_lineality_space cone)
-      |> (fun (l1, l2) ->
-        let sparsify = List.map (sparsify ctx) in
-        (sparsify l1, sparsify l2))
-    in
-    logf ~level:`trace "@[<v 0>Hilbert basis: vector_input: @[<v 0>%a@]@;
-                        HB vector input had %d vectors."
-      pp_vectors vectors
-      (List.length vectors);
-    logf ~level:`trace "pointed HB: @[<v 0>%a@]@; linear HB: @[<v 0>%a@]@;
-                        pointed HB has %d vectors, linear HB has %d vectors@]"
-      pp_vectors pointed_hilbert_basis
-      pp_vectors lineality_basis
-      (List.length pointed_hilbert_basis) (List.length lineality_basis);
-    BatList.enum (pointed_hilbert_basis
-                  @ lineality_basis
-                  @ List.map Linear.QQVector.negate lineality_basis)
-
-
-  (* [fractional_cutting_planes_at_face point active_constraints]
-       returns pairs [constraint >= constant], such that
-       [constraint = constant] is a cutting plane of the polyhedron
-       defined by [active_constraints] and contains [point],
-       and where [constant] is non-integer (so that the cutting plane
-       makes progress when cut).
+  (* [fractional_cutting_planes_at_face point active_constraints ambient_dim]
+     returns pairs [constraint >= constant], such that
+     [constraint = constant] is a cutting plane of the polyhedron in 
+     QQ^{[ambient_dim]} defined by [active_constraints] and contains [point],
+     and where [constant] is non-integer (so that the cutting plane makes 
+     progress when cut).
    *)
   let fractional_cutting_planes_at_face
-        point (active : (constraint_kind * V.t) BatEnum.t)
+        point
+        (active : (constraint_kind * V.t) BatEnum.t)
+        ambient_dim
       : (V.t * QQ.t) BatEnum.t option =
     if V.is_integral point then
       None
     else
-      let basis =
-        BatEnum.concat_map (function
-            | (`Zero, v) -> BatList.enum [v ; Linear.QQVector.negate v]
-            | (`Nonneg, v) -> BatList.enum [v]
+      let (lines, rays) =
+        let strip_constant = snd % V.pivot Linear.const_dim in
+        BatEnum.fold (fun (lines, rays) -> function
+            | (`Zero, v) -> (strip_constant v :: lines, rays)
+            | (`Nonneg, v) -> (lines, strip_constant v :: rays)
             | (`Pos, _v) -> assert false)
+          ([], [])
           active
-        /@ (normalize % snd % V.pivot Linear.const_dim)
-        |> hilbert_basis
       in
-      Some (basis //@
-              (fun vector ->
-                let constant_term = Linear.QQVector.dot vector point in
-                if ZZ.equal (QQ.denominator constant_term) ZZ.one then
-                  None
-                else
-                  Some (vector, constant_term))
+      let basis = Cone.hilbert_basis (Cone.make ~lines ~rays ambient_dim) in
+      Some (basis
+            |> BatList.fold_left
+                 (fun curr vector ->
+                   let constant_term = Linear.QQVector.dot vector point in
+                   if ZZ.equal (QQ.denominator constant_term) ZZ.one then
+                     curr
+                   else
+                     (vector, constant_term) :: curr) []
+            |> BatList.enum
         )
 
-  let elementary_gc polyhedron =
+  let elementary_gc polyhedron ambient_dim =
     logf ~level:`trace "elementary_gc: Computing minimal faces...@;";
     let faces = DD.minimal_faces polyhedron in
     logf ~level:`trace "elementary_gc: Computed minimal faces: found %d@;"
       (List.length faces);
     let cuts =
       List.fold_left (fun curr (v, active) ->
-          let frac_cuts = fractional_cutting_planes_at_face v (BatList.enum active) in
+          let frac_cuts = fractional_cutting_planes_at_face v (BatList.enum active) ambient_dim in
           match frac_cuts with
           | None -> curr
           | Some cuts ->
@@ -885,7 +847,7 @@ module NormalizCone = struct
     let dim = 1 + max_constrained_dim polyhedron in
     let man = Polka.manager_alloc_loose () in
     let rec iter polyhedron i =
-      let elem_closure =  elementary_gc polyhedron in
+      let elem_closure =  elementary_gc polyhedron dim in
       match elem_closure with
       | `Fixed poly ->
          logf ~level:`info "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;

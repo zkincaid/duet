@@ -91,5 +91,8 @@ val equal : t -> t -> bool
 (** Dimension of a cone. *)
 val dim : t -> int
 
+(** Compute Hilbert basis of a cone *)
+val hilbert_basis : t -> QQVector.t list
+
 (** Pretty print *)
 val pp : Format.formatter -> t -> unit

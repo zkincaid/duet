@@ -6,6 +6,7 @@ module VS = Linear.QQVectorSpace
 module IntSet = SrkUtil.Int.Set
 module IntMap = SrkUtil.Int.Map
 
+include Log.Make(struct let name = "srk.cone" end)
 
 (* QS represents a vector space L along with a function reduce that
    maps each vector in QQ^omega to its representative in the quotient
@@ -358,3 +359,70 @@ let pp formatter cone =
   Format.fprintf formatter "Lines: @[<v 0>%a@]@\nRays:  @[<v 0>%a@]"
     (SrkUtil.pp_print_enum_nobox ~pp_sep V.pp) (BatList.enum (lines cone))
     (SrkUtil.pp_print_enum_nobox ~pp_sep V.pp) (BatList.enum (rays cone))
+
+module NormalizCone = struct
+
+  module D = Linear.MakeDenseConversion(SrkUtil.Int)(V)
+
+  (* Rescale vector such that the selected coefficients are integral and
+     relatively prime *)
+  let normalize v =
+    Linear.QQVector.scalar_mul (QQ.inverse (Linear.QQVector.gcd_entries v)) v
+
+  let densify ctx v =
+    let array = Array.make (D.dim ctx) (ZZ.mpz_of ZZ.zero) in
+    BatEnum.iter
+      (fun (a, i) ->
+        array.(D.int_of_dim ctx i) <- ZZ.mpz_of (Option.get (QQ.to_zz a)))
+      (V.enum v);
+    Array.to_list array
+
+  let sparsify ctx v =
+    BatList.fold_lefti (fun vec i a ->
+        V.set (D.dim_of_int ctx i) (QQ.of_zz (ZZ.of_mpz a)) vec)
+      V.zero
+      v
+
+  let hilbert_basis cone =
+    let open Normalizffi in
+    let lineality = List.map normalize (lines cone) in
+    let rays = List.map normalize cone.rays in
+    let ctx = D.min_context (BatList.enum (lineality @ rays)) in
+    let normaliz_rays =
+      BatList.concat_map (fun line -> [line ; V.negate line]) lineality
+      |> BatList.append cone.rays
+      |> BatList.map (densify ctx) in
+    let cone = Normaliz.empty_cone
+               |> Normaliz.add_rays normaliz_rays |> Result.get_ok
+               |> Normaliz.new_cone in
+    let pp_list_list fmt =
+      Format.fprintf fmt "@[<v 0>%a@]"
+        (Format.pp_print_list
+           (Format.pp_print_list
+              ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
+              (fun fmt x -> Format.fprintf fmt "%s" (Mpzf.to_string x)))
+        ) in
+    logf ~level:`trace "Computing Hilbert basis for rays:@; @[%a@]@;"
+      pp_list_list normaliz_rays;
+    let (pointed_hilbert_basis, lineality_basis) =
+      (Normaliz.hilbert_basis cone,  Normaliz.get_lineality_space cone)
+      |> (fun (l1, l2) ->
+        let sparsify = List.map (sparsify ctx) in
+        (sparsify l1, sparsify l2))
+    in
+    logf ~level:`trace "pointed HB: @[<v 0>%a@]@; linear HB: @[<v 0>%a@]@;
+                        pointed HB has %d vectors, linear HB has %d vectors@]"
+      (Format.pp_print_list ~pp_sep:Format.pp_print_cut
+         Linear.QQVector.pp)
+      pointed_hilbert_basis
+      (Format.pp_print_list ~pp_sep:Format.pp_print_cut
+         Linear.QQVector.pp)
+      lineality_basis
+      (List.length pointed_hilbert_basis) (List.length lineality_basis);
+    pointed_hilbert_basis
+    @ lineality_basis
+    @ List.map Linear.QQVector.negate lineality_basis
+
+end
+
+let hilbert_basis = NormalizCone.hilbert_basis
