@@ -17,6 +17,7 @@ module QQXsInfix = struct
   let ( + ) = QQXs.add
   let ( - ) = QQXs.sub
   let ( * ) = QQXs.mul
+  let ( ~- ) = QQXs.negate
   let int k = QQXs.scalar (QQ.of_int k)
   let dim k = QQXs.of_dim (Char.code k)
 end
@@ -321,14 +322,61 @@ let test_mem () =
   assert_bool "xy should be in the cone" (mem (x * y) pc)
 
 let test_top () =
-   let open QQXsInfix in
+  let open QQXsInfix in
   let b =
     Rewrite.mk_rewrite Monomial.degrevlex [] in
   let pc = regularize b [int 1; int 0 - int 1] in
-   assert_equal_pc pc top;
-   assert_bool "top should be non proper" (not (is_proper top))
+  assert_equal_pc pc top;
+  assert_bool "top should be non proper" (not (is_proper top))
 
+module PV = Polynomial.LinearQQXs
 
+let test_inverse_hom () =
+  let open QQXsInfix in
+  let x1, x2  = QQXs.of_dim 1, QQXs.of_dim 2 in
+  let y1, y2, y3 = QQXs.of_dim 3, QQXs.of_dim 4, QQXs.of_dim 5 in
+  let ideal = Rewrite.mk_rewrite Monomial.degrevlex in
+  let cone = regularize (ideal [x1 ; x2 * x2]) [-x2] in
+  let inverse_image = inverse_homomorphism cone [ (3, x1 * x2 * x2)
+                                                ; (4, x1 * x1)
+                                                ; (5, x2) ] in
+  let expected = regularize (ideal [y1 ; y2 ; y3 * y3])
+                   [QQXs.one; -QQXs.of_dim 5] in
+  assert_equal (equal inverse_image expected) true
+
+let test_inverse_linear1 () =
+  let open QQXsInfix in
+  let x1, x2  = QQXs.of_dim 1, QQXs.of_dim 2 in
+  let ideal = Rewrite.mk_rewrite Monomial.degrevlex in
+  let cone = regularize (ideal [x1]) [-x2] in
+  let (lines, rays) = inverse_linear_map cone [(3, x1 * x1); (4, x2)] in
+  let mono dim = Monomial.singleton dim 1 in
+  let context = PV.make_context [ mono 3 ; mono 4 ] in
+  let conv = List.map (PV.densify_affine context) in
+  let (lines, rays) = ( conv lines, conv rays ) in
+  let inverse_image = Cone.make ~lines ~rays 2 in
+  let expected = Cone.make ~lines:(conv [QQXs.of_dim 3])
+                   ~rays:(conv [ QQXs.one; -QQXs.of_dim 4]) 2 in
+  assert_equal (Cone.equal inverse_image expected) true
+
+let test_inverse_linear2 () =
+  let open QQXsInfix in
+  let x1, x2  = QQXs.of_dim 1, QQXs.of_dim 2 in
+  let ideal = Rewrite.mk_rewrite Monomial.degrevlex in
+  let cone = regularize (ideal [x1]) [-x2] in
+  let (lines, rays) = inverse_linear_map cone [ (3, x1 * x1)
+                                              ; (4, x1 * x1 * x1) ; (5 , x1 * x1 * x1)
+                                              ; (6, x2) ; (7, x1 - x2) ] in
+  let mono dim = Monomial.singleton dim 1 in
+  let context = PV.make_context [ mono 3; mono 4; mono 5; mono 6; mono 7] in
+  let conv = List.map (PV.densify_affine context) in
+  let (lines, rays) = ( conv lines, conv rays ) in
+  let inverse_image = Cone.make ~lines ~rays 5 in
+  let expected = Cone.make
+                   ~lines:(conv [QQXs.of_dim 3; QQXs.of_dim 4; QQXs.of_dim 5;
+                                 QQXs.of_dim 6 + QQXs.of_dim 7])
+                   ~rays:(conv [ QQXs.one; -QQXs.of_dim 6]) 5 in
+  assert_equal (Cone.equal inverse_image expected) true
 
 let suite = "PolynomialCone" >::: [
     "test_make_enclosing1" >:: test_make_enclosing1;
@@ -344,7 +392,10 @@ let suite = "PolynomialCone" >::: [
     "test_proper1" >:: test_proper1;
     "test_proper2" >:: test_proper2;
     "test_mem" >:: test_mem;
-    "test_top" >:: test_top
+    "test_top" >:: test_top;
+    "test_inverse_hom" >:: test_inverse_hom;
+    "test_inverse_linear1" >:: test_inverse_linear1;
+    "test_inverse_linear2" >:: test_inverse_linear2
 
     ; "sat1" >:: (fun () ->
         let phi =
@@ -391,5 +442,4 @@ let suite = "PolynomialCone" >::: [
           && !(q <= (int 0))
         in
         assert_equal (LirrSolver.is_sat srk phi) `Unsat)
-
   ]
