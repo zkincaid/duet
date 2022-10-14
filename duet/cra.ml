@@ -910,7 +910,8 @@ module McMillanChecker = struct
       ctx.execlist := !(ctx.vtxcnt) %>> !(ctx.execlist);
       ctx.ptt := {!(ctx.ptt) with models = IntMap.add !(ctx.vtxcnt) model !(ctx.ptt).models};
       ctx.vtxcnt := !(ctx.vtxcnt) + 1
-    | None -> ctx.worklist := !(ctx.vtxcnt) %>> !(ctx.worklist); 
+    | None -> (** frontier nodes are nodes with no interpretations attached to them, pushed to worklist *)
+      ctx.worklist := !(ctx.vtxcnt) %>> !(ctx.worklist); 
       ctx.vtxcnt := !(ctx.vtxcnt) + 1
 
   (* expand leaf node v. If in concolic mode, 

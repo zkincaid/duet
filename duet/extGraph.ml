@@ -47,10 +47,11 @@ module type Vertex = sig
   module Set : Putil.Hashed.Set.S with type elt = t
 end
 
-let display_image = ref "eog"
+let display_image = ref "open"
 
-let display_dot output_dot graph =
-  Putil.with_temp_filename "graph" ".png"
+let display_dot output_dot graph = (*  *)
+  output_dot stdout graph 
+  (*Putil.with_temp_filename "graph" ".png"
     (fun output -> Putil.with_temp_file "graph" ".dot"
         (fun tn tc ->
            output_dot tc graph;
@@ -62,7 +63,7 @@ let display_dot output_dot graph =
                (!display_image)
                output
            in
-           ignore (Sys.command cmd)))
+           ignore (Sys.command cmd)))*)
 
 
 (* The following module is copied (and slightly modified) from
