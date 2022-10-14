@@ -366,8 +366,9 @@ struct
       ) m f_transform in Some post_model 
     | _ -> None 
 
-  let interpolate_prepare_solver trs post = 
-    let trs =
+
+  let interpolate_or_concrete_model trs post = 
+      let trs =
       trs |> List.map (fun tr ->
                  let fresh_skolem =
                    Memo.memo (fun sym ->
@@ -437,9 +438,21 @@ struct
       trs
       guards;
     Smt.Solver.add solver [substitute_const srk subscript (mk_not srk post)];
-    BatDynArray.to_list symbols, BatDynArray.to_list ss_inv, solver, indicators, guards
-
-  let interpolate_unsat_core trs post guards core = 
+    let symbols, ss_inv = BatDynArray.to_list symbols, BatDynArray.to_list ss_inv in 
+    match Smt.Solver.get_unsat_core_or_concrete_model solver indicators symbols with 
+    | `Sat model -> 
+      let e = Interpretation.enum model in 
+      let model = BatEnum.fold (fun m (s, v) -> 
+        match Var.of_symbol s with 
+          | Some _ -> Interpretation.add s v m  
+          | None ->
+           begin match List.assoc_opt s ss_inv with 
+           | Some pre_symbol -> Interpretation.add pre_symbol v m 
+           | None -> m
+           end) (Interpretation.empty C.context) e in
+      `Invalid model 
+    | `Unknown -> `Unknown 
+    | `Unsat core ->
        let core_symbols =
          List.fold_left (fun core phi ->
              match Formula.destruct srk phi with
@@ -477,9 +490,11 @@ struct
            trs
            guards
            ([post], post)
-       in itp
+       in
+       `Valid (List.tl itp)
 
-  let interpolate trs post =
+
+  let interpolate trs (post: C.t formula) =
     let trs =
       trs |> List.map (fun tr ->
                  let fresh_skolem =
@@ -584,27 +599,9 @@ struct
            ([post], post)
        in
        `Valid (List.tl itp)
-  
-  
-  let interpolate_or_concrete_model trs post = 
-    let symbols, ss_inv, solver, indicators, guards = interpolate_prepare_solver trs post in 
-    match Smt.Solver.get_unsat_core_or_concrete_model solver indicators symbols with 
-    | `Sat model -> 
-      let e = Interpretation.enum model in 
-      let model = BatEnum.fold (fun m (s, v) -> 
-        match Var.of_symbol s with 
-          | Some _ -> Interpretation.add s v m  
-          | None ->
-           begin match List.assoc_opt s ss_inv with 
-           | Some pre_symbol -> Interpretation.add pre_symbol v m 
-           | None -> m
-           end) (Interpretation.empty C.context) e in
-      `Invalid model 
-    | `Unknown -> `Unknown 
-    | `Unsat core -> 
-        let itp = interpolate_unsat_core trs post guards core in
-        `Valid (List.tl itp)
 
+  
+  
   let valid_triple phi path post =
     let path_not_post = List.fold_right mul path (assume (mk_not srk post)) in
     match Smt.is_sat srk (mk_and srk [phi; path_not_post.guard]) with

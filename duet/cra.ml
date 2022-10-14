@@ -723,7 +723,7 @@ let make_ts_assertions_unreachable (ts : cfg_t) assertions =
 module McMillanChecker = struct 
 
   (** type definitions fo McMillan checker. *)
-  let logging = true (* enable for logging *)
+  let logging = false (* enable for logging *)
 
   (* context of McMillan-Checker. *)
   type mc_context = {
@@ -989,9 +989,9 @@ module McMillanChecker = struct
   let verify_consecution_condition (interpolants: Ctx.t Srk.Syntax.formula list) (transitions: K.t list) = 
     let interpolants = (mk_true ()) :: interpolants in 
       let rec oneRest (i: Ctx.t Srk.Syntax.formula) (tr: K.t) i_rest tr_rest = 
-        Printf.printf "verify_consecution_condition: verifying: \n";
-        mypp_formula "interpolant: " [ i ];
-        mypp_weights "transition: " [ tr ];
+        if logging then Printf.printf "verify_consecution_condition: verifying: \n";
+        if logging then mypp_formula "interpolant: " [ i ];
+        if logging then mypp_weights "transition: " [ tr ];
         begin match i_rest with 
         | [] -> failwith "ERROR in verify_consecution_condition: interpolants length does not match path condition length"
         | i' :: i_rest' -> 
@@ -1041,7 +1041,7 @@ module McMillanChecker = struct
             mypp_formula "" interpolants;
             Printf.printf "--------------------------------------------------------------\n";
           end;
-           (* verify_consecution_condition interpolants path_condition; *)
+          (* verify_consecution_condition interpolants path_condition; *)
           mc_refine_with_interpolants ctx path interpolants;
           true  
         end 
@@ -1269,43 +1269,49 @@ module McMillanChecker = struct
     let continue = ref true in 
     let state = ref McContinue in
       while !continue && (DQ.size !(ctx.worklist) > 0 || DQ.size !(ctx.execlist) > 0) do
-        Printf.printf " continuing...\n";
+        if logging then Printf.printf " continuing...\n";
         if DQ.size !(ctx.execlist) > 0 then begin 
           match DQ.front !(ctx.execlist) with 
           | Some (u, w) -> 
-          Printf.printf " +----------------- ART ----------------+\n";
-          let string_of_art = 
-            Tree_printer.to_string 
-              ~line_prefix:"* " 
-              ~get_name:(tree_printer_get_name ctx) 
-              ~get_children:(children !(ctx.ptt)) 0
-            in Printf.printf "%s" string_of_art; 
-          Printf.printf " +----------------- ART ----------------+\n";
-          Printf.printf " visit %d (%d)\n" u (!(ctx.ptt) %-> u);
+            if logging then begin 
+              Printf.printf " +----------------- ART ----------------+\n";
+              let string_of_art = 
+                Tree_printer.to_string 
+                  ~line_prefix:"* " 
+                  ~get_name:(tree_printer_get_name ctx) 
+                  ~get_children:(children !(ctx.ptt)) 0
+                in Printf.printf "%s" string_of_art; 
+              Printf.printf " +----------------- ART ----------------+\n";
+              Printf.printf " visit %d (%d)\n" u (!(ctx.ptt) %-> u);
+            end;
             if (!(ctx.ptt) %-> u) = ctx.err_loc then 
               begin continue := false; state := McErrorReached end
             else begin
               ctx.execlist := w;
-              Printf.printf "model of %d: \n" u;
-              Interpretation.pp Format.std_formatter (IntMap.find u !(ctx.ptt).models) ;
+              if logging then begin 
+                Printf.printf "model of %d: \n" u;
+                Interpretation.pp Format.std_formatter (IntMap.find u !(ctx.ptt).models) 
+              end;
               mc_expand ctx u 
             end
           | None -> failwith "" (* cannot happen *)
         end else begin 
           match DQ.front !(ctx.worklist) with 
           | Some (u, w) -> 
-          Printf.printf " +----------------- ART ----------------+\n";
-            let string_of_art = Tree_printer.to_string ~line_prefix:"* " ~get_name:(tree_printer_get_name ctx) ~get_children:(children !(ctx.ptt)) 0
-            in Printf.printf "%s" string_of_art; 
-            Printf.printf " +----------------- ART ----------------+\n";
-            Printf.printf " visit frontier %d (%d)\n" u (!(ctx.ptt) %-> u);
+            if logging then begin 
+              Printf.printf " +----------------- ART ----------------+\n";
+              let string_of_art = Tree_printer.to_string ~line_prefix:"* " ~get_name:(tree_printer_get_name ctx) ~get_children:(children !(ctx.ptt)) 0
+                in Printf.printf "%s" string_of_art; 
+                Printf.printf " +----------------- ART ----------------+\n";
+                Printf.printf " visit frontier %d (%d)\n" u (!(ctx.ptt) %-> u);
+            end;
             ctx.worklist := w;
             (* Fetched tree node u from work list. First attempt to close it. *)
             if not (mc_is_covered ctx u) then begin
-              Printf.printf " uncovered. try close\n";
+              if logging then Printf.printf " uncovered. try close\n";
               begin match mc_close ctx u with 
                 | true -> (* Close succeeded. No need to further explore it. *)
-                  Printf.printf "Close succeeded.\n"; ()
+                  if logging then Printf.printf "Close succeeded.\n"; ()
                 | false -> (* u is uncovered. *)
                   if true (* ((!ptt) %-> u) == err_loc *) then 
                     begin 
@@ -1320,7 +1326,7 @@ module McMillanChecker = struct
                       List.iter (fun x -> let _ = mc_close ctx x in ()) path 
                     end 
                   else begin 
-                    Printf.printf " expanding...\n";
+                    if logging then Printf.printf " expanding...\n";
                     mc_expand ctx u
                   end
             end end

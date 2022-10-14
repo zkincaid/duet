@@ -114,20 +114,21 @@ module Make
   (** The condition under which a transition may be executed. *)
   val guard : t -> C.t formula
 
+
+
+  (** Same as interpolate, but returns a concrete model if interpllation fails. *)
+  val interpolate_or_concrete_model : t list -> C.t formula 
+        -> [`Valid of C.t formula list | `Invalid of C.t Interpretation.interpretation | `Unknown ]
+
   (** Given a path (list of transitions [tr_1 ... tr_n]) and a post-condition
       formula, determine whether the path implies the post-condition.  If yes,
       return a sequence of intermediate assertions [phi_1 ... phi_n] that
       support the proof (for each [i], [{ phi_{i-1} } tr_i { phi_i }] holds,
       where [phi_0] is [true] and [phi_n] implies the post-condition). *)
 
-  val interpolate : t list -> C.t formula -> [ `Valid of C.t formula list
+  val interpolate : t list -> C.t formula -> [> `Valid of C.t formula list
                                              | `Invalid
                                              | `Unknown ]
-
-  (** Same as interpolate, but returns a concrete model if interpllation fails. *)
-  val interpolate_or_concrete_model : t list -> C.t formula 
-        -> [`Valid of C.t formula list | `Invalid of C.t Interpretation.interpretation | `Unknown ]
-
 
   (** Given a pre-condition [P], a path [path], and a post-condition [Q],
       determine whether the Hoare triple [{P}path{Q}] is valid. *)
