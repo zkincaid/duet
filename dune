@@ -1,1 +1,5 @@
 (data_only_dirs bench regression lib)
+
+(env
+  (dev
+    (flags (:standard -warn-error -A))))

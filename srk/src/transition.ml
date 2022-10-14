@@ -340,6 +340,145 @@ struct
     | `And xs -> List.concat_map (destruct_and srk) xs
     | _ -> [phi]
 
+  let get_post_model ?(solver=Smt.mk_solver C.context) m f = 
+    let f_guard = guard f in 
+    let replacer (sym : Syntax.symbol) = 
+      if Var.of_symbol sym == None then Syntax.mk_const C.context sym 
+      else mk_real C.context @@ Interpretation.real m sym 
+      in 
+    let f_guard' = Syntax.substitute_const C.context replacer f_guard in 
+    let f_transform = transform f in 
+    let symbols = Syntax.symbols f_guard' |> Symbol.Set.elements in 
+    match Smt.get_concrete_model C.context ~solver:(solver) (symbols) f_guard' with 
+    | `Sat skolem_model -> 
+      let post_model = BatEnum.fold (fun m' (lhs, rhs) ->  
+        let replacer (sym : Syntax.symbol) = 
+          if List.mem sym symbols then mk_real C.context @@ Interpretation.real skolem_model sym  
+          else  mk_const C.context sym  
+        in
+        let sub_expr = Syntax.substitute_const C.context replacer rhs in 
+        let lhs_symbol =  Var.symbol_of lhs in
+        (* let _ = Printf.printf "substituting lhs = %s\nrhs=" @@ Syntax.show_symbol C.context lhs_symbol in 
+        let _ = Syntax.pp_expr_unnumbered C.context Format.std_formatter rhs in
+        Printf.printf "\n"; *)
+        let sub_val = Interpretation.evaluate_term m sub_expr in 
+        Interpretation.add lhs_symbol (`Real sub_val) m' 
+      ) m f_transform in Some post_model 
+    | _ -> None 
+
+  let interpolate_prepare_solver trs post = 
+    let trs =
+      trs |> List.map (fun tr ->
+                 let fresh_skolem =
+                   Memo.memo (fun sym ->
+                       match Var.of_symbol sym with
+                       | Some _ -> mk_const srk sym
+                       | None ->
+                          let name = show_symbol srk sym in
+                          let typ = typ_symbol srk sym in
+                          mk_const srk (mk_symbol srk ~name typ))
+                 in
+                 { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
+                   guard = substitute_const srk fresh_skolem tr.guard })
+    in
+    (* Break guards into conjunctions, associate each conjunct with an indicator *)
+    let guards =
+      List.map (fun tr ->
+          List.map
+            (fun phi -> (mk_symbol srk `TyBool, phi))
+            (destruct_and srk tr.guard))
+        trs
+    in
+    let indicators =
+      List.concat_map (List.map (fun (s, _) -> mk_const srk s)) guards
+    in
+    let subscript_tbl = Hashtbl.create 991 in
+    let subscript sym =
+      try
+        Hashtbl.find subscript_tbl sym
+      with Not_found -> mk_const srk sym
+    in
+    (* Convert tr into a formula, and simultaneously update the subscript
+       table *)
+    let to_ss_formula tr guards =
+      let ss_guards =
+        List.map (fun (indicator, guard) ->
+            mk_if srk
+              (mk_const srk indicator)
+              (substitute_const srk subscript guard))
+          guards
+      in
+      let (ss, phis, ss_inv) =
+        M.fold (fun var term (ss, phis, ss_inv) ->
+            let var_sym = Var.symbol_of var in
+            let var_ss_sym = mk_symbol srk (Var.typ var :> typ) in
+            let var_ss_term = mk_const srk var_ss_sym in
+            let term_ss = substitute_const srk subscript term in
+            ((var_sym, var_ss_term)::ss,
+             mk_eq srk var_ss_term term_ss::phis, (var_ss_sym, var_sym) :: ss_inv))
+          tr.transform
+          ([], ss_guards, [])
+      in
+      List.iter (fun (k, v) -> Hashtbl.add subscript_tbl k v) ss;
+      mk_and srk phis, ss_inv
+    in
+    let solver = Smt.mk_solver srk in
+    let symbols = BatDynArray.create () in
+    let ss_inv = BatDynArray.create () in  
+    Syntax.symbols post 
+    |> Symbol.Set.to_list 
+    |> List.iter (fun post_symbol -> BatDynArray.add symbols post_symbol); 
+    List.iter2 (fun tr guard ->
+        let ss_formula, ss_inv' = to_ss_formula tr guard in 
+        Smt.Solver.add solver [ss_formula];
+        List.iter (fun x -> BatDynArray.add ss_inv x) ss_inv';
+        let ss_formula_symbols = Syntax.symbols ss_formula |> Symbol.Set.to_list in 
+          List.iter (fun s -> BatDynArray.add symbols s) ss_formula_symbols)
+      trs
+      guards;
+    Smt.Solver.add solver [substitute_const srk subscript (mk_not srk post)];
+    BatDynArray.to_list symbols, BatDynArray.to_list ss_inv, solver, indicators, guards
+
+  let interpolate_unsat_core trs post guards core = 
+       let core_symbols =
+         List.fold_left (fun core phi ->
+             match Formula.destruct srk phi with
+             | (`Proposition (`App (s, []))) -> Symbol.Set.add s core
+             | _ -> assert false)
+           Symbol.Set.empty
+           core
+       in
+       let (itp, _) =
+         List.fold_right2 (fun tr guard (itp, post) ->
+             let subst sym =
+               match Var.of_symbol sym with
+               | Some var ->
+                  if M.mem var tr.transform then
+                    M.find var tr.transform
+                  else
+                    mk_const srk sym
+               | None -> mk_const srk sym
+             in
+             let post' = substitute_const srk subst post in
+             let reduced_guard =
+               List.filter_map (fun (indicator, guard) ->
+                   if Symbol.Set.mem indicator core_symbols then
+                     Some (mk_not srk guard)
+                   else
+                     None)
+                 guard
+             in
+             let wp =
+               (mk_not srk (mk_or srk (post'::reduced_guard)))
+               |> Quantifier.mbp srk (fun s -> Var.of_symbol s != None)
+               |> mk_not srk
+             in
+             (wp::itp, wp))
+           trs
+           guards
+           ([post], post)
+       in itp
+
   let interpolate trs post =
     let trs =
       trs |> List.map (fun tr ->
@@ -445,6 +584,26 @@ struct
            ([post], post)
        in
        `Valid (List.tl itp)
+  
+  
+  let interpolate_or_concrete_model trs post = 
+    let symbols, ss_inv, solver, indicators, guards = interpolate_prepare_solver trs post in 
+    match Smt.Solver.get_unsat_core_or_concrete_model solver indicators symbols with 
+    | `Sat model -> 
+      let e = Interpretation.enum model in 
+      let model = BatEnum.fold (fun m (s, v) -> 
+        match Var.of_symbol s with 
+          | Some _ -> Interpretation.add s v m  
+          | None ->
+           begin match List.assoc_opt s ss_inv with 
+           | Some pre_symbol -> Interpretation.add pre_symbol v m 
+           | None -> m
+           end) (Interpretation.empty C.context) e in
+      `Invalid model 
+    | `Unknown -> `Unknown 
+    | `Unsat core -> 
+        let itp = interpolate_unsat_core trs post guards core in
+        `Valid (List.tl itp)
 
   let valid_triple phi path post =
     let path_not_post = List.fold_right mul path (assume (mk_not srk post)) in

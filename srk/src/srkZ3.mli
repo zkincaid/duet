@@ -75,6 +75,12 @@ module Solver : sig
     ('a formula) list ->
     [ `Sat | `Unsat of ('a formula) list | `Unknown ]
 
+
+  val get_unsat_core_or_concrete_model : 'a t -> ('a formula) list -> symbol list -> 
+    [ `Sat of 'a interpretation 
+      | `Unsat of ('a formula) list 
+      | `Unknown ]
+
   val get_reason_unknown : 'a t -> string
 end
 

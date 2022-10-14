@@ -12,8 +12,7 @@ let get_model ?(symbols=[]) srk phi =
   Solver.add solver [phi];
   Solver.get_model ~symbols solver
 
-let get_concrete_model srk symbols phi =
-  let solver = mk_solver srk in
+let get_concrete_model  srk ?(solver=mk_solver srk) symbols phi =
   Solver.add solver [phi];
   Solver.get_concrete_model solver symbols
 

@@ -82,6 +82,16 @@ module Make
      sense described in [equal]. *)
   val widen : t -> t -> t
 
+  (**  
+    transtion : guard, transform
+    interpretation: M
+    find a model of the guard where we use M to replace all the pre-state value.
+    check interpretation.substitute 
+  *)
+  val get_post_model :  ?solver: (C.t Smt.Solver.t) 
+        -> C.t Interpretation.interpretation -> t -> (C.t Interpretation.interpretation) option 
+
+
   (** [exists ex tr] removes the variables that do not satisfy the predicate
       [ex] from the footprint of a transition.  For example, projecting a
       variable [x] out of a transition [tr] is logically equivalent to
@@ -113,6 +123,11 @@ module Make
   val interpolate : t list -> C.t formula -> [ `Valid of C.t formula list
                                              | `Invalid
                                              | `Unknown ]
+
+  (** Same as interpolate, but returns a concrete model if interpllation fails. *)
+  val interpolate_or_concrete_model : t list -> C.t formula 
+        -> [`Valid of C.t formula list | `Invalid of C.t Interpretation.interpretation | `Unknown ]
+
 
   (** Given a pre-condition [P], a path [path], and a post-condition [Q],
       determine whether the Hoare triple [{P}path{Q}] is valid. *)
