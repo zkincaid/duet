@@ -398,7 +398,7 @@ let verifier_builtins =
    "rand"; "__VERIFIER_nondet_char"; "__VERIFIER_nondet_int"; "__VERIFIER_nondet_long";
    "__VERIFIER_nondet_pointer"; "__VERIFIER_nondet_uint";
    "__CPROVER_atomic_begin"; "__CPROVER_atomic_end";
-   "__VERIFIER_atomic_begin"; "__VERIFIER_atomic_end"]
+   "__VERIFIER_atomic_begin"; "__VERIFIER_atomic_end"; "reach_error" ]
 
 (* Translation context *)
 type ctx =
@@ -438,6 +438,7 @@ let tr_instr ctx instr =
             mk_def (Assert (Bexpr.of_aexpr x, error_msg))
           | _ -> assert false
         end
+      | ("reach_error", None, _)  (* SV-COMP reachsafety-error *)
       | ("__VERIFIER_error", None, []) ->
         mk_def (Assert (Bexpr.kfalse, "error"))
       | ("__assert_fail", None, [_;_;_;_]) ->
@@ -705,6 +706,7 @@ let tr_file filename f =
   let globals =
     Cil.(f.globals |>
          List.filter (function
+             | GFun ({svar = v}, _) 
              | GVarDecl (v, _) | GVar (v, _, _) ->
                not (List.mem v.Cil.vname verifier_builtins)
              | _ -> true))
