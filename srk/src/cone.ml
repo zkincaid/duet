@@ -254,56 +254,22 @@ let join c d =
       normal = false;
       minimal = false }
 
-let lexpr_of_vec vec =
-  let mk (coeff, dim) = (SrkApron.coeff_of_qq coeff, dim) in
-  Apron.Linexpr0.of_list
-    None
-    (BatList.of_enum (BatEnum.map mk (V.enum vec)))
-    None
-  
-
-let vec_of_lexpr linexpr =
-  let open Apron in
-  let vec = ref V.zero in
-  Linexpr0.iter (fun coeff dim ->
-      match SrkApron.qq_of_coeff coeff with
-      | Some qq -> vec := V.add_term qq dim (!vec)
-      | None -> assert false)
-    linexpr;
-  !vec
-
 let apron0_of cone =
-  let open Apron in
-  let man = Polka.manager_alloc_loose () in
-  let generators =
-    BatEnum.fold
-      (fun generators v ->
-        Generator0.(make (lexpr_of_vec v) LINE)::generators)
-      (List.map (fun v -> Generator0.(make (lexpr_of_vec v) RAY)) cone.rays)
-      (QS.basis cone.lines)
-  in
-  let zero = (* Singleton set {0} *)
-    let one = Coeff.s_of_int 1 in
-    let unit i = Linexpr0.of_list None [one, i] None in
-    Abstract0.of_lincons_array man 0 cone.dim
-      (Array.init cone.dim (fun i -> Lincons0.(make (unit i) EQ)))
-  in
-  Abstract0.add_ray_array man zero (BatArray.of_list generators)
+  let e = BatList.enum [(`Vertex, V.zero)] in
+  List.iter (fun v -> BatEnum.push e (`Ray, v)) cone.rays;
+  BatEnum.iter (fun v -> BatEnum.push e (`Line, v)) (QS.basis cone.lines);
+  DD.of_generators cone.dim e
 
 let dual cone =
-  let open Apron in
-  let ap = apron0_of cone in
-  let man = Abstract0.manager ap in
-  let (lines, rays) =
-    BatArray.fold_left
-      (fun (lines, rays) lincons ->
-        Lincons0.(let vec = vec_of_lexpr lincons.linexpr0 in
-                  match lincons.typ with
-                  | EQ -> (QS.add vec lines, rays)
-                  | SUPEQ -> (lines, vec::rays)
-                  | _ -> assert false))
+  let lines, rays =
+    BatEnum.fold
+      (fun (lines, rays) (kind, v) ->
+         match kind with
+         | `Zero -> (QS.add v lines, rays)
+         | `Nonneg -> (lines, v::rays)
+         | `Pos -> assert false)
       (QS.zero, [])
-      (Abstract0.to_lincons_array man ap)
+      (DD.enum_constraints (apron0_of cone))
   in
   { dim = cone.dim
   ; lines = lines
@@ -316,24 +282,20 @@ let meet c d =
   if c.dim != d.dim then
     invalid_arg "Cone.meet: incompatible dimensions"
   else
-    let open Apron in
     let dim = c.dim in
     let c = apron0_of c in
     let d = apron0_of d in
-    let man = Abstract0.manager c in
-    let (lines, rays) =
-      BatArray.fold_left
-        (fun (lines, rays) generator ->
-          Generator0.(let vec = vec_of_lexpr generator.linexpr0 in
-                      match generator.typ with
-                      | LINE -> (QS.add vec lines, rays)
-                      | RAY -> (lines, vec::rays)
-                      | VERTEX ->
-                         assert (V.is_zero vec);
-                         (lines, rays)
-                      | _ -> assert false))
+    let lines, rays =
+      BatEnum.fold
+        (fun (lines, rays) (kind, v) ->
+           match kind with
+           | `Line -> (QS.add v lines, rays)
+           | `Ray -> (lines, v::rays)
+           | `Vertex ->
+             assert (V.is_zero v);
+             (lines, rays))
         (QS.zero, [])
-        (Abstract0.to_generator_array man (Abstract0.meet man c d))
+        (DD.enum_generators (DD.meet c d))
     in
     let rays = List.map (QS.reduce lines) rays in
     { dim = dim;

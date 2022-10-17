@@ -77,11 +77,11 @@ let llrf_residual srk tf =
         in
         (* Origin must belong to the lower-bounded terms cone *)
         BatEnum.push lb_cone_generators (`Vertex, Vec.zero);
-        Polyhedron.DD.of_generators dim lb_cone_generators
+        DD.of_generators dim lb_cone_generators
       in
-      let qrf_cone = Polyhedron.DD.meet non_inc_cone lb_cone in
+      let qrf_cone = DD.meet non_inc_cone lb_cone in
       let qrf_invariant =
-        Polyhedron.DD.enum_generators qrf_cone
+        DD.enum_generators qrf_cone
         |> BatEnum.filter_map (fun (typ, vec) ->
                if typ = `Ray then
                  let unprimed_exp =

@@ -101,24 +101,6 @@ val equal : t -> t -> bool
    [a] belongs to this space. *)
 val constraint_space : t -> Linear.QQVectorSpace.t
 
-(** Double-description method polyhedra. *)
-type closed
-type nnc
-module DD : sig
-  type 'a t
-  val of_generators : int -> (generator_kind * V.t) BatEnum.t -> closed t
-  val join : 'a t -> 'a t -> 'a t
-  val meet : 'a t -> 'a t -> 'a t
-  val equal : 'a t -> 'a t -> bool
-  val implies : 'a t -> (constraint_kind * V.t) -> bool
-  val meet_constraints : 'a t -> (constraint_kind * V.t) list -> 'a t
-  val project : int list -> 'a t -> 'a t
-  val minimal_faces : 'a t -> (V.t * ((constraint_kind * V.t) list)) list
-
-  (** Enumerate the generators of a polyhedron. *)
-  val enum_generators : 'a t -> (generator_kind * V.t) BatEnum.t
-end
-
-val dd_of : ?man:(Polka.loose Polka.t Apron.Manager.t) -> int -> t -> closed DD.t
-val nnc_dd_of : ?man:(Polka.strict Polka.t Apron.Manager.t) -> int -> t -> nnc DD.t
+val dd_of : ?man:(Polka.loose Polka.t Apron.Manager.t) -> int -> t -> DD.closed DD.t
+val nnc_dd_of : ?man:(Polka.strict Polka.t Apron.Manager.t) -> int -> t -> DD.nnc DD.t
 val of_dd : 'a DD.t -> t

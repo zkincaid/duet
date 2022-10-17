@@ -15,13 +15,17 @@ let mk_polyhedron_from_generators mk_vector dim vertices rays =
   (List.map (fun v -> (`Vertex, mk_vector v)) vertices)
   @ (List.map (fun v -> (`Ray, mk_vector v)) rays)
   |> BatList.enum
-  |> Polyhedron.DD.of_generators dim
+  |> DD.of_generators dim
   |> Polyhedron.of_dd
 
 let qqify v = List.map (fun (a, b) -> QQ.of_frac a b) v
 
 let assert_equal_polyhedron p q =
   assert_equal ~cmp:Polyhedron.equal p q
+
+let assert_equal_dd p q =
+  assert_equal ~cmp:DD.equal p q
+
 
 let test_vertical_integer_hull k () =
   (*
@@ -224,5 +228,22 @@ let suite = "Polyhedron" >::: [
 
       "integer_hull_1" >:: test_vertical_integer_hull 3;
       "integer_hull_2" >:: test_translated_parallelogram 3;
-      "integer_hull_3" >:: test_halfspace
+      "integer_hull_3" >:: test_halfspace;
+      "closed_dd" >:: (fun () ->
+          let to_vec (v, a) =
+            V.add_term (QQ.of_int (-a)) Linear.const_dim (mk_vector v)
+          in
+          let q =
+            BatList.enum [([1; 0], 1);
+                          ([0; 1], 0)]
+            /@ (fun h -> (`Pos, to_vec h))
+            |> DD.of_constraints_closed 2
+          in
+          let q' =
+            BatList.enum [([1; 0], 1);
+                          ([0; 1], 0)]
+            /@ (fun h -> (`Nonneg, to_vec h))
+            |> DD.of_constraints_closed 2
+         in
+         assert_equal_dd q' q)
   ]
