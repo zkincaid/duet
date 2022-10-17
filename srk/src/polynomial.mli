@@ -104,6 +104,9 @@ module Monomial : sig
 
   (** Determine whether a monomial is a variable *)
   val destruct_var : t -> dim option
+
+  (** Sum of powers of all variables. *)
+  val total_degree : t -> int
 end
 
 (** Signature of multivariate polynmials *)

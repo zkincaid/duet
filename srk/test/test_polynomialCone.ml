@@ -37,6 +37,8 @@ let assert_equal_pc p q =
   let show = SrkUtil.mk_show (PolynomialCone.pp pp_dim) in
   assert_equal ~printer:show ~cmp:PolynomialCone.equal p q
 
+let make_regular_cone z p = regularize (make_cone z p)
+
 let test_make_enclosing1 () =
   let open QQXsInfix in
   let x = dim 'x' in
@@ -52,8 +54,8 @@ let test_make_enclosing1 () =
      y - x;
      z - y;]
   in
-  let pc = regularize basis geq_zero_polys in
-  let q = regularize
+  let pc = make_regular_cone basis geq_zero_polys in
+  let q = make_regular_cone
       (Rewrite.mk_rewrite Monomial.degrevlex [y; x])
       [(int 1) ; z]
   in
@@ -75,8 +77,8 @@ let test_make_enclosing2 () =
      y * y - z * z * z;
      z * z * z - y * y;]
   in
-  let pc = regularize basis geq_zero_polys in
-  let q = regularize
+  let pc = make_regular_cone basis geq_zero_polys in
+  let q = make_regular_cone
       (Rewrite.mk_rewrite Monomial.degrevlex [y * y; z * z * z; x])
       [(int 1)]
   in
@@ -97,8 +99,8 @@ let test_make_enclosing3 () =
      y - z;
      z - x;]
   in
-  let pc = regularize basis geq_zero_polys in
-  let q = regularize
+  let pc = make_regular_cone basis geq_zero_polys in
+  let q = make_regular_cone
       (Rewrite.mk_rewrite Monomial.degrevlex [x; y; z])
       [(int 1)]
   in
@@ -120,9 +122,9 @@ let test_proj1 () =
      y - x;
      z - y;]
   in
-  let pc = regularize basis geq_zero_polys in
+  let pc = make_regular_cone basis geq_zero_polys in
   let pc = project pc (fun d -> d != Char.code 'y') in
-  let q = regularize
+  let q = make_regular_cone
       (Rewrite.mk_rewrite Monomial.degrevlex [x])
       [(int 1) ; z]
   in
@@ -142,9 +144,9 @@ let test_proj2 () =
     [y - x * y;
      z - y;]
   in
-  let pc = regularize basis geq_zero_polys in
+  let pc = make_regular_cone basis geq_zero_polys in
   let pc = project pc (fun d -> d != Char.code 'y') in
-  let q = regularize
+  let q = make_regular_cone
       (Rewrite.mk_rewrite Monomial.degrevlex [x])
       [(int 1) ; z]
   in
@@ -164,9 +166,9 @@ let test_proj3 () =
     [y - x * y;
      z - y;]
   in
-  let pc = regularize basis geq_zero_polys in
+  let pc = make_regular_cone basis geq_zero_polys in
   let pc = project pc (fun d -> d != Char.code 'y') in
-  let q = regularize
+  let q = make_regular_cone
       (Rewrite.mk_rewrite Monomial.degrevlex [x * x])
       [(int 1)]
   in
@@ -183,10 +185,10 @@ let test_intersec1 () =
      z - y;]
   in
   let geq_polys2 = [y - x] in
-  let pc1 = regularize x_zero geq_polys1 in
-  let pc2 = regularize x_zero geq_polys2 in
+  let pc1 = make_regular_cone x_zero geq_polys1 in
+  let pc2 = make_regular_cone x_zero geq_polys2 in
   let pc = intersection pc1 pc2 in
-  let q = regularize (x_zero) [] in
+  let q = make_regular_cone (x_zero) [] in
   assert_equal_pc q pc
 
 let test_intersec2 () =
@@ -211,10 +213,10 @@ let test_intersec2 () =
     [x - y;]
   in
 
-  let pc1 = regularize basis1 geq_polys1 in
-  let pc2 = regularize basis2 geq_polys2 in
+  let pc1 = make_regular_cone basis1 geq_polys1 in
+  let pc2 = make_regular_cone basis2 geq_polys2 in
   let pc = intersection pc1 pc2 in
-  let q = regularize
+  let q = make_regular_cone
       (Rewrite.mk_rewrite Monomial.degrevlex [x * y - x])
       [int 1; x; y - int 1 ]
   in
@@ -241,10 +243,10 @@ let test_intersec3 () =
     [int 0 - int 1]
   in
 
-  let pc1 = regularize basis1 geq_polys1 in
-  let pc2 = regularize basis2 geq_polys2 in
+  let pc1 = make_regular_cone basis1 geq_polys1 in
+  let pc2 = make_regular_cone basis2 geq_polys2 in
   let pc = intersection pc1 pc2 in
-  let q = regularize
+  let q = make_regular_cone
       (Rewrite.mk_rewrite Monomial.degrevlex [x ])
       [int 1; y - int 1 ]
   in
@@ -271,10 +273,10 @@ let test_intersec4 () =
     []
   in
 
-  let pc1 = regularize basis1 geq_polys1 in
-  let pc2 = regularize basis2 geq_polys2 in
+  let pc1 = make_regular_cone basis1 geq_polys1 in
+  let pc2 = make_regular_cone basis2 geq_polys2 in
   let pc = intersection pc1 pc2 in
-  let q = regularize
+  let q = make_regular_cone
       (Rewrite.mk_rewrite Monomial.degrevlex [ x - x * x ])
       [x;  int 1 - x ]
   in
@@ -293,7 +295,7 @@ let test_proper1 () =
     [y - int 1;
     ]
   in
-  let pc = regularize basis geq_polys in
+  let pc = make_regular_cone basis geq_polys in
   assert_bool "should be proper" (is_proper pc)
 
 let test_proper2 () =
@@ -309,7 +311,7 @@ let test_proper2 () =
     [x * y - int 1;
     ]
   in
-  let pc = regularize basis geq_polys in
+  let pc = make_regular_cone basis geq_polys in
   assert_bool "should be non proper" (not (is_proper pc))
 
 let test_mem () =
@@ -318,14 +320,14 @@ let test_mem () =
   let y = dim 'y' in
   let b =
     Rewrite.mk_rewrite Monomial.degrevlex [x] in
-  let pc = regularize b [] in
+  let pc = make_regular_cone b [] in
   assert_bool "xy should be in the cone" (mem (x * y) pc)
 
 let test_top () =
   let open QQXsInfix in
   let b =
     Rewrite.mk_rewrite Monomial.degrevlex [] in
-  let pc = regularize b [int 1; int 0 - int 1] in
+  let pc = make_regular_cone b [int 1; int 0 - int 1] in
   assert_equal_pc pc top;
   assert_bool "top should be non proper" (not (is_proper top))
 
@@ -336,11 +338,11 @@ let test_inverse_hom () =
   let x1, x2  = QQXs.of_dim 1, QQXs.of_dim 2 in
   let y1, y2, y3 = QQXs.of_dim 3, QQXs.of_dim 4, QQXs.of_dim 5 in
   let ideal = Rewrite.mk_rewrite Monomial.degrevlex in
-  let cone = regularize (ideal [x1 ; x2 * x2]) [-x2] in
+  let cone = make_regular_cone (ideal [x1 ; x2 * x2]) [-x2] in
   let inverse_image = inverse_homomorphism cone [ (3, x1 * x2 * x2)
                                                 ; (4, x1 * x1)
                                                 ; (5, x2) ] in
-  let expected = regularize (ideal [y1 ; y2 ; y3 * y3])
+  let expected = make_regular_cone (ideal [y1 ; y2 ; y3 * y3])
                    [QQXs.one; -QQXs.of_dim 5] in
   assert_equal (equal inverse_image expected) true
 
@@ -348,7 +350,7 @@ let test_inverse_linear1 () =
   let open QQXsInfix in
   let x1, x2  = QQXs.of_dim 1, QQXs.of_dim 2 in
   let ideal = Rewrite.mk_rewrite Monomial.degrevlex in
-  let cone = regularize (ideal [x1]) [-x2] in
+  let cone = make_regular_cone (ideal [x1]) [-x2] in
   let (lines, rays) = inverse_linear_map cone [(3, x1 * x1); (4, x2)] in
   let mono dim = Monomial.singleton dim 1 in
   let context = PV.make_context [ mono 3 ; mono 4 ] in
@@ -363,7 +365,7 @@ let test_inverse_linear2 () =
   let open QQXsInfix in
   let x1, x2  = QQXs.of_dim 1, QQXs.of_dim 2 in
   let ideal = Rewrite.mk_rewrite Monomial.degrevlex in
-  let cone = regularize (ideal [x1]) [-x2] in
+  let cone = make_regular_cone (ideal [x1]) [-x2] in
   let (lines, rays) = inverse_linear_map cone [ (3, x1 * x1)
                                               ; (4, x1 * x1 * x1) ; (5 , x1 * x1 * x1)
                                               ; (6, x2) ; (7, x1 - x2) ] in
@@ -442,4 +444,33 @@ let suite = "PolynomialCone" >::: [
           && !(q <= (int 0))
         in
         assert_equal (LirrSolver.is_sat srk phi) `Unsat)
+
+    ; "algebraic_cone" >:: (fun () ->
+        let pc =
+          make_cone (Rewrite.mk_rewrite Monomial.degrevlex []) [QQXs.negate QQXs.one]
+        in
+        assert_bool "algebraic cone generated by -1 is proper" (is_proper pc))
+
+    ; "algebraic_cone_project" >:: (fun () ->
+        let pc =
+          make_cone (Rewrite.mk_rewrite Monomial.degrevlex []) [QQXs.negate QQXs.one]
+        in
+        let pc' = project pc (fun _ -> true) in
+        assert_bool "algebraic cone generated by -1 is proper" (is_proper pc'))
+
+    ; "algebraic_cone_intersect" >:: (fun () ->
+        let open QQXsInfix in
+        let x = dim 'x' in
+        let y = dim 'y' in
+        let pc1 =
+          make_cone (Rewrite.mk_rewrite Monomial.degrevlex [])
+            [x - y; x; y - (int 1)]
+        in
+        let pc2 =
+          make_cone (Rewrite.mk_rewrite Monomial.degrevlex []) [x; y]
+        in
+        let expected =
+          make_cone (Rewrite.mk_rewrite Monomial.degrevlex []) [x]
+        in
+        assert_equal_pc expected (intersection pc1 pc2))
   ]

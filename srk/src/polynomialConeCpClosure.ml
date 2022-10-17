@@ -223,6 +223,7 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
       begin
         L.logf "regular_cutting_plane_closure: closure round %d@;" !num_rounds;
         num_rounds := !num_rounds + 1;
+        let new_cone = PolynomialCone.regularize new_cone in
         let new_affine_basis =
           make_affine_basis (PolynomialCone.get_ideal new_cone) affine_basis.basis in
         closure new_cone new_affine_basis
