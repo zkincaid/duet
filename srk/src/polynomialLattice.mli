@@ -12,7 +12,7 @@ val member : QQXs.t -> t -> bool
 
 val sum : t -> t -> t
 
-(* val intersect : t -> t -> t *)
+val intersect : t -> t -> t
 
 val subset : t -> t -> bool
 
