@@ -3,57 +3,40 @@ open BatPervasives
 
 module L = Log.Make(struct let name = "srk.polyLattice" end)
 
-type context =
-  { ctx : LinearQQXs.context
-  ; monomials : Monomial.t list
-  }
-
 (** Affine lattice is reduced with respect to ideal.
     The lattice is unchanged whether the affine lattice is reduced or not.
  *)
 type t =
-  { ideal : Rewrite.t
+  { ideal : Ideal.t
   ; affine_lattice : IntLattice.t
-  ; affine_context : context
+  ; affine_context : LinearQQXs.context
   }
 
-(* Use [degrevlex] order so that the intersection of the affine lattice with
-   QQ[Y] can be computed as the intersection of the basis with QQ[Y].
- *)
-let monomial_order = Polynomial.Monomial.degrevlex
-
-module MonomialSet =
-  BatSet.Make(struct type t = Monomial.t
-                     let compare x y = match monomial_order x y with
-                       | `Lt -> -1
-                       | `Eq -> 0
-                       | `Gt -> 1
-              end)
-
-let make_context polys =
-  let monos = polys
-              |> List.fold_left
-                   (fun monos poly ->
-                     QQXs.enum poly
-                     |> BatEnum.fold (fun s (_coeff, mono) -> MonomialSet.add mono s)
-                          monos)
-                   MonomialSet.empty
-              |> MonomialSet.elements
+let make_context monomial_order polys =
+  let module MonomialSet =
+    BatSet.Make(struct type t = Monomial.t
+                       let compare x y = match monomial_order x y with
+                         | `Lt -> -1
+                         | `Eq -> 0
+                         | `Gt -> 1
+                end)
   in
-  { ctx = LinearQQXs.make_context monos
-  ; monomials = monos
-  }  
-  
-let zero =
-  { ideal = Rewrite.mk_rewrite monomial_order []
-  ; affine_lattice = IntLattice.hermitize []
-  ; affine_context = make_context []
-  }
+  let sorted_monos =
+    polys
+    |> List.fold_left
+         (fun monos poly ->
+           QQXs.enum poly
+           |> BatEnum.fold (fun s (_coeff, mono) -> MonomialSet.add mono s)
+                monos)
+         MonomialSet.empty
+    |> MonomialSet.elements
+  in
+  (LinearQQXs.make_context sorted_monos, sorted_monos)
 
 let ideal t = t.ideal
 
 let affine_basis t =
-  List.map (LinearQQXs.sparsify_affine t.affine_context.ctx)
+  List.map (LinearQQXs.sparsify_affine t.affine_context)
     (IntLattice.basis t.affine_lattice)
 
 let pp pp_dim fmt t =
@@ -63,42 +46,38 @@ let pp pp_dim fmt t =
      }"
     (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
        (QQXs.pp pp_dim))
-    (List.map (LinearQQXs.sparsify t.affine_context.ctx)
+    (List.map (LinearQQXs.sparsify t.affine_context)
        (IntLattice.basis t.affine_lattice))
-    (Rewrite.pp pp_dim) t.ideal
+    (Ideal.pp pp_dim) t.ideal
 
-let reduce ideal polys =
+let reduce red polys =
   BatList.filter_map
-    (fun p -> let p' = Rewrite.reduce ideal p in
+    (fun p -> let p' = red p in
               if QQXs.equal p' QQXs.zero then None
               else Some p')
     polys
 
 let make ideal affine_polys : t =
-  let ideal = Rewrite.mk_rewrite monomial_order (Ideal.generators ideal) in
-  let affine_polys = reduce ideal affine_polys in
-  let affine_context = make_context affine_polys in
-  let vectors = List.map (LinearQQXs.densify_affine affine_context.ctx)
+  let ideal = ideal in
+  let affine_polys = reduce (Ideal.reduce ideal) affine_polys in
+  let affine_context = LinearQQXs.min_context (BatList.enum affine_polys) in
+  let vectors = List.map (LinearQQXs.densify_affine affine_context)
                   affine_polys in
   let affine_lattice = IntLattice.hermitize vectors in
   { ideal ; affine_lattice ; affine_context }
 
 let member poly t =
   try
-    Rewrite.reduce t.ideal poly
+    Ideal.reduce t.ideal poly
     |> (fun p -> IntLattice.member
-                   (LinearQQXs.densify_affine t.affine_context.ctx p)
+                   (LinearQQXs.densify_affine t.affine_context p)
                    t.affine_lattice)
   with Linear.Not_in_context ->
     (* TODO: Suggest moving this exception into Linear.DenseConversion *)
     false
 
 let sum t1 t2 =
-  let ideal1, ideal2 = ideal t1, ideal t2 in
-  let ideal =
-    (Rewrite.generators ideal1) @ (Rewrite.generators ideal2)
-    |> Ideal.make
-  in
+  let ideal = Ideal.sum (ideal t1) (ideal t2) in
   let affine = (affine_basis t1) @ (affine_basis t2) in
   make ideal affine
 
@@ -118,32 +97,33 @@ let fresh_dim polys =
   if fresh < 0 then 0 else fresh
 
 let intersect t1 t2 =
-  let ideal1, ideal2 = Rewrite.generators (ideal t1), Rewrite.generators (ideal t2) in
+  let ideal1, ideal2 = Ideal.generators (ideal t1), Ideal.generators (ideal t2) in
   let affine1, affine2 = affine_basis t1, affine_basis t2 in
   let all_polys = List.concat [ ideal1 ; ideal2 ; affine1 ; affine2 ] in
   if all_polys = []
-  then zero
+  then make (Ideal.make []) []
   else
-    let fresh = fresh_dim (List.concat [ideal1 ; ideal2 ; affine1 ; affine2]) in
-    let elim_order = Monomial.block [fun dim -> dim = fresh] monomial_order in
+    let fresh = fresh_dim all_polys in
+    let elim_order = Monomial.block [fun dim -> dim = fresh] Monomial.degrevlex in
     let w = QQXs.of_dim fresh in
     let w' = QQXs.sub QQXs.one w in
     let weight w polys = List.map (QQXs.mul w) polys in
     let weighted_ideal1, weighted_ideal2 = (weight w ideal1, weight w' ideal2) in
     let weighted_affine1, weighted_affine2 = (weight w affine1, weight w' affine2) in
     let weighted_ideal = Rewrite.mk_rewrite elim_order (weighted_ideal1 @ weighted_ideal2) in
-    let weighted_affine = reduce weighted_ideal (weighted_affine1 @ weighted_affine2) in
-    let affine_context = make_context weighted_affine in
+    let weighted_affine = reduce (Rewrite.reduce weighted_ideal)
+                            (weighted_affine1 @ weighted_affine2) in
+    let (affine_context, sorted_monos) = make_context elim_order weighted_affine in
     let cutoff_dim =
       try
         let (idx, _) = BatList.findi (fun _idx mono -> Monomial.power fresh mono > 0)
-                         affine_context.monomials
+                         sorted_monos
         in Some idx
       with Not_found ->
         None
     in
     let affine_lattice =
-      List.map (LinearQQXs.densify_affine affine_context.ctx) weighted_affine
+      List.map (LinearQQXs.densify_affine affine_context) weighted_affine
       |> IntLattice.hermitize
       |> (fun lattice ->
         match cutoff_dim with
@@ -152,14 +132,16 @@ let intersect t1 t2 =
            IntLattice.project_lower (cutoff - 1) lattice)
     in
     let projected_ideal =
-      Rewrite.generators weighted_ideal
-      |> List.filter (fun p -> not (SrkUtil.Int.Set.mem fresh (QQXs.dimensions p)))
-      |> Rewrite.mk_rewrite monomial_order in
+      Rewrite.restrict
+        (fun m -> BatEnum.for_all (fun (dim, _pow) -> dim <> fresh)
+                    (Monomial.enum m))
+        weighted_ideal
+    in
     (* TODO: The affine lattice should not need to be reduced by projected_ideal
        because all monomials in the affine lattice are not reducible by
        the original ideal. Verify that's true.
      *)
-    { ideal = projected_ideal
+    { ideal = Ideal.make (Rewrite.generators projected_ideal)
     ; affine_lattice
     ; affine_context
     }
