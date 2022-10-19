@@ -34,7 +34,7 @@ let make_context monomial_order polys =
   (LinearQQXs.make_context sorted_monos, sorted_monos)
 
 let ideal t = t.ideal
-
+  
 let affine_basis t =
   List.map (LinearQQXs.sparsify_affine t.affine_context)
     (IntLattice.basis t.affine_lattice)
@@ -48,7 +48,7 @@ let pp pp_dim fmt t =
        (QQXs.pp pp_dim))
     (List.map (LinearQQXs.sparsify t.affine_context)
        (IntLattice.basis t.affine_lattice))
-    (Ideal.pp pp_dim) t.ideal
+    (Ideal.pp pp_dim) (ideal t)
 
 let reduce red polys =
   BatList.filter_map
@@ -68,7 +68,7 @@ let make ideal affine_polys : t =
 
 let member poly t =
   try
-    Ideal.reduce t.ideal poly
+    Ideal.reduce (ideal t) poly
     |> (fun p -> IntLattice.member
                    (LinearQQXs.densify_affine t.affine_context p)
                    t.affine_lattice)
@@ -147,9 +147,8 @@ let intersect t1 t2 =
     }
 
 let subset t1 t2 =
-  let aff1 = affine_basis t1 in
-  let ideal1 = ideal t1 in
-  let polys1 = (Rewrite.generators ideal1) @ aff1 in
-  List.for_all (fun p -> member p t2) polys1
+  List.for_all (fun p -> member p t2) (affine_basis t1)
+  && List.for_all (fun p -> (QQXs.equal (Ideal.reduce (ideal t2) p)) QQXs.zero)
+       (Ideal.generators (ideal t1))
 
 let equal t1 t2 = subset t1 t2 && subset t2 t1
