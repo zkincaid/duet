@@ -352,8 +352,9 @@ module NormalizCone = struct
     let ctx = D.min_context (BatList.enum (lineality @ rays)) in
     let normaliz_rays =
       BatList.concat_map (fun line -> [line ; V.negate line]) lineality
-      |> BatList.append cone.rays
-      |> BatList.map (densify ctx) in
+      |> BatList.rev_append rays
+      |> BatList.map (densify ctx)
+    in
     let cone = Normaliz.empty_cone
                |> Normaliz.add_rays normaliz_rays |> Result.get_ok
                |> Normaliz.new_cone in
