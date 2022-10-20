@@ -258,7 +258,7 @@ def summary_by_verdict(average_over_runs=1):
     print(" & \\multicolumn{4}{c}{%s}\\\\" % tools[-1])
 
     print(" & \#tasks & %s\\\\\\midrule" % " & ".join(
-        ["\#P & \#E & t & $\sigma$ "] * len(tools)))
+        ["\#P & \#E & t & $\\sigma$ "] * len(tools)))
 
     for suite in suites:
         for verd in ['true', 'false', 'unknown']:
@@ -297,6 +297,7 @@ def summary(average_over_runs=1):
     total_time = {}
     max_variance = {}
     num_timeout = {}
+    num_timeout_by_suite = {}
 
     for tool in tools:
         total_correct[tool] = 0
@@ -309,6 +310,7 @@ def summary(average_over_runs=1):
         best_time_suite = 999999999.0
         best_correct_suite = 0
         num_suite = 0
+        num_timeout_by_suite[suite] = {}
         for tool in tools:
             r = summarize_result(
                 tool, suite, average_over_runs=average_over_runs)
@@ -322,6 +324,7 @@ def summary(average_over_runs=1):
             best_time_suite = min(best_time_suite, r.time)
             max_variance[tool] = max(max_variance[tool], r.maxvar)
             num_timeout[tool] += r.timeout
+            num_timeout_by_suite[suite][tool] = r.timeout
 
         best_time[suite] = best_time_suite
         best_correct[suite] = best_correct_suite
@@ -329,15 +332,15 @@ def summary(average_over_runs=1):
         matrix[suite] = row
 
     print("\\begin{tabular}{@{}lc|%s@{}}" %
-          ("|".join(["c@{}r@{}r"] * (len(tools)))))
+          ("|".join(["c@{}r"] * (len(tools)))))
     print("\\toprule")
     print(" &", end='')
     for tool in tools[:-1]:
-        print(" & \\multicolumn{3}{c|}{%s}" % tool, end='')
-    print(" & \\multicolumn{3}{c}{%s}\\\\" % tools[-1])
+        print(" & \\multicolumn{2}{c|}{%s}" % tool, end='')
+    print(" & \\multicolumn{2}{c}{%s}\\\\" % tools[-1])
 
     print(" & \#tasks & %s\\\\\\midrule" %
-          " & ".join(["\#correct & time & var"] * len(tools)))
+          " & ".join(["\#correct & time"] * len(tools)))
 
     for suite in suites:
         print("%s & %d" % (suite, num[suite]), end='')
@@ -351,6 +354,7 @@ def summary(average_over_runs=1):
                 print(" & \\textbf{%.1f}" % best_time[suite], end='')
             else:
                 print(" & %.1f" % matrix[suite][tool].time, end='')
+            print(" (%d)" % num_timeout_by_suite[suite][tool], end='')
         print("\\\\")
     print("\\midrule")
 
@@ -365,10 +369,10 @@ def summary(average_over_runs=1):
             print(" & %d" % total_correct[tool], end='')
 
         if (total_time[tool] == best_total_time):
-            print(" & \\textbf{%.1f},max $\\sigma$=(%.2f)" %
+            print(" & \\textbf{%.1f}, max $\\sigma$=%.2f" %
                   (best_total_time, max_variance[tool]), end='')
         else:
-            print(" & %.1f, max $\\sigma$=(%.2f)" %
+            print(" & %.1f, max $\\sigma$=%.2f" %
                   (total_time[tool], max_variance[tool]), end='')
     print("\\\\")
 

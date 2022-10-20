@@ -299,15 +299,52 @@ and tr_bexpr bexpr =
           end
         | Ne ->
           begin
-            let t1 = (Core.resolve_type (Core.Aexpr.get_type rx)) in
-            let t2 = (Core.resolve_type (Core.Aexpr.get_type ry)) in
-            match t1, t2 with
-            | Core.Int _, Core.Int _ ->
-              Ctx.mk_or [Ctx.mk_leq (Ctx.mk_add [x; (Ctx.mk_int 1)]) y;
-                         Ctx.mk_leq (Ctx.mk_add [y; (Ctx.mk_int 1)]) x]
-            | _, _ ->
+            match rx, ry with
+            | (BinaryOp (a, Mod, b, _), Constant (CInt (k, _))) ->
+              (* a mod b != k <==> (a + r - k)/b is an integer for some 1 <= r
+                 <= |b|-1 or k has the wrong sign (positive when signs of a/b
+                 are the different, or negative when they are the same *)
+              let ta = tr_expr_val a in
+              let tb = tr_expr_val b in
+              let r = nondet_const "rem" `TyInt in
+              begin
+                if k >= 0 then
+                  Ctx.mk_or
+                    [Syntax.mk_iff Ctx.context
+                       (Ctx.mk_leq ta (Ctx.mk_int 0))
+                       (Ctx.mk_leq (Ctx.mk_int 0) tb)
+                    ; Ctx.mk_and
+                        [ Ctx.mk_leq (Ctx.mk_int 0) r
+                        ; Ctx.mk_or [ Ctx.mk_leq r (Ctx.mk_int (k-1))
+                                    ; Ctx.mk_leq (Ctx.mk_int (k+1)) r]
+                        ; Ctx.mk_or [ Ctx.mk_leq r (Ctx.mk_sub tb (Ctx.mk_int 1))
+                                    ; Ctx.mk_leq r (Ctx.mk_sub (Ctx.mk_int 1) tb)]
+                        ; Ctx.mk_is_int (Ctx.mk_div (Ctx.mk_sub ta r) tb)]]
+                else
+                  Ctx.mk_or
+                    [Syntax.mk_iff Ctx.context
+                       (Ctx.mk_leq (Ctx.mk_int 0) ta)
+                       (Ctx.mk_leq (Ctx.mk_int 0) tb)
+                    ; Ctx.mk_and
+                        [ Ctx.mk_leq r (Ctx.mk_int 0)
+                        ; Ctx.mk_or [ Ctx.mk_leq r (Ctx.mk_int (k-1))
+                                    ; Ctx.mk_leq (Ctx.mk_int (k+1)) r]
+                        ; Ctx.mk_or [ Ctx.mk_leq (Ctx.mk_sub tb (Ctx.mk_int 1)) r
+                                    ; Ctx.mk_leq (Ctx.mk_sub (Ctx.mk_int 1) tb) r]
+                        ; Ctx.mk_is_int (Ctx.mk_div (Ctx.mk_add [ta; r]) tb)]]
+              end
+            | _ ->
+              begin
+                let t1 = (Core.resolve_type (Core.Aexpr.get_type rx)) in
+                let t2 = (Core.resolve_type (Core.Aexpr.get_type ry)) in
+                match t1, t2 with
+                | Core.Int _, Core.Int _ ->
+                  Ctx.mk_or [Ctx.mk_leq (Ctx.mk_add [x; (Ctx.mk_int 1)]) y;
+                             Ctx.mk_leq (Ctx.mk_add [y; (Ctx.mk_int 1)]) x]
+                | _, _ ->
 
-              Ctx.mk_or [Ctx.mk_lt x y; Ctx.mk_lt y x]
+                  Ctx.mk_or [Ctx.mk_lt x y; Ctx.mk_lt y x]
+              end
           end
       end
   in
