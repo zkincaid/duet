@@ -233,7 +233,7 @@ def summary_by_verdict(average_over_runs=1):
     for s in suites:
         r = {}
         for t in tools:
-            r[t] = summarize_result(t, s)
+            r[t] = summarize_result(t, s, average_over_runs=average_over_runs)
         res[s] = r
 
     for suite in suites:
@@ -584,8 +584,8 @@ if __name__ == "__main__":
     elif (command == "scatter"):
         scatter_plot()
     elif (command == "summary"):
-        summary()
+        summary(average_over_runs=num_runs)
     elif (command == "summarybyverdict"):
-        summary_by_verdict()
+        summary_by_verdict(average_over_runs=num_runs)
     else:
         print("Unknown command")
