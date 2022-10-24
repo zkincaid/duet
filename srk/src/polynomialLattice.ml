@@ -45,9 +45,7 @@ let pp pp_dim fmt t =
        ideal: @[<v 0>%a@]
      }"
     (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
-       (QQXs.pp pp_dim))
-    (List.map (LinearQQXs.sparsify t.affine_context)
-       (IntLattice.basis t.affine_lattice))
+       (QQXs.pp pp_dim)) (affine_basis t)
     (Ideal.pp pp_dim) (ideal t)
 
 let reduce red polys =
@@ -58,6 +56,13 @@ let reduce red polys =
     polys
 
 let make ideal affine_polys : t =
+  let pp_dim = (fun fmt dim -> Format.fprintf fmt "%d" dim) in 
+  L.logf ~level:`always
+    "PolynomialLattice: of ideal @[%a@] and affine polynomials @[%a@]@;"
+    (Ideal.pp pp_dim) ideal
+    (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+       (QQXs.pp pp_dim))
+    affine_polys;
   let ideal = ideal in
   let affine_polys = reduce (Ideal.reduce ideal) affine_polys in
   let affine_context = LinearQQXs.min_context (BatList.enum affine_polys) in
