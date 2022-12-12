@@ -19,12 +19,12 @@ val member : Linear.QQVector.t -> t -> bool
 
 (** [project p t] computes the projection of the lattice onto the dimensions
     marked true by [p].
- *)
+*)
 val project : (Linear.QQVector.dim -> bool) -> t -> t
 
 (** [project_lower n t] computes the projection of the lattice onto the
     dimensions <= n. This is more efficient than [project].
- *)
+*)
 val project_lower : int -> t -> t
 
 val sum : t -> t -> t

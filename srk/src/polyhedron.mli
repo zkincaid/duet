@@ -8,13 +8,13 @@ type t
 module V = Linear.QQVector
 
 (** Kinds of polyhedral constraints.  Each polyhedral constraint
-   constrains a vector to be either equal to zero, non-negative, or
-   positive. *)
+    constrains a vector to be either equal to zero, non-negative, or
+    positive. *)
 type constraint_kind = [ `Zero | `Nonneg | `Pos ]
 
 (** Kinds of polyhedral generators.  Each generator is either a single
-   point, a directed ray, or a line (equivalent to two rays in
-   opposite directions). *)
+    point, a directed ray, or a line (equivalent to two rays in
+    opposite directions). *)
 type generator_kind = [ `Vertex | `Ray | `Line ]
 
 (** Enumerate the constraints of a polyhedron. *)
@@ -74,31 +74,31 @@ val project_dd : int list -> t -> t
 val try_fourier_motzkin : 'a CoordinateSystem.t -> (symbol -> bool) -> t -> t
 
 (** [dual_cone n p] computes a constraint representation for the dual
-   cone of the [n]-dimensional polyhedron [p]: the cone of functionals
-   on QQ^[n] that are non-negative on every point in [p].  The
-   supplied parameter dimension [n] must be >= the greatest dimension
-   involved in a constraint in [p].*)
+    cone of the [n]-dimensional polyhedron [p]: the cone of functionals
+    on QQ^[n] that are non-negative on every point in [p].  The
+    supplied parameter dimension [n] must be >= the greatest dimension
+    involved in a constraint in [p].*)
 val dual_cone : int -> t -> t
 
 (** [conical_hull n p] takes a natural [n] and a polyhedron [p] in
-   QQ^n and computes the smallest cone that contains [p], represented
-   as a polyhedron.  All half-spaces making up the conical hull are
-   linear (rather than affine) halfspaces. *)
+    QQ^n and computes the smallest cone that contains [p], represented
+    as a polyhedron.  All half-spaces making up the conical hull are
+    linear (rather than affine) halfspaces. *)
 val conical_hull : t -> t
 
 (** [integer_hull p] computes the convex hull of the integer points contained
     in p.
- *)
+*)
 val integer_hull : ?decompose:bool -> [`GomoryChvatal | `Normaliz] -> t -> t
 
 (** Test whether two polyhedra are equal (as sets of points in
-   QQ^omega). *)
+    QQ^omega). *)
 val equal : t -> t -> bool
 
 (** [constraint_space p] computes a basis for the vector space of
-   linear functionals that are bounded (on at least one side) over the
-   polyhedron.  For every halfspace [a^T x <= b] that contains [p],
-   [a] belongs to this space. *)
+    linear functionals that are bounded (on at least one side) over the
+    polyhedron.  For every halfspace [a^T x <= b] that contains [p],
+    [a] belongs to this space. *)
 val constraint_space : t -> Linear.QQVectorSpace.t
 
 val dd_of : ?man:(Polka.loose Polka.t Apron.Manager.t) -> int -> t -> DD.closed DD.t

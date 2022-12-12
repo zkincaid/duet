@@ -116,8 +116,8 @@ module Model = struct
         | Some (`IsInt q) -> is_int m q
         | Some (`Prop k) -> is_true_prop m k
         | None -> assert false
-  in
-  Formula.eval srk f phi
+    in
+    Formula.eval srk f phi
 
 end
 

@@ -1,6 +1,6 @@
 (** Polynomial cone abstract domain. A polynomial cone corresponds to a set of
-   polynomials.  It is used to maintain a maximal set of non-negative
-   polynomials w.r.t. the theory of LIRR. *)
+    polynomials.  It is used to maintain a maximal set of non-negative
+    polynomials w.r.t. the theory of LIRR. *)
 open Polynomial
 open Syntax
 
@@ -9,12 +9,12 @@ type t
 val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
 (** Compute the intersection of two polynomial cones. Intersection of
-   polynomial cones A, B corresponds to the join of their corresponding
-   polynomial equations and inequalities. *)
+    polynomial cones A, B corresponds to the join of their corresponding
+    polynomial equations and inequalities. *)
 val intersection : t -> t -> t
 
 (** Compute the projection of a polynomial cone, given what dimensions to
-   keep. *)
+    keep. *)
 val project : t -> (int -> bool) -> t
 
 (** [inverse_homomorphism C [(y1, fn) ..., (yn, fn)]] computes the inverse image
@@ -24,7 +24,7 @@ val project : t -> (int -> bool) -> t
 
     TODO: [QQXs.dim] is currently [Monomial.t], but the [QQXs] interface also
     mentions [int] as dimension.
- *)
+*)
 val inverse_homomorphism : t -> (Monomial.dim * QQXs.t) list -> t
 
 (** [inverse_linear_map C [(y1, fn) ..., (yn, fn)]] = (lines, rays)
@@ -35,7 +35,7 @@ val inverse_homomorphism : t -> (Monomial.dim * QQXs.t) list -> t
     lines (two-sided generators) and a set of rays.
 
     It is assumed that the variables [y1, ..., yn] are all distinct from [xs].
- *)
+*)
 val inverse_linear_map : t -> (Monomial.dim * QQXs.t) list -> (QQXs.t list * QQXs.t list)
 
 (** Get the ideal part of a polynomial cone. *)
@@ -57,7 +57,7 @@ val make_cone : Polynomial.Rewrite.t -> QQXs.t BatList.t -> t
 val regularize : t -> t
 
 (** Add a list of zero polynomials and a list of nonnegative polynomials to
-   the set represented by an existing cone. *)
+    the set represented by an existing cone. *)
 val add_generators: ?zeros:(QQXs.t BatList.t) -> ?nonnegatives:(QQXs.t BatList.t) -> t -> t
 
 (** Test if a polynomial is contained in the cone. *)
@@ -75,6 +75,6 @@ val to_formula : 'a context -> (int -> 'a arith_term) -> t -> 'a formula
 val leq : t -> t -> bool
 
 (** Intersect the cone with the linear span of the monomials satisfying the
-   given predicate.  Assumes that the set of monomials satisfying the given
-   predicate is downwards-closed w.r.t. the monomial ordering of the cone. *)
+    given predicate.  Assumes that the set of monomials satisfying the given
+    predicate is downwards-closed w.r.t. the monomial ordering of the cone. *)
 val restrict : (Monomial.t -> bool) -> t -> t

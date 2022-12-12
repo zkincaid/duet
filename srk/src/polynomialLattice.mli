@@ -21,4 +21,4 @@ val equal : t -> t -> bool
 (* TODO: val project : (Linear.QQVector.dim -> bool) -> t -> t *)
 
 val pp : (Format.formatter -> int -> unit)
-         -> Format.formatter -> t -> unit
+  -> Format.formatter -> t -> unit

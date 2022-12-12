@@ -371,16 +371,16 @@ let dual_cone dim polyhedron =
   (* Given polyhedron Ax >= b, form the constraint system
      lambda * A = y /\ lambda * b >= 0.
      Then project out the lambda dimensions.
-   *)
+  *)
   (* map [0 .. nb_constraints] to [dim .. dim + nb_constraints] *)
   assert (dim >= max_constrained_dim polyhedron);
   let lambda i = dim + i in
   let lambda_nonnegative =
     BatEnum.foldi
       (fun i (cmp, _) constraints ->
-        match cmp with
-        | `Zero -> constraints
-        | `Nonneg | `Pos ->
+         match cmp with
+         | `Zero -> constraints
+         | `Nonneg | `Pos ->
            P.add (`Nonneg, V.of_term QQ.one (lambda i)) constraints)
       P.top
       (P.enum polyhedron)
@@ -395,14 +395,14 @@ let dual_cone dim polyhedron =
     let (lambdaA, lambdab) =
       BatEnum.foldi
         (fun i (_, t) (lambdaA, lambdab) ->
-          BatEnum.fold
-            (fun (lambdaA, lambdab) (scalar, dim) ->
-              if dim == Linear.const_dim then
-                (lambdaA, V.add_term (QQ.negate scalar) (lambda i) lambdab)
-              else
-                (IntMap.modify dim (V.add_term scalar (lambda i)) lambdaA, lambdab))
-            (lambdaA, lambdab)
-            (V.enum t))
+           BatEnum.fold
+             (fun (lambdaA, lambdab) (scalar, dim) ->
+                if dim == Linear.const_dim then
+                  (lambdaA, V.add_term (QQ.negate scalar) (lambda i) lambdab)
+                else
+                  (IntMap.modify dim (V.add_term scalar (lambda i)) lambdaA, lambdab))
+             (lambdaA, lambdab)
+             (V.enum t))
         (zero, V.zero)
         (P.enum polyhedron)
     in
@@ -419,9 +419,9 @@ let of_constraints constraints =
   BatEnum.fold (fun p constr -> P.add constr p) P.top constraints
 
 (** Given a matrix [M] and a polyhedron [p], find a polyhedron [q]
-   such that [p] contains a point [x] iff [q] contains [Mx].  Such a
-   polyhedron exists iff [p] can be written as [Ax >= b], with the
-   rowspace of [A] contained in the rowspace of [M]. *)
+    such that [p] contains a point [x] iff [q] contains [Mx].  Such a
+    polyhedron exists iff [p] can be written as [Ax >= b], with the
+    rowspace of [A] contained in the rowspace of [M]. *)
 let invertible_image mM polyhedron =
   let mMt = Linear.QQMatrix.transpose mM in
   let densify_vec vec =
@@ -441,13 +441,13 @@ let conical_hull polyhedron =
   |> dd_of dim
   |> DD.enum_generators
   |> BatEnum.filter_map (function
-         | `Vertex, vec ->
-            assert (V.equal V.zero vec);
-            None
-         | `Ray, vec ->
-            Some (`Nonneg, vec)
-         | `Line, vec ->
-            Some (`Zero, vec))
+      | `Vertex, vec ->
+        assert (V.equal V.zero vec);
+        None
+      | `Ray, vec ->
+        Some (`Nonneg, vec)
+      | `Line, vec ->
+        Some (`Zero, vec))
   |> of_constraints
 
 let constraint_space polyhedron =
@@ -520,9 +520,9 @@ module NormalizCone = struct
       |> (* Add 1 >= 0 to ensure the constant dimension x0 is present,
             so that the cone may be dehomogenized at x0 = 1 if needed
             to get a polyhedron.
-          *)
-        (fun enum ->
-          BatEnum.push enum (`Nonneg, Linear.const_linterm (QQ.of_int 1)); enum)
+         *)
+      (fun enum ->
+         BatEnum.push enum (`Nonneg, Linear.const_linterm (QQ.of_int 1)); enum)
       |> BatList.of_enum
     in
     let ctx =
@@ -535,10 +535,10 @@ module NormalizCone = struct
     let (equalities, inequalities) =
       List.fold_left
         (fun (equalities, inequalities) (kind, v) ->
-          match kind with
-          | `Zero -> (densify ctx v :: equalities, inequalities)
-          | `Nonneg -> (equalities, densify ctx v :: inequalities)
-          | `Pos -> invalid_arg "normaliz_cone_of: open faces not supported yet")
+           match kind with
+           | `Zero -> (densify ctx v :: equalities, inequalities)
+           | `Nonneg -> (equalities, densify ctx v :: inequalities)
+           | `Pos -> invalid_arg "normaliz_cone_of: open faces not supported yet")
         ([], [])
         normalized_constraints in
     try
@@ -582,12 +582,12 @@ module NormalizCone = struct
      QQ^{[ambient_dim]} defined by [active_constraints] and contains [point],
      and where [constant] is non-integer (so that the cutting plane makes 
      progress when cut).
-   *)
+  *)
   let fractional_cutting_planes_at_face
-        point
-        (active : (constraint_kind * V.t) BatEnum.t)
-        ambient_dim
-      : (V.t * QQ.t) BatEnum.t option =
+      point
+      (active : (constraint_kind * V.t) BatEnum.t)
+      ambient_dim
+    : (V.t * QQ.t) BatEnum.t option =
     if V.is_integral point then
       None
     else
@@ -603,14 +603,14 @@ module NormalizCone = struct
       let basis = Cone.hilbert_basis (Cone.make ~lines ~rays ambient_dim) in
       Some (basis
             |> BatList.fold_left
-                 (fun curr vector ->
-                   let constant_term = Linear.QQVector.dot vector point in
-                   if ZZ.equal (QQ.denominator constant_term) ZZ.one then
-                     curr
-                   else
-                     (vector, constant_term) :: curr) []
+              (fun curr vector ->
+                 let constant_term = Linear.QQVector.dot vector point in
+                 if ZZ.equal (QQ.denominator constant_term) ZZ.one then
+                   curr
+                 else
+                   (vector, constant_term) :: curr) []
             |> BatList.enum
-        )
+           )
 
   let elementary_gc polyhedron ambient_dim =
     logf ~level:`trace "elementary_gc: Computing minimal faces...@;";
@@ -623,8 +623,8 @@ module NormalizCone = struct
           match frac_cuts with
           | None -> curr
           | Some cuts ->
-             BatEnum.push curr (v, cuts);
-             curr)
+            BatEnum.push curr (v, cuts);
+            curr)
         (BatEnum.empty ())
         faces
     in
@@ -638,7 +638,7 @@ module NormalizCone = struct
       let adjoin_constraint curr_polyhedron (lhs, rhs) =
         (* TODO: Test if meet is faster than implication check; if so,
              we should do meet directly once [changed] is true.
-         *)
+        *)
         let constant_term = QQ.negate rhs |> QQ.floor |> QQ.of_zz in
         let new_constraint =
           Linear.QQVector.add_term constant_term Linear.const_dim lhs in
@@ -653,7 +653,7 @@ module NormalizCone = struct
             logf ~level:`trace "@[elementary_gc: computing meet with %a >= 0@]@;"
               Linear.QQVector.pp new_constraint;
             let intersected = DD.meet_constraints
-                                curr_polyhedron [(`Nonneg, new_constraint)] in
+                curr_polyhedron [(`Nonneg, new_constraint)] in
             changed := true;
             intersected
           end
@@ -672,11 +672,11 @@ module NormalizCone = struct
       let elem_closure =  elementary_gc polyhedron dim in
       match elem_closure with
       | `Fixed poly ->
-         logf ~level:`info "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
-         poly
+        logf ~level:`info "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
+        poly
       | `Changed poly ->
-         logf ~level:`trace "elementary_gc: entering round %d@;" (i + 1);
-         iter poly (i + 1)
+        logf ~level:`trace "elementary_gc: entering round %d@;" (i + 1);
+        iter poly (i + 1)
     in
     iter (dd_of ~man dim polyhedron) 0
     |> of_dd
