@@ -128,13 +128,13 @@ let term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id =
     | Output_variable (name, subscript) ->
       assert (subscript = ss_pre);
       post_term_of_id name
-    | Rational k -> mk_real srk (Mpqf.of_mpq k)
+    | Rational k -> mk_real srk (QQ.of_mpq (Mpqf.of_mpq k))
     | Undefined -> assert false
     | Pow (x, y) -> Nonlinear.mk_pow srk (go x) (go y)
     | Log (base, x) ->
-      Nonlinear.mk_log srk (mk_real srk (Mpqf.of_mpq base)) (go x)
+      Nonlinear.mk_log srk (mk_real srk (QQ.of_mpq (Mpqf.of_mpq base))) (go x)
     | IDivide (x, y) ->
-      mk_idiv srk (go x) (mk_real srk (Mpqf.of_mpq y))
+      mk_idiv srk (go x) (mk_real srk (QQ.of_mpq (Mpqf.of_mpq y)))
     | Mod (x, y) ->
       mk_mod srk (go x) (go y)
     | Iif (func, ss) ->
@@ -301,7 +301,7 @@ let closure_ocrs sp =
   (* Map identifiers to their closed forms, so that they can be used
      in the additive term of blocks at higher strata *)
   let cf =
-    Array.make (dimension sp) (Rational (Mpqf.to_mpq QQ.zero))
+    Array.make (dimension sp) (Rational (Mpq.of_int 0))
   in
   let close_block block offset =
     let size = Array.length block.blk_add in
@@ -310,7 +310,7 @@ let closure_ocrs sp =
     else
       let dim_vec = Array.init size (fun i -> string_of_int (offset + i)) in
       let ocrs_transform =
-        Array.map (Array.map Mpqf.to_mpq) block.blk_transform
+        Array.map (Array.map (Mpqf.to_mpq % QQ.mpq_of)) block.blk_transform
       in
       let ocrs_add =
         Array.init size (fun i ->
@@ -321,7 +321,7 @@ let closure_ocrs sp =
             in
             QQXs.enum block.blk_add.(i)
             /@ (fun (coeff, m) ->
-                Product (Rational (Mpqf.to_mpq coeff)::(cf_monomial m)))
+                Product (Rational (Mpqf.to_mpq (QQ.mpq_of coeff))::(cf_monomial m)))
             |> (fun x -> Sum (BatList.of_enum x)))
       in
       let block_closed =
@@ -1002,11 +1002,11 @@ let _extract_matrix_leq srk wedge tr_symbols term_of_id =
   let open Apron in
   let cs = Wedge.coordinate_system wedge in
   let man = Polka.manager_alloc_loose () in
-  let coeff_of_qq = Coeff.s_of_mpqf in
+  let coeff_of_qq x = Coeff.s_of_mpqf (QQ.mpq_of x) in
   let qq_of_coeff = function
     | Coeff.Scalar (Scalar.Float k) -> QQ.of_float k
-    | Coeff.Scalar (Scalar.Mpqf k)  -> k
-    | Coeff.Scalar (Scalar.Mpfrf k) -> Mpfrf.to_mpqf k
+    | Coeff.Scalar (Scalar.Mpqf k)  -> QQ.of_mpq k
+    | Coeff.Scalar (Scalar.Mpfrf k) -> QQ.of_mpq (Mpfrf.to_mpqf k)
     | Coeff.Interval _ -> assert false
   in
   let linexpr_of_vec vec =
@@ -1740,12 +1740,12 @@ module PresburgerGuard = struct
     | _ -> expr
 
   let abstract_presburger srk phi =
-    let nnf_simplify expr =
-      nnf_rewriter srk expr(*(SrkSimplify.simplify_terms_rewriter srk expr)*)
+    let pos_simplify expr =
+      pos_rewriter srk expr(*(SrkSimplify.simplify_terms_rewriter srk expr)*)
     in
     rewrite srk ~up:(idiv_to_ite srk) phi
     |> eliminate_ite srk
-    |> rewrite srk ~down:nnf_simplify ~up:(abstract_presburger_rewriter srk)
+    |> rewrite srk ~down:pos_simplify ~up:(abstract_presburger_rewriter srk)
 
   let exp srk tr_symbols loop_counter (sp, guard) =
     let module G = Iteration.PolyhedronGuard in
@@ -1837,7 +1837,7 @@ module PresburgerGuard = struct
       |> mk_not srk
       |> Quantifier.mbp srk (fun x -> x != prev_counter_sym)
       |> mk_not srk
-      |> rewrite srk ~down:(nnf_rewriter srk) ~up:(SrkSimplify.simplify_terms_rewriter srk)
+      |> rewrite srk ~down:(pos_rewriter srk) ~up:(SrkSimplify.simplify_terms_rewriter srk)
     in
 
     let guard_closure =

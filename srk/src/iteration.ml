@@ -40,6 +40,73 @@ module type Domain = sig
   val tr_symbols : 'a t -> (symbol * symbol) list
 end
 
+module LIRR = struct
+  type 'a t = 'a TF.t
+
+  let pp srk _ formatter tf = let f = TF.formula tf in Formula.pp srk formatter f
+
+  let abstract _ tf = tf
+
+  let exp = LirrInvariants.compute_LIRR_invariants
+
+end
+
+module LIRRGuard = struct
+  type 'a t =
+    { precondition : PolynomialCone.t;
+      postcondition : PolynomialCone.t }
+
+  let pp _ _ _ _ =
+    ()
+    (* Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]" *)
+    (*   PolynomialCone.pp iter.precondition *)
+    (*   PolynomialCone.pp iter.postcondition *)
+
+  let abstract srk tf =
+    let post_symbols = TF.post_symbols (TF.symbols tf) in
+    let pre_symbols = TF.pre_symbols (TF.symbols tf) in
+    let precondition =
+      let exists x =
+        TF.exists tf x && not (Symbol.Set.mem x post_symbols)
+      in
+      LirrSolver.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
+    in
+    let postcondition =
+      let exists x =
+        TF.exists tf x && not (Symbol.Set.mem x pre_symbols)
+      in
+      LirrSolver.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
+    in
+    let pp_dim = (fun formatter i ->
+      try Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i)
+      with _ -> Format.fprintf formatter "1")
+  in
+  logf "precondition: %a" (PolynomialCone.pp pp_dim) precondition;
+  logf "postcondition: %a" (PolynomialCone.pp pp_dim) postcondition;
+  { precondition; postcondition }
+
+  let exp srk tr_symbols loop_counter guard =
+    let term_of_dim dim =
+      mk_const srk (symbol_of_int dim)
+    in
+    mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
+                           TF.formula (TF.identity srk tr_symbols)];
+               mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
+                           PolynomialCone.to_formula srk term_of_dim guard.precondition;
+                           PolynomialCone.to_formula srk term_of_dim guard.postcondition]]
+
+  let equal _ _ iter iter' =
+    PolynomialCone.equal iter.precondition iter'.precondition
+    && PolynomialCone.equal iter.postcondition iter'.postcondition
+
+  let join _ _ iter iter' =
+    { precondition = PolynomialCone.intersection iter.precondition iter'.precondition;
+      postcondition = PolynomialCone.intersection iter.postcondition iter'.postcondition }
+
+  let widen _ _ _ _ =
+    failwith "Polynomial cone does not support widening."
+end
+
 module WedgeGuard = struct
   type 'a t =
     { precondition : 'a Wedge.t;
@@ -99,7 +166,7 @@ module PolyhedronGuard = struct
   let abstract srk tf =
     let phi = Nonlinear.linearize srk (TF.formula tf) in
     let phi =
-      rewrite srk ~down:(nnf_rewriter srk) phi
+      rewrite srk ~down:(pos_rewriter srk) phi
     in
     let post_symbols = TF.post_symbols (TF.symbols tf) in
     let pre_symbols = TF.pre_symbols (TF.symbols tf) in
@@ -168,7 +235,7 @@ module LinearGuard = struct
     let phi =
       (TF.formula tf)
       |> rewrite srk ~up:(abstract_presburger_rewriter srk)
-      |> rewrite srk ~down:(nnf_rewriter srk)
+      |> rewrite srk ~down:(pos_rewriter srk)
     in
     let tr_symbols = TF.symbols tf in
     let exists = TF.exists tf in
@@ -360,7 +427,7 @@ module LossyTranslation = struct
   let abstract srk tf =
     let phi =
       TF.formula tf
-      |> rewrite srk ~down:(nnf_rewriter srk)
+      |> rewrite srk ~down:(pos_rewriter srk)
       |> Nonlinear.linearize srk
     in
     let delta =

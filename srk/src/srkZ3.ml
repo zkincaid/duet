@@ -24,6 +24,7 @@ type 'a open_expr = [
   | `Ite of 'a * 'a * 'a
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of [`Eq | `Leq | `Lt] * 'a * 'a
+  | `IsInt of 'a list
 ]
 
 let bool_val x =
@@ -55,7 +56,7 @@ let rec sort_of_typ z3 = function
   | `TyInt -> Z3.Arithmetic.Integer.mk_sort z3
   | `TyReal -> Z3.Arithmetic.Real.mk_sort z3
   | `TyBool -> Z3.Boolean.mk_sort z3
-  | `TyArr -> 
+  | `TyArr ->
     Z3.Z3Array.mk_sort z3 (sort_of_typ z3 `TyInt) (sort_of_typ z3 `TyInt)
 
 let rec eval alg ast =
@@ -66,7 +67,8 @@ let rec eval alg ast =
       let decl = Expr.get_func_decl ast in
       let args = List.map (eval alg) (Expr.get_args ast) in
       match FuncDecl.get_decl_kind decl, args with
-      | (OP_UNINTERPRETED, args) -> alg (`App (decl, args))
+      | (OP_UNINTERPRETED, args) ->
+         alg (`App (decl, args))
       | (OP_ADD, args) -> alg (`Add args)
       | (OP_MUL, args) -> alg (`Mul args)
       | (OP_SUB, [x;y]) -> alg (`Add [x; alg (`Unop (`Neg, y))])
@@ -78,8 +80,8 @@ let rec eval alg ast =
       | (OP_TO_INT, [x]) -> alg (`Unop (`Floor, x))
 
       | (OP_STORE, [a; i; v]) -> alg (`Store (a, i, v))
-      | (OP_SELECT, [a; i]) -> alg (`Binop(`Select, a, i))
-      
+      | (OP_SELECT, [a; i]) -> alg (`Binop (`Select, a, i))
+
       | (OP_TRUE, []) -> alg `Tru
       | (OP_FALSE, []) -> alg `Fls
       | (OP_AND, args) -> alg (`And args)
@@ -95,18 +97,15 @@ let rec eval alg ast =
       | (OP_LT, [s; t]) -> alg (`Atom (`Lt, s, t))
       | (OP_GT, [s; t]) -> alg (`Atom (`Lt, t, s))
       | (OP_ITE, [cond; s; t]) -> alg (`Ite (cond, s, t))
+      | (OP_IS_INT, [s]) -> alg (`IsInt [s])
       | (OP_DISTINCT, xs) ->
-        let rec exclusive acc = function
-          | y::ys ->
-            exclusive
-              (List.fold_left
-                 (fun acc z -> alg (`Not (alg (`And [y; z])))::acc)
-                 acc
-                 ys)
-              ys
-          | [] -> acc
-        in
-        alg (`And (exclusive [alg (`Or xs)] xs))
+         let neq x y = alg (`Not (alg (`Atom (`Eq, x, y)))) in
+         let rec all_pairs = function
+           | [] -> [alg `Tru]
+           | y1 :: ys ->
+              List.fold_left (fun pairs y2 -> neq y1 y2 :: pairs) (all_pairs ys) ys
+         in
+         alg (`And (all_pairs xs))
       | (OP_XOR, xs) ->
         let xor x y =
           alg (`Or [alg (`And [alg (`Not x); y]);
@@ -229,7 +228,7 @@ and z3_of_arr_term (srk : 'a context) z3 (term : 'a arr_term) =
 
     | `Var (i, `TyArr) ->
       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyArr)
-    | `Store (a, i, v) -> 
+    | `Store (a, i, v) ->
       Z3.Z3Array.mk_store z3 a (z3_of_arith_term srk z3 i) (z3_of_arith_term srk z3 v)
     | `Ite (cond, bthen, belse) ->
       Z3.Boolean.mk_ite z3 (z3_of_formula srk z3 cond) bthen belse
@@ -299,7 +298,9 @@ and z3_of_formula srk z3 =
     | `Atom (`Arith (`Lt, s, t)) -> Z3.Arithmetic.mk_lt z3 (of_arith_term s) (of_arith_term t)
     | `Atom (`ArrEq (s, t)) -> Z3.Boolean.mk_eq z3 (of_arr_term s) (of_arr_term t)
     | `Proposition (`Var i) ->
-      Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
+       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
+    | `Atom (`IsInt s) ->
+       Z3.Arithmetic.Real.mk_is_integer z3 (z3_of_expr srk z3 (s :> ('a, typ_fo) expr))
     | `Proposition (`App (p, [])) ->
       let decl =
         Z3.FuncDecl.mk_const_decl z3
@@ -326,11 +327,14 @@ let of_z3 context sym_of_decl expr =
     | `App (decl, args) ->
       let const_sym = sym_of_decl decl in
       mk_app context const_sym args
+    | `IsInt args ->
+       (mk_and context
+          (List.map (fun x -> x |> arith_term |> mk_is_int context) args) :> 'a gexpr)
     | `Add sum -> (mk_add context (List.map arith_term sum) :> 'a gexpr)
     | `Mul product -> (mk_mul context (List.map arith_term product) :> 'a gexpr)
     | `Binop (`Div, s, t) -> (mk_div context (arith_term s) (arith_term t) :> 'a gexpr)
-    | `Binop (`Mod, s, t) -> (mk_mod context (arith_term s) (arith_term t) :> 'a gexpr) 
-    | `Binop (`Select, a, i) -> (mk_select context (arr_term a) (arith_term i) :> 'a gexpr) 
+    | `Binop (`Mod, s, t) -> (mk_mod context (arith_term s) (arith_term t) :> 'a gexpr)
+    | `Binop (`Select, a, i) -> (mk_select context (arr_term a) (arith_term i) :> 'a gexpr)
     | `Unop (`Floor, t) -> (mk_floor context (arith_term t) :> 'a gexpr)
     | `Unop (`Neg, t) -> (mk_neg context (arith_term t) :> 'a gexpr)
     | `Store (a, i, v) -> (mk_store context (arr_term a) (arith_term i) (arith_term v) :> 'a gexpr)
@@ -388,7 +392,7 @@ type 'a solver =
     of_formula : 'a formula -> z3_expr }
 
 let mk_solver ?(context=Z3.mk_context []) ?(theory="") srk =
-  let s = 
+  let s =
     if theory = "" then
       Z3.Solver.mk_simple_solver context
     else
@@ -450,7 +454,10 @@ module Solver = struct
     | `TyFun (params, _) ->
       let decl = decl_of_symbol z3 srk sym in
       let finterp = match Z3.Model.get_func_interp m decl with
-        | None -> assert false
+        | None ->
+          logf "symbol: %a" (pp_symbol srk) sym;
+          assert false
+
         | Some interp -> interp
       in
       let formals =

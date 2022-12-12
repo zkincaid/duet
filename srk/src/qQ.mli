@@ -1,6 +1,6 @@
 (** Unbounded rationals *)
 
-type t = Mpqf.t
+type t = Q.t
 
 val pp : Format.formatter -> t -> unit
 val show : t -> string
@@ -61,3 +61,6 @@ val nudge_up : ?accuracy:int -> t -> t
 (** Compute an lower bound for a rational number (with a small
     representation). *)
 val nudge_down : ?accuracy:int -> t -> t
+
+val mpq_of : t -> Mpqf.t
+val of_mpq : Mpqf.t -> t

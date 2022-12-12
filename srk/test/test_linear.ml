@@ -4,7 +4,7 @@ open Linear
 open Test_pervasives
 
 let assert_equal_vs x y =
-  assert_equal ~cmp:QQVectorSpace.equal x y
+  assert_equal ~cmp:QQVectorSpace.equal ~printer:(SrkUtil.mk_show QQVectorSpace.pp) x y
 
 let dot () =
   let u = mk_vector [1; 2; 3] in
@@ -80,7 +80,16 @@ let solve5 () =
   let x = solve_exn m b in
   assert_equal ~printer:QQVector.show b (vector_right_mul m x)
 
-let rowspace1 () =
+let solve6 () =
+  let m = mk_matrix [[0; 0; 1];
+                     [0; 1; 2];
+                     [3; 2; 1]]
+  in
+  let b = mk_vector [1; 2; 3] in
+  let x = solve_exn m b in
+  assert_equal ~printer:QQVector.show b (vector_right_mul m x)
+
+let pushout1 () =
   let a = mk_matrix [[1; 0; 0];
                      [1; 1; 1];
                      [0; 0; 1]]
@@ -89,31 +98,31 @@ let rowspace1 () =
                      [1; 1; 1];
                      [0; 1; 1]]
   in
-  let (c, d) = intersect_rowspace a b in
-  assert_equal (QQMatrix.nb_rows c) 2;
+  let (c, d) = pushout a b in
+  assert_equal (QQMatrix.nb_rows c) 3;
   assert_equal ~printer:QQMatrix.show (QQMatrix.mul c a) (QQMatrix.mul d b)
 
-let rowspace2 () =
+let pushout2 () =
   let a = mk_matrix [[1; 1; 0];
                      [1; 1; 1]]
   in
   let b = mk_matrix [[1; 0; 0];
                      [0; 1; 1]]
   in
-  let rowspace = mk_matrix [[1; 1; 1]] in
-  let (_, d) = intersect_rowspace a b in
-  assert_equal ~printer:QQMatrix.show rowspace (QQMatrix.mul d b)
+  let result = mk_matrix [[1; 1; 1]] in
+  let (_, d) = pushout a b in
+  assert_equal ~printer:QQMatrix.show result (QQMatrix.mul d b)
 
-let rowspace3 () =
+let pushout3 () =
   let a = mk_matrix [[1; 1; 0; 0];
                      [0; 2; -1; 1]]
   in
   let b = mk_matrix [[1; 0; 2; 1];
                      [0; 1; 1; 1]]
   in
-  let rowspace = mk_matrix [[]] in
-  let (_, d) = intersect_rowspace a b in
-  assert_equal ~printer:QQMatrix.show rowspace (QQMatrix.mul d b)
+  let result = mk_matrix [[]] in
+  let (_, d) = pushout a b in
+  assert_equal ~printer:QQMatrix.show result (QQMatrix.mul d b)
 
 let div1 () =
   let a = mk_matrix [[4; 0; 0];
@@ -492,9 +501,10 @@ let suite = "Linear" >::: [
     "solve3" >:: solve3;
     "solve4" >:: solve4;
     "solve5" >:: solve5;
-    "rowspace1" >:: rowspace1;
-    "rowspace2" >:: rowspace2;
-    "rowspace3" >:: rowspace3;
+    "solve6" >:: solve6;
+    "pushout1" >:: pushout1;
+    "pushout2" >:: pushout2;
+    "pushout3" >:: pushout3;
     "div1" >:: div1;
     "div2" >:: div2;
     "rational_eigenvalues1" >:: rational_eigenvalues1;

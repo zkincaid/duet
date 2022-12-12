@@ -195,6 +195,7 @@ struct
   let star tr =
     let (module D) = !domain in
     let tf = to_transition_formula tr in
+    logf "Approximating transitive closure:@.  @[<v 0>%a@]" pp tr;
     let iter = D.abstract srk tf in
     let tr_symbols = TransitionFormula.symbols tf in
     let transform =
@@ -211,6 +212,7 @@ struct
       mk_and srk [D.exp srk tr_symbols loop_counter iter;
                   mk_leq srk (mk_real srk QQ.zero) loop_counter]
     in
+    logf "Approx TC:@.  @[<v 0>%a@]" (Formula.pp srk) closure;
     { transform = transform;
       guard = closure }
 
@@ -493,7 +495,7 @@ struct
                 :: (tr_subst tr.guard)
                 :: transform_formula)
     |> Nonlinear.linearize srk
-    |> rewrite srk ~down:(nnf_rewriter srk)
+    |> rewrite srk ~down:(pos_rewriter srk)
     |> Abstract.abstract ~exists srk man
 
   let linearize tr =

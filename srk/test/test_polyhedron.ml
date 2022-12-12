@@ -11,16 +11,64 @@ let mk_polyhedron halfspaces =
                     (V.add_term (QQ.of_int (-a)) Linear.const_dim (mk_vector v))))
   |> Polyhedron.of_constraints
 
-
-let mk_polyhedron_generators dim vertices rays =
+let mk_polyhedron_from_generators mk_vector dim vertices rays =
   (List.map (fun v -> (`Vertex, mk_vector v)) vertices)
-  @(List.map (fun v -> (`Ray, mk_vector v)) rays)
+  @ (List.map (fun v -> (`Ray, mk_vector v)) rays)
   |> BatList.enum
-  |> Polyhedron.of_generators dim
-  
+  |> DD.of_generators dim
+  |> Polyhedron.of_dd
+
+let qqify v = List.map (fun (a, b) -> QQ.of_frac a b) v
 
 let assert_equal_polyhedron p q =
   assert_equal ~cmp:Polyhedron.equal p q
+
+let assert_equal_dd p q =
+  assert_equal ~cmp:DD.equal p q
+
+
+let test_vertical_integer_hull k () =
+  (*
+       x >= 0
+       x + ky <= k
+       x - ky <= 0
+   *)
+  let p = mk_polyhedron [ ([1; 0], 0)
+                        ; ([-1; -k], -k)
+                        ; ([-1; k], 0) ] in
+  let hull_gc = Polyhedron.integer_hull `GomoryChvatal p in
+  let hull_normaliz = Polyhedron.integer_hull `Normaliz p in
+  let expected_hull = mk_polyhedron [ ([1; 0], 0)
+                                    ; ([-1; 0], 0)
+                                    ; ([0; 1], 0)
+                                    ; ([0; -1], -1) ] in
+  assert_equal ~cmp:Polyhedron.equal hull_gc expected_hull;
+  assert_equal ~cmp:Polyhedron.equal hull_normaliz expected_hull
+
+let test_translated_parallelogram height () =
+  let p = mk_polyhedron_from_generators mk_qqvector 2
+            (List.map qqify [ [(1, 2); (0, 1)]
+                            ; [(3, 2); (0, 1)]
+                            ; [(3, 2); (height, 1)]
+                            ; [(5, 2); (height, 1)] ])
+            []
+  in
+  let hull_gc = Polyhedron.integer_hull `GomoryChvatal p in
+  let hull_normaliz = Polyhedron.integer_hull `Normaliz p in
+  let expected_hull =
+    mk_polyhedron_from_generators mk_vector 2
+      [ [1; 0]; [1; height/2]; [2; height - (height/2)]; [2; height] ] []
+  in
+  assert_equal ~cmp:Polyhedron.equal hull_gc expected_hull;
+  assert_equal ~cmp:Polyhedron.equal hull_normaliz expected_hull
+
+let test_halfspace () =
+  let p = mk_polyhedron [ ([2 ; 0], 3) ] in
+  let hull_gc = Polyhedron.integer_hull `GomoryChvatal p in
+  let hull_normaliz = Polyhedron.integer_hull `Normaliz p in
+  let expected_hull = mk_polyhedron [ ([1 ; 0], 2) ] in
+  assert_equal ~cmp:Polyhedron.equal hull_gc expected_hull;
+  assert_equal ~cmp:Polyhedron.equal hull_normaliz expected_hull
 
 let suite = "Polyhedron" >::: [
       "equal1" >:: (fun () ->
@@ -47,7 +95,7 @@ let suite = "Polyhedron" >::: [
                          ([1; 1; 0], 2)]
         in
         assert_bool "Disequal constraint space" (not (Polyhedron.equal p q)));
-            
+
       "disequal2" >:: (fun () ->
         let p =
           mk_polyhedron [([1; 0; -1], 0);
@@ -139,7 +187,7 @@ let suite = "Polyhedron" >::: [
                          ([0; 0; 1], 0)]
         in
         let q =
-          mk_polyhedron_generators 3
+          mk_polyhedron_from_generators mk_vector 3
             [[0; 0; 0]]
             [[1; 0; 0];
              [0; 1; 0];
@@ -155,7 +203,7 @@ let suite = "Polyhedron" >::: [
                          ([0; 0; 1], 42)]
         in
         let q =
-          mk_polyhedron_generators 3
+          mk_polyhedron_from_generators mk_vector 3
             [[-1; -1; 42]]
             [[1; 1; 0];
              [0; 0; 1]]
@@ -169,12 +217,33 @@ let suite = "Polyhedron" >::: [
                          ([0; -1], -4)]
         in
         let q =
-          mk_polyhedron_generators 2
+          mk_polyhedron_from_generators mk_vector 2
             [[1; 3];
              [1; 4];
              [2; 3];
              [2; 4]]
             []
         in
-        assert_equal_polyhedron p q)
+        assert_equal_polyhedron p q);
+
+      "integer_hull_1" >:: test_vertical_integer_hull 3;
+      "integer_hull_2" >:: test_translated_parallelogram 3;
+      "integer_hull_3" >:: test_halfspace;
+      "closed_dd" >:: (fun () ->
+          let to_vec (v, a) =
+            V.add_term (QQ.of_int (-a)) Linear.const_dim (mk_vector v)
+          in
+          let q =
+            BatList.enum [([1; 0], 1);
+                          ([0; 1], 0)]
+            /@ (fun h -> (`Pos, to_vec h))
+            |> DD.of_constraints_closed 2
+          in
+          let q' =
+            BatList.enum [([1; 0], 1);
+                          ([0; 1], 0)]
+            /@ (fun h -> (`Nonneg, to_vec h))
+            |> DD.of_constraints_closed 2
+         in
+         assert_equal_dd q' q)
   ]

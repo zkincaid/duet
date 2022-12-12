@@ -33,6 +33,10 @@ module type Domain = sig
   val tr_symbols : 'a t -> (symbol * symbol) list
 end
 
+module LIRR : PreDomain
+
+module LIRRGuard : PreDomainIter
+
 module WedgeGuard : PreDomainWedgeIter
 
 module PolyhedronGuard : sig

@@ -724,7 +724,7 @@ module Make
   module LiftIncr (A : AbstractDomain) = struct
     include A
     let incr_abstract models symbols solver post =
-      let start =      
+      let start =
         List.fold_left (fun a m -> join a (of_model m symbols)) post models
       in
       let rec fix prop models =

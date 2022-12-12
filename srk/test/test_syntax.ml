@@ -122,7 +122,11 @@ let nnf () =
   let negate psi =
     rewrite srk ~down:(nnf_rewriter srk) (mk_not srk psi)
   in
-  assert_equal_formula (negate (negate phi)) phi
+  let negate' psi =
+    rewrite srk ~down:(pos_rewriter srk) (mk_not srk psi)
+  in
+  assert_equal_formula (negate (negate phi)) phi;
+  assert_equal_formula (negate' (negate' phi)) phi
 
 let elim_ite1 () =
   let phi =

@@ -133,6 +133,14 @@ let pp_print_list pp_elt formatter xs =
     (pp_print_enum ~pp_sep:sep pp_elt)
     (BatList.enum xs)
 
+let rec fold_opt (f : 'a -> 'b -> 'a option) (acc : 'a) (enum : 'b BatEnum.t) =
+  match BatEnum.get enum with
+  | None -> Some acc
+  | Some x ->
+    match f acc x with
+    | Some acc' -> fold_opt f acc' enum
+    | None -> None
+
 module Int = struct
   module I = struct
     type t = int [@@deriving show,ord]

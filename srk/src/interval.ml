@@ -210,11 +210,11 @@ let of_apron ivl =
 
 let apron_of { lower; upper } =
   let lo = match lower with
-    | Some lo -> Apron.Scalar.of_mpqf lo
+    | Some lo -> Apron.Scalar.of_mpqf (QQ.mpq_of lo)
     | None -> Apron.Scalar.of_infty (-1)
   in
   let hi = match upper with
-    | Some hi -> Apron.Scalar.of_mpqf hi
+    | Some hi -> Apron.Scalar.of_mpqf (QQ.mpq_of hi)
     | None -> Apron.Scalar.of_infty 1
   in
   Apron.Interval.of_scalar lo hi

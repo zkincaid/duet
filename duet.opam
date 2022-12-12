@@ -18,7 +18,16 @@ depends: [
   "ocamlgraph"
 ]
 build: [
-  ["./configure" "--prefix=%{prefix}%"]
-  [make]
+  ["dune" "subst"] {pinned}
+  [
+    "dune"
+    "build"
+    "-p"
+    name
+    "-j"
+    jobs
+    "@install"
+    "@runtest" {with-test}
+    "@doc" {with-doc}
+  ]
 ]
-install: [make "install"]

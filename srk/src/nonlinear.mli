@@ -14,8 +14,9 @@ open Syntax
 val ensure_symbols : 'a context -> unit
 
 (** Replace non-linear arithmetic with uninterpreted functions.  The
-    uninterpreted function symbols are named symbols: mul, div, and mod.  This
-    rewriter is safe to apply top-down or bottom-up. *)
+    uninterpreted function symbols are named symbols: mul, div, and mod.
+    This rewriter is safe to apply top-down or bottom-up.
+*)
 val uninterpret_rewriter : 'a context -> ('a,typ_fo) expr -> ('a,typ_fo) expr
 
 (** Replace non-linear uninterpreted functions with interpreted ones.  This
@@ -47,10 +48,14 @@ val optimize_box : ?context:SrkZ3.z3_context ->
 
 
 (** Simplification rules power and log. *)
-val simplify_terms_rewriter : 'a context -> 'a rewriter
+val simplify_terms_rewriter : 'a context -> ('a, typ_fo) rewriter
 
 (** Simplify power and log terms. *)
 val simplify_terms : 'a context -> 'a formula -> 'a formula
 
 (** Simplify power and log terms. *)
 val simplify_term : 'a context -> 'a arith_term -> 'a arith_term
+
+val eliminate_floor_mod_div : 'a context -> 'a formula -> 'a formula
+
+val eliminate_ite : 'a context -> 'a formula -> 'a formula

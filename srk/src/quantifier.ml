@@ -57,12 +57,6 @@ let coefficient_gcd term =
     ZZ.zero
     (V.enum term)
 
-let common_denominator term =
-  BatEnum.fold (fun den (qq, _) ->
-      ZZ.lcm den (QQ.denominator qq))
-    ZZ.one
-    (V.enum term)
-
 let map_arith_atoms srk f phi =
   let rewriter expr =
     match Expr.refine srk expr with
@@ -273,7 +267,7 @@ let normalize srk phi =
       let k = mk_symbol srk ~name (typ :> Syntax.typ) in
       let (qf_pre, psi) = go (Env.push k env) psi in
       ((qt,k)::qf_pre, psi)
-    | _ -> ([], rewrite srk ~down:(nnf_rewriter srk) ~up:(rewriter env) phi)
+    | _ -> ([], rewrite srk ~down:(pos_rewriter srk) ~up:(rewriter env) phi)
   in
   go Env.empty phi
 
@@ -468,7 +462,7 @@ module Skeleton = struct
       begin match QQ.to_zz (evaluate_linterm model vt.term) with
         | None -> assert false
         | Some tv ->
-          ZZ.add (Mpzf.fdiv_q tv vt.divisor) vt.offset
+          ZZ.add (ZZ.fdiv tv vt.divisor) vt.offset
           |> QQ.of_zz
       end
     | MReal t -> evaluate_linterm model t
@@ -492,7 +486,7 @@ module Skeleton = struct
         | Some zz -> zz
       in
       let remainder =
-        Mpzf.fdiv_r term_val vt.divisor
+        ZZ.frem term_val vt.divisor
       in
       let numerator =
         V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
@@ -844,13 +838,13 @@ let select_int_term srk interp x atoms =
 
             let rhs_val = (* [[floor(numerator / a)]] *)
               match QQ.to_zz (eval numerator) with
-              | Some num -> Mpzf.fdiv_q num a
+              | Some num -> ZZ.fdiv num a
               | None -> assert false
             in
             let vt =
               { term = numerator;
                 divisor = a;
-                offset = Mpzf.cdiv_r (ZZ.sub x_val rhs_val) delta }
+                offset = ZZ.crem (ZZ.add x_val rhs_val) delta }
             in
             let vt_val = evaluate_vt vt in
 
@@ -885,14 +879,14 @@ let select_int_term srk interp x atoms =
             in
             let rhs_val = (* [[floor(numerator / a)]] *)
               match QQ.to_zz (eval numerator) with
-              | Some num -> Mpzf.fdiv_q num a
+              | Some num -> ZZ.fdiv num a
               | None -> assert false
             in
 
             let vt =
               { term = numerator;
                 divisor = a;
-                offset = Mpzf.fdiv_r (ZZ.sub x_val rhs_val) delta }
+                offset = ZZ.frem (ZZ.sub x_val rhs_val) delta }
             in
             let vt_val = evaluate_vt vt in
             assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
@@ -928,20 +922,20 @@ let select_int_term srk interp x atoms =
       | Some zz -> zz
       | None -> assert false
     in
-    ZZ.add (Mpzf.fdiv_q tval vt.divisor) vt.offset
+    ZZ.add (ZZ.fdiv tval vt.divisor) vt.offset
   in
   match List.fold_left merge `None (List.map bound_of_atom atoms) with
   | `Lower (vt, _) ->
     logf ~level:`trace "Found lower bound: %a < %a"
       (pp_int_virtual_term srk) vt
       (pp_symbol srk) x;
-    assert (ZZ.equal (Mpzf.fdiv_r x_val delta) (Mpzf.fdiv_r (vt_val vt) delta));
+    assert (ZZ.equal (ZZ.frem x_val delta) (ZZ.frem (vt_val vt) delta));
     vt
   | `Upper (vt, _) ->
     logf ~level:`trace "Found upper bound: %a < %a"
       (pp_symbol srk) x
       (pp_int_virtual_term srk) vt;
-    assert (ZZ.equal (Mpzf.fdiv_r x_val delta) (Mpzf.fdiv_r (vt_val vt) delta));
+    assert (ZZ.equal (ZZ.frem x_val delta) (ZZ.frem (vt_val vt) delta));
     vt
   | `None ->
     (* Value of x is irrelevant *)
@@ -980,7 +974,7 @@ let specialize_floor_cube srk model cube =
   let replace_floor expr = match destruct srk expr with
     | `Unop (`Floor, t) ->
        let v = linterm_of srk t in
-       let divisor = common_denominator v in
+       let divisor = V.common_denominator v in
        let qq_divisor = QQ.of_zz divisor in
        let dividend = of_linterm srk (V.scalar_mul qq_divisor v) in
        let remainder =
@@ -1789,7 +1783,7 @@ let _orient project eqs =
   let eqs =
     eqs
     |> List.map (fun vec ->
-           let den = common_denominator vec in
+           let den = V.common_denominator vec in
            V.enum vec
            /@ (fun (scalar, dim) ->
              match QQ.to_zz (QQ.mul (QQ.of_zz den) scalar) with
@@ -1842,7 +1836,7 @@ let mbp ?(dnf=false) srk exists phi =
   let phi =
     eliminate_ite srk phi
     |> rewrite srk
-         ~down:(nnf_rewriter srk)
+         ~down:(pos_rewriter srk)
          ~up:(SrkSimplify.simplify_terms_rewriter srk)
   in
   let project =
@@ -1933,7 +1927,7 @@ let mbp ?(dnf=false) srk exists phi =
                  | Some zz -> zz
                in
                let remainder =
-                 Mpzf.fdiv_r term_val vt.divisor
+                 ZZ.frem term_val vt.divisor
                in
                let numerator =
                  V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
@@ -2256,7 +2250,7 @@ let cover_virtual_substitution srk x virtual_term phi =
 
 let mbp_cover ?(dnf=true) srk exists phi =
   let phi = eliminate_ite srk phi in
-  let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
+  let phi = rewrite srk ~down:(pos_rewriter srk) phi in
   let project =
     Symbol.Set.filter (not % exists) (symbols phi)
   in

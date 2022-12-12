@@ -36,7 +36,7 @@ let llrf_residual srk tf =
   in
   let formula = (* tf /\_x d_x = x' - x, in negation-normal form *)
     let nnf =
-      rewrite srk ~down:(nnf_rewriter srk) (TF.formula tf)
+      rewrite srk ~down:(pos_rewriter srk) (TF.formula tf)
     in
     let diff =
       List.map2 (fun (x,x') dx ->
@@ -63,6 +63,7 @@ let llrf_residual srk tf =
         |> SrkApron.formula_of_property
         |> Polyhedron.of_formula dx_cs
         |> Polyhedron.dual_cone dim
+        |> Polyhedron.dd_of ~man:polka dim
       in
       let lb_cone =
         let lb_cone_generators =
@@ -76,11 +77,11 @@ let llrf_residual srk tf =
         in
         (* Origin must belong to the lower-bounded terms cone *)
         BatEnum.push lb_cone_generators (`Vertex, Vec.zero);
-        Polyhedron.of_generators dim lb_cone_generators
+        DD.of_generators dim lb_cone_generators
       in
-      let qrf_cone = Polyhedron.meet non_inc_cone lb_cone in
+      let qrf_cone = DD.meet non_inc_cone lb_cone in
       let qrf_invariant =
-        Polyhedron.enum_generators dim qrf_cone
+        DD.enum_generators qrf_cone
         |> BatEnum.filter_map (fun (typ, vec) ->
                if typ = `Ray then
                  let unprimed_exp =

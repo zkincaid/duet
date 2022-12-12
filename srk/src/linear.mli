@@ -25,6 +25,17 @@ module QQVector : sig
   val pp_term : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
   val show : t -> string
   val hash : t -> int
+  val split_leading : t -> (dim * scalar * t) option
+
+  (** Are all entries integers? *)
+  val is_integral : t -> bool
+
+  (** Find common denominator of all entries.  Multiplying by the cmmon
+     denominator yields an integral vector. *)
+  val common_denominator : t -> ZZ.t
+
+  (** Greatest common divisor of all entries. *)
+  val gcd_entries : t -> QQ.t
 end
 
 (** Sparse matrix with rational entries. *)
@@ -63,10 +74,6 @@ val vector_right_mul : QQMatrix.t -> QQVector.t -> QQVector.t
 
 (** [vector_left_mul v m] computes [(v^t)*m] *)
 val vector_left_mul : QQVector.t -> QQMatrix.t -> QQVector.t
-
-(** Given two matrices [A] and [B], compute matrices [C] and [D] such that [CA
-    = DB] is a basis for the intersection of the rowspaces of [A] and [B]. *)
-val intersect_rowspace : QQMatrix.t -> QQMatrix.t -> (QQMatrix.t * QQMatrix.t)
 
 (** Given two matrices [A] and [B], compute matrices [C] and [D] such
    that [CA = DB], and for any [E] and [F] such that [EA = FB], there
@@ -110,6 +117,8 @@ val jordan_chain : QQMatrix.t -> QQ.t -> QQVector.t -> QQVector.t list
 module QQVectorSpace : sig
   (** Vector spaces are represented by a list of basis vectors *)
   type t = QQVector.t list
+
+  val pp : Format.formatter -> t -> unit
 
   val equal : t -> t -> bool
 
@@ -157,6 +166,178 @@ module QQVectorSpace : sig
   (** Find the dimension of the given vector space *)
   val dimension : t -> int
 end
+
+(** {2 Rewriting} *)
+
+module type SparseArray = sig
+  type scalar
+  type dim
+  type t
+  val zero : t
+  val split_leading : t -> (dim * scalar * t) option
+  val add : t -> t -> t
+  val add_term : scalar -> dim -> t -> t
+  val scalar_mul : scalar -> t -> t
+  val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
+  val pp : Format.formatter -> t -> unit
+end
+
+module type LinearSpace = sig
+  type t
+  type scalar
+  type vector
+
+  (** Logical equality *)
+  val equal : t -> t -> bool
+
+  (** [subspace a b] checks whether [a] is a subspace of [b] *)
+  val subspace : t -> t -> bool
+
+  (** Linear space containing only zero *)
+  val zero : t
+
+  (** Check whether a given space is {0}. *)
+  val is_zero : t -> bool
+
+  (** Check membership of vector within a linear space *)
+  val mem : t -> vector -> bool
+
+  (** Intersect two spaces *)
+  val intersect : t -> t -> t
+
+  (** Given spaces U and V, compute a basis for the direct sum
+      [{ u+v : u in U, v in V }] *)
+  val sum : t -> t -> t
+
+  (** Given spaces U and V, compute a basis for a space W such that
+      [sum (diff U V) W = U].  NOTE: this vector space is not unique. *)
+  val diff : t -> t -> t
+
+  (** Retrieve an ordered basis for a space *)
+  val basis : t -> vector BatEnum.t
+
+  (** Find the dimension of the given space *)
+  val dimension : t -> int
+
+  (** [add v U] computes the space [{ av + u : a in K, u in U }] *)
+  val add : vector -> t -> t
+
+  (** [reduce v S] compute a representative of v in the quotient space
+     [V/S]. *)
+  val reduce : t -> vector -> vector
+
+  (** Smallest vector space that contains all vectors in the given
+     enumeration. *)
+  val span : vector BatEnum.t -> t
+end
+
+(** Finite-dimensional (sub)spaces of sparse arays *)
+module MakeLinearSpace
+    (K : Algebra.Field)
+    (D : Map.OrderedType)
+    (V : SparseArray with type dim = D.t
+                      and type scalar = K.t) :
+  LinearSpace with type scalar = K.t
+               and type vector = V.t
+
+(** {2 Linear maps} *)
+
+(** Linear maps from a subspace of S into T. *)
+module MakeLinearMap
+    (K : Algebra.Field)
+    (D : Map.OrderedType)
+    (S : SparseArray with type dim = D.t
+                      and type scalar = K.t)
+    (T : sig
+       type scalar = K.t
+       type t
+       val zero : t
+       val is_zero : t -> bool
+       val add : t -> t -> t
+       val scalar_mul : scalar -> t -> t
+       val pp : Format.formatter -> t -> unit
+     end) : sig
+  type t
+
+  (** The map from the zero space to T *)
+  val empty : t
+
+  (** [apply f x] applies [f] to [x] if [x] belongs to [f]'s domain,
+     otherwise gives [None] *)
+  val apply : t -> S.t -> T.t option
+
+  (** [add x y f] extends [f] with the binding [x -> y], provided that [f x]
+     is either undefined or equal to [y], otherwise gives [None]. *)
+  val add : S.t -> T.t -> t -> t option
+
+  (** [add x y f] extends [f] with the binding [x -> y], provided [x] is not
+      already in the domain of [f], otherwise raises [Invalid_argument]. *)
+  val add_exn : S.t -> T.t -> t -> t
+
+  (** [may_add x y f] extends [f] with the binding [x -> y], provided [x] is
+     not already in the domain of [f], otherwise gives [f]. *)
+  val may_add : S.t -> T.t -> t -> t
+
+  (** Retrieve an enumeration of bindings that defines the linear map *)
+  val enum : t -> (S.t * T.t) BatEnum.t
+
+  (** As [enum], but with the order reversed. *)
+  val reverse : t -> (S.t * T.t) BatEnum.t
+
+  (** Compose a map with a linear map on the target space.  The function must
+     be linear for the composition to be well-defined. *)
+  val compose : t -> (T.t -> T.t) -> t
+end
+
+exception Not_in_context
+
+(** Translate between sparse arrays (of arbitrary dimension type) and rational
+   vectors (with dimensions drawn from an initial segment of the naturals) *)
+module type DenseConversion = sig
+  type context
+  type dim
+  type vec
+  (** [make-context [d0, ..., dn]] creates a conversion context that
+     associates each [di] with the integer [i].  [Invalid_arg] is raised if a
+     dimension appears more than once in the input list. *)
+  val make_context : dim list -> context
+
+  (** [min_context xs] creates a minimal conversion context in which each
+     dimension in each vector in [xs] appears. *)
+  val min_context : vec BatEnum.t -> context
+
+  (** Number of dimensions of the conversion context *)
+  val dim : context -> int
+
+  (** Translate an integer to a dimension.  Raises [Not_in_context] if the
+     integer is not within bounds.  *)
+  val dim_of_int : context -> int -> dim
+
+  (** Translate a dimension to an integer.  Raises [Not_in_context] if the
+     dimension does not appear in the context.  *)
+  val int_of_dim : context -> dim -> int
+
+  (** Convert a sparse array to a vector.  Raises [Not_in_context] if
+     conversion context does not contain all required dimensions. *)
+  val densify : context -> vec -> QQVector.t
+
+  (** Convert a vector to a sparse array.  Raises [Not_in_context] if the
+     integral dimensions are outside the bounds of the conversion context. *)
+  val sparsify : context -> QQVector.t -> vec
+
+  (** Does a dimension belong to a conversion context? *)
+  val mem : context -> dim -> bool
+
+  (** Pretty-print association between integers and dimensions. *)
+  val pp : (Format.formatter -> dim -> unit) -> Format.formatter -> context -> unit
+end
+
+module MakeDenseConversion
+    (D : Map.OrderedType)
+    (S : SparseArray with type dim = D.t
+                      and type scalar = QQ.t)
+  : DenseConversion with type dim = D.t
+                     and type vec = S.t
 
 (** {2 Affine terms} *)
 

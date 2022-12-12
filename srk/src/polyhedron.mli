@@ -20,10 +20,6 @@ type generator_kind = [ `Vertex | `Ray | `Line ]
 (** Enumerate the constraints of a polyhedron. *)
 val enum_constraints : t -> (constraint_kind * V.t) BatEnum.t
 
-(** Enumerate the generators of a polyhedron.  Can take exponential
-   time in the number of constraints. *)
-val enum_generators : int -> t -> (generator_kind * V.t) BatEnum.t
-
 val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
 (** Intersect two polyhedra. *)
@@ -41,8 +37,6 @@ val of_formula : ?admit:bool -> 'a CoordinateSystem.t -> 'a formula -> t
 
 val of_constraints : (constraint_kind * V.t) BatEnum.t -> t
 
-val of_generators : int -> (generator_kind * V.t) BatEnum.t -> t
-
 (** Inverse of [of_formula] *)
 val to_formula : 'a CoordinateSystem.t -> t -> 'a formula
 
@@ -51,6 +45,8 @@ val to_apron : 'a CoordinateSystem.t -> 'a SrkApron.Env.t -> 'abs Apron.Manager.
 (** Test whether a point, representing as a map from symbols to rationals, is
     inside a polyhedron. *)
 val mem : (int -> QQ.t) -> t -> bool
+
+val implies : t -> (constraint_kind * V.t) -> bool
 
 (** Convert a conjunction of atomic formulas (as returned by
     [Interpretation.select_implicant]) to a polyhedron. *)
@@ -68,6 +64,9 @@ val local_project : (int -> QQ.t) -> int list -> t -> t
 
 (** Fourier-Motzkin elimination. *)
 val project : int list -> t -> t
+
+(** Project using the double-description method *)
+val project_dd : int list -> t -> t
 
 (** Apply Fourier-Motzkin elimination to the subset of symbols that appear
     linearly and are "easy" to eliminate.  Symbols that do not appear linearly
@@ -87,6 +86,11 @@ val dual_cone : int -> t -> t
    linear (rather than affine) halfspaces. *)
 val conical_hull : t -> t
 
+(** [integer_hull p] computes the convex hull of the integer points contained
+    in p.
+ *)
+val integer_hull : ?decompose:bool -> [`GomoryChvatal | `Normaliz] -> t -> t
+
 (** Test whether two polyhedra are equal (as sets of points in
    QQ^omega). *)
 val equal : t -> t -> bool
@@ -97,13 +101,6 @@ val equal : t -> t -> bool
    [a] belongs to this space. *)
 val constraint_space : t -> Linear.QQVectorSpace.t
 
-(** [apron0_of man n p] converts [p] to an [n]-dimensional abstract
-   value using the supplied abstract domain manager [man].  The
-   supplied dimension [n] should be at least as large as the greatest
-   dimension with a non-zero coefficient in a constraint defining
-   [p]. *)
-val apron0_of : 'a Apron.Manager.t -> int -> t -> 'a Apron.Abstract0.t
-
-(** [of_apron0 man v] converts an abstract value [v] to a
-   polyhedron. *)
-val of_apron0 : 'a Apron.Manager.t -> 'a Apron.Abstract0.t -> t
+val dd_of : ?man:(Polka.loose Polka.t Apron.Manager.t) -> int -> t -> DD.closed DD.t
+val nnc_dd_of : ?man:(Polka.strict Polka.t Apron.Manager.t) -> int -> t -> DD.nnc DD.t
+val of_dd : 'a DD.t -> t

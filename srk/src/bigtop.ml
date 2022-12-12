@@ -84,6 +84,16 @@ let spec_list = [
        print_result (Wedge.is_sat srk (snd (Quantifier.normalize srk phi)))),
    " Test satisfiability of a non-linear ground formula (POPL'18)");
 
+  ("-lirrsat",
+   Arg.String (fun file ->
+       let phi = load_formula file in
+       print_result (LirrSolver.is_sat srk (snd (Quantifier.normalize srk phi)))),
+   " Test satisfiability of a non-linear ground formula using theory of linear integer real rings");
+
+  ("-normaliz",
+   Arg.Unit (fun () -> PolynomialConeCpClosure.set_cutting_plane_method `Normaliz),
+   "Set weak theory solver to use Normaliz's integer hull computation (instead of Gomory-Chvatal");
+
   ("-generator",
    Arg.Set generator_rep,
    " Print generator representation of convex hull");

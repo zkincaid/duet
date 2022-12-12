@@ -1,71 +1,72 @@
-type t = Mpqf.t
+type t = Q.t
 
 let opt_default_accuracy = ref (-1)
 
-let pp = Mpqf.print
-let show = SrkUtil.mk_show pp
+let pp = Q.pp_print
+let show = Q.to_string
 
-let compare = Mpqf.cmp
-let equal = Mpqf.equal
-let leq x y = compare x y <= 0
-let lt x y = compare x y < 0
+let compare = Q.compare
+let equal = Q.equal
+let leq x y = Q.leq x y
+let lt x y = Q.lt x y
 
-let add = Mpqf.add
-let sub = Mpqf.sub
-let mul = Mpqf.mul
-let zero = Mpqf.of_int 0
-let one = Mpqf.of_int 1
+let add = Q.add
+let sub = Q.sub
+let mul = Q.mul
+let zero = Q.zero
+let one = Q.one
+let div = Q.div
 
-let div x y =
-  if compare y zero = 0 then invalid_arg "QQ.div: divide by zero"
-  else Mpqf.div x y
+let negate = Q.neg
+let inverse = Q.inv
 
-let negate = Mpqf.neg
-let inverse = Mpqf.inv
+let of_int = Q.of_int
+let of_zz = Q.of_bigint
+let of_frac = Q.of_ints
+let of_zzfrac = Q.make
+let of_float = Q.of_float
+let of_string = Q.of_string
+let to_zzfrac x = (Q.num x, Q.den x)
 
-let of_int = Mpqf.of_int
-let of_zz = Mpqf.of_mpz
-let of_frac = Mpqf.of_frac
-let of_zzfrac = Mpqf.of_mpz2
-let of_float = Mpqf.of_float
-let of_string = Mpqf.of_string
-let to_zzfrac = Mpqf.to_mpzf2
-
-let to_zz qq =
-  let (num, den) = to_zzfrac qq in
-  if Mpz.cmp den (Mpzf.of_int 1) == 0 then Some num
+let to_zz x =
+  if Z.equal (Q.den x) Z.one then Some (Q.num x)
   else None
-let to_int qq = BatOption.Monad.bind (to_zz qq) ZZ.to_int
-let to_float = Mpqf.to_float
+let to_int x = BatOption.Monad.bind (to_zz x) ZZ.to_int
+let to_float = Q.to_float
 
-let numerator = Mpqf.get_num
-let denominator = Mpqf.get_den
-let hash x = Hashtbl.hash (Mpqf.to_string x)
+(* TODO: Z_mlgmpidl provides fast conversion *)
+let of_mpq x = Q.of_string (Mpqf.to_string x)
+let mpq_of x = Mpqf.of_string (show x)
+
+let numerator = Q.num
+let denominator = Q.den
+let hash = Hashtbl.hash
+
+let min = Q.min
+let max = Q.max
+let abs = Q.abs
 
 let exp x k =
+  let open Stdlib in
   let rec go x k =
     if k = 0 then one
     else if k = 1 then x
     else begin
       let y = go x (k / 2) in
-      let y2 = mul y y in
-      if k mod 2 = 0 then y2 else mul x y2
+      let y2 = Q.mul y y in
+      if k mod 2 = 0 then y2 else Q.mul x y2
     end
   in
-  if k < 0 then Mpqf.inv (go x (-k))
+  if k < 0 then inverse (go x (-k))
   else go x k
 
 let floor x =
   let (num, den) = to_zzfrac x in
-  Mpzf.fdiv_q num den
+  ZZ.fdiv num den
 
 let ceiling x =
   let (num, den) = to_zzfrac x in
-  Mpzf.cdiv_q num den
-
-let min x y = if leq x y then x else y
-let max x y = if leq x y then y else x
-let abs = Mpqf.abs
+  ZZ.fdiv (ZZ.sub (ZZ.add num den) ZZ.one) den
 
 (* Truncated continued fraction *)
 let rec nudge ?(accuracy=(!opt_default_accuracy)) x =
@@ -73,25 +74,25 @@ let rec nudge ?(accuracy=(!opt_default_accuracy)) x =
     (x, x)
   else
     let (num, den) = to_zzfrac x in
-    let (q, r) = Mpzf.fdiv_qr num den in
+    let (q, r) = ZZ.div_rem num den in
     if accuracy = 0 then
-      (Mpqf.of_mpz q, Mpqf.of_mpz (Mpzf.add_int q 1))
-    else if Mpzf.cmp_int r 0 = 0 then
-      (of_zz q, of_zz q)
+      (of_zz q, Q.of_bigint (ZZ.add q (ZZ.of_int 1)))
+    else if r = Z.zero then
+      (of_zz q, Q.of_bigint q)
     else
       let (lo, hi) = nudge ~accuracy:(accuracy - 1) (of_zzfrac den r) in
-      (add (of_zz q) (inverse hi),
-       add (of_zz q) (inverse lo))
+      (add (Q.of_bigint q) (inverse hi),
+       add (Q.of_bigint q) (inverse lo))
 
 let rec nudge_down ?(accuracy=(!opt_default_accuracy)) x =
   if accuracy < 0 then
     x
   else
     let (num, den) = to_zzfrac x in
-    let (q, r) = Mpzf.fdiv_qr num den in
+    let (q, r) = ZZ.div_rem num den in
     if accuracy = 0 then
-      Mpqf.of_mpz q
-    else if Mpzf.cmp_int r 0 = 0 then
+      of_zz q
+    else if ZZ.equal r ZZ.zero then
       of_zz q
     else
       let hi = nudge_up ~accuracy:(accuracy - 1) (of_zzfrac den r) in
@@ -101,10 +102,10 @@ and nudge_up ?(accuracy=(!opt_default_accuracy)) x =
     x
   else
     let (num, den) = to_zzfrac x in
-    let (q, r) = Mpzf.fdiv_qr num den in
+    let (q, r) = Z.ediv_rem num den in
     if accuracy = 0 then
-      Mpqf.of_mpz (Mpzf.add_int q 1)
-    else if Mpzf.cmp_int r 0 = 0 then
+      of_zz (ZZ.add q ZZ.one)
+    else if ZZ.equal r ZZ.zero then
       of_zz q
     else
       let lo = nudge_down ~accuracy:(accuracy - 1) (of_zzfrac den r) in

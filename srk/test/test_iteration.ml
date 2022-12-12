@@ -22,6 +22,12 @@ module DLTS = struct
                                  (Iteration.PolyhedronGuard))
   let star srk tf = closure (abstract srk tf)
 end
+module WAT = struct
+  include Iteration.MakeDomain(Iteration.Product
+                                 (Iteration.LIRR)
+                                 (Iteration.LIRRGuard))
+  let star srk tf = closure (abstract srk tf)
+end
 
 module GT = struct
   include Iteration.MakeDomain(Iteration.GuardedTranslation)
@@ -36,6 +42,15 @@ let assert_implies_nonlinear phi psi =
     assert_failure (Printf.sprintf "%s\ndoes not imply\n%s"
                       (Formula.show srk phi)
                       (Formula.show srk psi))
+
+let assert_implies_wat phi psi =
+  match LirrSolver.is_sat srk (mk_and srk [phi; mk_not srk psi]) with
+    | `Unsat -> ()
+  | `Sat | `Unknown ->
+    assert_failure (Printf.sprintf "%s\ndoes not imply in weak theory\n%s"
+                      (Formula.show srk phi)
+                      (Formula.show srk psi))
+
 
 let tr_symbols = [(wsym,wsym');(xsym,xsym');(ysym,ysym');(zsym,zsym')]
 

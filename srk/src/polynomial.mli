@@ -101,12 +101,19 @@ module Monomial : sig
     (t -> t -> [ `Eq | `Lt | `Gt ])
 
   val term_of : ('a context) -> (dim -> 'a arith_term) -> t -> 'a arith_term
+
+  (** Determine whether a monomial is a variable *)
+  val destruct_var : t -> dim option
+
+  (** Sum of powers of all variables. *)
+  val total_degree : t -> int
 end
 
 (** Signature of multivariate polynmials *)
 module type Multivariate = sig
   type t
   type scalar
+  type dim = Monomial.t
 
   val equal : t -> t -> bool
   val add : t -> t -> t
@@ -163,6 +170,8 @@ module type Multivariate = sig
 
   (** Maximum total degree of a monomial term *)
   val degree : t -> int
+
+  val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
 end
                     
 (** Multi-variate polynomials over a ring *)
@@ -192,6 +201,8 @@ module QQXs : sig
 
   val term_of : ('a context) -> (Monomial.dim -> 'a arith_term) -> t -> 'a arith_term
 
+  val of_term : ('a context) -> 'a arith_term -> t
+
   (** Greatest common divisor of all coefficients. *)
   val content : t -> QQ.t
 
@@ -207,6 +218,21 @@ module QQXs : sig
     (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ]) ->
     t ->
     (QQ.t * Monomial.t * t)
+
+  val degree : t -> int
+end
+
+(** Conversion between multivariate polynomials with rational coefficients and
+   rational vectors. *)
+module LinearQQXs : sig
+  include Linear.DenseConversion
+    with type vec = QQXs.t
+     and type dim = Monomial.t
+
+  (** Densify, associating [Linear.const_dim] with [Monomial.one]. *)
+  val densify_affine : context -> QQXs.t -> Linear.QQVector.t
+  (** Sparsify, associating [Linear.const_dim] with [Monomial.one]. *)
+  val sparsify_affine : context -> Linear.QQVector.t -> QQXs.t
 end
 
 (** Rewrite systems for multi-variate polynomials. A polynomial rewrite system
@@ -251,6 +277,27 @@ module Rewrite : sig
   val add_saturate : t -> QQXs.t -> t
 
   val generators : t -> QQXs.t list
+
+  val get_monomial_ordering : t -> 
+    (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt])
+
+  (** Given a Groebner basis for an ideal (under some monomial
+     ordering), compute a Groebner basis for the same ideal under the
+     given ordering. *)
+  val reorder_groebner : (Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt]) -> t -> t
+
+  (** Is one rewrite contained inside another? *)
+  val subset : t -> t -> bool
+
+  (** Is one rewrite equal to another? *)
+  val equal : t -> t -> bool
+
+  (** Find the subset of rewrites that only refer to monomials satisfying the
+     given predicate.  Assuming that the rewrite is a grobner basis and the set of
+     monomials satisfying the predicate is downwards-closed w.r.t. the
+     monomial ordering, this is a grobner basis for the intersection of the ideal
+      and the space of polynomials over the given set of monomials *)
+  val restrict : (Monomial.t -> bool) -> t -> t
 end
 
 (** A polynomial ideal is a set of polynomials that is closed under
@@ -263,6 +310,10 @@ module Ideal : sig
 
   (** Compute the smallest ideal that contains a given set of polynomials *)
   val make : QQXs.t list -> t
+
+  val add_saturate : t -> QQXs.t -> t
+
+  val reduce : t -> QQXs.t -> QQXs.t
 
   (** Compute a finite set of polynomials that generates the given
      ideal.  Note [make (generators i) = i], but [generators (make g)]
@@ -294,3 +345,34 @@ module Ideal : sig
      predicate. *)
   val project : (int -> bool) -> t -> t
 end
+
+(** A witness is a representation of a polynomial combination of a set of
+   generator polynomials, where each generator polynomial is represente by an
+   integer identifier.  *)
+module Witness : sig
+  include Ring.Vector with type dim = int
+                       and type scalar = QQXs.t
+end
+
+(** Polynomial rewrite systems tagged with witnesses.  Reducing a polynomial
+   [p] yields both a residue polynomial [r] and a polynomial combination of
+   generators [w], so that [p = r + w]. *)
+module RewriteWitness : sig
+  type t
+  val mk_rewrite : (Monomial.t -> Monomial.t -> [ `Eq | `Lt | `Gt ]) ->
+    (QQXs.t * Witness.t) list ->
+    t
+  val grobner_basis : t -> t
+  val add_saturate : t -> QQXs.t -> Witness.t -> t
+  val reduce : t -> QQXs.t -> (QQXs.t * Witness.t)
+
+  (** Check if a given polynomial reduces to zero.  If so, return the witness
+     of membership. *)
+  val zero_witness : t -> QQXs.t -> Witness.t option
+  val reducew : t -> (QQXs.t * Witness.t) -> (QQXs.t * Witness.t)
+  val generators : t -> (QQXs.t * Witness.t) list
+  val forget : t -> Rewrite.t
+end
+
+val pp_ascii_dim : Format.formatter -> int -> unit
+val pp_numeric_dim : string -> Format.formatter -> int -> unit

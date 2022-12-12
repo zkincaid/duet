@@ -1,7 +1,0 @@
-format_version: '1.0'
-
-input_files: '03.c'
-
-properties:
-  - property_file: ../../properties/unreach-call.prp
-    expected_verdict: true

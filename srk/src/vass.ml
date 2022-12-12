@@ -228,7 +228,7 @@ let compute_single_scc_vass ?(exists=fun _ -> true) srk tr_symbols cs_lst phi =
    predicate, and convert to DNF *)
 let project_dnf srk exists phi =
   let phi =
-    rewrite srk ~down:(nnf_rewriter srk) phi
+    rewrite srk ~down:(pos_rewriter srk) phi
     |> SrkSimplify.simplify_terms srk
   in
   let solver = Smt.mk_solver srk in
@@ -258,7 +258,7 @@ let get_largest_polyhedrons srk control_states =
     | [] -> non_intersect, ele, changed
     | hd :: tl ->
       let solver = Smt.mk_solver srk in
-      let phi = (rewrite srk ~down:(nnf_rewriter srk) (mk_and srk [ele; hd])) in 
+      let phi = (rewrite srk ~down:(pos_rewriter srk) (mk_and srk [ele; hd])) in 
       Smt.Solver.add solver [phi];
       match Smt.Solver.get_model solver with
       | `Unsat -> intersect_ele (hd :: non_intersect) ele tl changed
@@ -302,7 +302,7 @@ let abstract srk tf =
   let skolem_constants =
     Symbol.Set.filter (fun a -> not (exists a)) (symbols (TF.formula tf))
   in
-  let phi = Nonlinear.linearize srk (rewrite srk ~down:(nnf_rewriter srk) (TF.formula tf)) in
+  let phi = Nonlinear.linearize srk (rewrite srk ~down:(pos_rewriter srk) (TF.formula tf)) in
   let control_states, sink = get_control_states srk tf in
   let graph = compute_edges srk tr_symbols control_states phi in
   let num_sccs, func_sccs = BGraphComp.scc graph in
@@ -580,7 +580,7 @@ let compute_trans_post_cond srk pre_cs post_cs trans gamma_trans term_list tr_sy
       (Abstract.abstract ~exists:exists_post srk man complete_trans_form) in
   let lri_form =
     TF.make
-      (rewrite srk ~down:(nnf_rewriter srk) gamma_trans)
+      (rewrite srk ~down:(pos_rewriter srk) gamma_trans)
       tr_symbols
   in
   let preify = substitute_map srk (TF.pre_map srk tr_symbols) in

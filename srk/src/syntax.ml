@@ -63,6 +63,7 @@ type label =
   | Ite
   | Store
   | Select
+  | IsInt
 
 type sexpr = Node of label * ((sexpr hobj) list) * typ_fo
 type ('a,'typ) expr = sexpr hobj
@@ -249,9 +250,11 @@ type ('a,'b) open_formula = [
   | `Or of 'a list
   | `Not of 'a
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
-  | `Atom of 
+  | `Atom of
       [ `Arith of [`Eq | `Leq | `Lt] * ('b arith_term) * ('b arith_term)
-      | `ArrEq of 'b arr_term * 'b arr_term ]
+      | `ArrEq of 'b arr_term * 'b arr_term
+      | `IsInt of 'b term
+      ]
   | `Proposition of [ `Var of int
                     | `App of symbol * (('b, typ_fo) expr) list ]
   | `Ite of 'a * 'a * 'a
@@ -319,7 +322,7 @@ let pp_symbol srk formatter symbol =
 let show_symbol srk symbol = fst (DynArray.get srk.symbols symbol)
 let symbol_of_int x = x
 let int_of_symbol x = x
-let dup_symbol srk sym = 
+let dup_symbol srk sym =
   mk_symbol srk ~name:(show_symbol srk sym) (typ_symbol srk sym)
 
 let mk_real srk qq = srk.mk (Real qq) []
@@ -369,6 +372,8 @@ let mk_leq srk s t = srk.mk Leq [s; t]
 let mk_lt srk s t = srk.mk Lt [s; t]
 let mk_eq srk s t = srk.mk Eq [s; t]
 let mk_arr_eq srk s t = srk.mk ArrEq [s; t]
+
+let mk_is_int srk t = srk.mk IsInt [t]
 
 let is_true phi = match phi.obj with
   | Node (True, [], _) -> true
@@ -564,6 +569,7 @@ let destruct _srk sexpr =
   | Node (Leq, [s; t], _) -> `Atom (`Arith (`Leq, s, t))
   | Node (Lt, [s; t], _) -> `Atom (`Arith (`Lt, s, t))
   | Node (ArrEq, [s; t], _) -> `Atom (`ArrEq (s, t))
+  | Node (IsInt, [s], _) -> `Atom (`IsInt s)
   | Node (_, _, _) -> assert false
 
 let rec flatten_universal phi = match phi.obj with
@@ -692,10 +698,10 @@ let rec pp_expr ?(env=Env.empty) srk formatter expr =
       (pp_expr ~env srk) cond
       (pp_expr ~env srk) bthen
       (pp_expr ~env srk) belse
+  | IsInt, [s] ->
+     fprintf formatter "is_int(@[%a@])"
+       (pp_expr ~env srk) s
   | _ -> failwith "pp_expr: ill-formed expression"
-
-
-
 
 (* This variant of pp_expr avoids printing a symbol number (e.g., "x:5") for a
    symbol S (i.e., a program variable or function name) if there does not exist
@@ -729,7 +735,7 @@ let pp_expr_unnumbered ?(env=Env.empty) srk formatter expr =
     let open Format in
     match label, children with
     | Real qq, [] -> QQ.pp formatter qq
-    | App k, [] -> 
+    | App k, [] ->
       pp_print_string formatter (Hashtbl.find symbol_name k)
     | App func, args ->
       fprintf formatter "%s(@[%a@])"
@@ -790,7 +796,7 @@ let pp_expr_unnumbered ?(env=Env.empty) srk formatter expr =
         formatter
         (BatList.enum (List.concat (List.map (flatten_sexpr Or) disjuncts)));
       fprintf formatter "@])"
-    | Eq, [x; y] 
+    | Eq, [x; y]
     | ArrEq, [x; y] ->
       fprintf formatter "@[%a = %a@]"
         (go ~env srk) x
@@ -839,11 +845,12 @@ let pp_expr_unnumbered ?(env=Env.empty) srk formatter expr =
         (go ~env srk) cond
         (go ~env srk) bthen
         (go ~env srk) belse
+    | IsInt, [s] ->
+       fprintf formatter "is_int(@[%a@])"
+         (go ~env srk) s
     | _ -> failwith "pp_expr_unnumbered: ill-formed expression"
 
   in go ~env srk formatter expr
-
-
 
 module Expr = struct
   module Inner = struct
@@ -878,22 +885,22 @@ module Expr = struct
   let arith_term_of _srk sexpr =
     match sexpr.obj with
     | Node (_, _, `TyInt)
-      | Node (_, _, `TyReal) -> sexpr
+    | Node (_, _, `TyReal) -> sexpr
     | Node (_, _, `TyArr)
-      | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not an arithmetic term"
+    | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not an arithmetic term"
 
   let arr_term_of _srk sexpr =
     match sexpr.obj with
     | Node (_, _, `TyArr) -> sexpr
     | Node (_, _, `TyInt)
-      | Node (_, _, `TyReal)
-      | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not an array term"
+    | Node (_, _, `TyReal)
+    | Node (_, _, `TyBool) -> invalid_arg "Syntax.term_of: not an array term"
 
   let formula_of _srk sexpr =
     match sexpr.obj with
     | Node (_, _, `TyInt)
-      | Node (_, _, `TyReal) 
-      | Node (_, _, `TyArr) -> invalid_arg "Syntax.formula_of: not a formula"
+    | Node (_, _, `TyReal)
+    | Node (_, _, `TyArr) -> invalid_arg "Syntax.formula_of: not a formula"
     | Node (_, _, `TyBool) -> sexpr
 
   let pp = pp_expr
@@ -969,7 +976,7 @@ module Term = struct
       match t.obj with
       | Node (Real qq, [], _) -> alg (`Real qq)
       | Node (App _, _, `TyBool) -> invalid_arg "eval: not a term"
-      | Node (App func, args, `TyInt) 
+      | Node (App func, args, `TyInt)
       | Node (App func, args, `TyReal)
       | Node (App func, args, `TyArr) ->
         alg (`App (func, args))
@@ -989,7 +996,7 @@ module Term = struct
       | Node (Select, [a; i], `TyInt) -> alg(`Select (go a, go i))
       | Node (Store, [a; i; v], `TyArr) -> alg(`Store(go a, go i, go v))
       | Node (Ite, [cond; bthen; belse], `TyReal)
-      | Node (Ite, [cond; bthen; belse], `TyInt) 
+      | Node (Ite, [cond; bthen; belse], `TyInt)
       | Node (Ite, [cond; bthen; belse], `TyArr) ->
         alg (`Ite (cond, go bthen, go belse))
       | _ -> invalid_arg "eval: not a term"
@@ -1008,8 +1015,8 @@ module Term = struct
   let destruct _srk t = match t.obj with
     | Node (Real qq, [], _) -> `Real qq
     | Node (App _, _, `TyBool) -> invalid_arg "destruct: not a term"
-    | Node (App func, args, `TyInt) 
-    | Node (App func, args, `TyReal) 
+    | Node (App func, args, `TyInt)
+    | Node (App func, args, `TyReal)
     | Node (App func, args, `TyArr) ->
       `App (func, args)
     | Node (Var (v, typ), [], _) ->
@@ -1028,7 +1035,7 @@ module Term = struct
     | Node (Select, [a; i], _) -> `Select (a, i)
     | Node (Store, [a; i; v], `TyArr) -> `Store(a, i, v)
     | Node (Ite, [cond; bthen; belse], `TyReal)
-    | Node (Ite, [cond; bthen; belse], `TyInt) 
+    | Node (Ite, [cond; bthen; belse], `TyInt)
     | Node (Ite, [cond; bthen; belse], `TyArr) ->
       `Ite (cond, bthen, belse)
     | _ -> invalid_arg "destruct: not a term"
@@ -1059,14 +1066,13 @@ module Term = struct
     | Node (_, _, `TyArr) -> `TyArr
     | Node (_, _, `TyBool) -> invalid_arg "term_typ: not a term"
 
-let refine _srk sexpr =
+  let refine _srk sexpr =
     match sexpr.obj with
     | Node (_, _, `TyInt)
-    | Node (_, _, `TyReal) -> `ArithTerm sexpr
+      | Node (_, _, `TyReal) -> `ArithTerm sexpr
     | Node (_, _, `TyArr) -> `ArrTerm sexpr
     | Node (_, _, `TyBool) -> assert false
 end
-
 
 module ArithTerm = struct
   type 'a t = 'a arith_term
@@ -1093,7 +1099,7 @@ module ArithTerm = struct
     let rec go t =
       match t.obj with
       | Node (Real qq, [], _) -> alg (`Real qq)
-      | Node (App _, _, `TyBool) | Node (App _, _, `TyArr) -> 
+      | Node (App _, _, `TyBool) | Node (App _, _, `TyArr) ->
         invalid_arg "eval: not arithmetic a term"
       | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
         alg (`App (func, args))
@@ -1131,13 +1137,13 @@ module ArithTerm = struct
     | Node (Real qq, [], _) -> `Real qq
     | Node (App _, _, `TyBool) | Node (App _, _, `TyArr) ->
       invalid_arg "destruct: not an arithmetic term"
-    | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) -> 
+    | Node (App func, args, `TyInt) | Node (App func, args, `TyReal) ->
       `App (func, args)
     | Node (Var (v, typ), [], _) ->
       begin match typ with
         | `TyInt -> `Var (v, `TyInt)
         | `TyReal -> `Var (v, `TyReal)
-        | `TyArr 
+        | `TyArr
         | `TyBool -> invalid_arg "destruct: not an arithmetic term"
       end
     | Node (Add, sum, _) -> `Add sum
@@ -1183,7 +1189,7 @@ module ArrTerm = struct
       | Node (App func, args, `TyArr) -> alg (`App (func, args))
       | Node (Var (v, `TyArr), [], _) -> alg (`Var (v, `TyArr))
       | Node (Store, [a; i; v], _) -> alg(`Store (go a, i, v))
-      | Node (Ite, [cond; bthen; belse], `TyArr) -> 
+      | Node (Ite, [cond; bthen; belse], `TyArr) ->
         alg (`Ite (cond, go bthen, go belse))
       | _ -> invalid_arg "eval: not an array term"
     in
@@ -1239,6 +1245,7 @@ module Formula = struct
     | Node (Var (v, `TyBool), [], _) -> `Proposition (`Var v)
     | Node (App f, args, `TyBool) -> `Proposition (`App (f, args))
     | Node (Ite, [cond; bthen; belse], `TyBool) -> `Ite (cond, bthen, belse)
+    | Node (IsInt, [s], _) -> `Atom (`IsInt s)
     | _ -> invalid_arg "destruct: not a formula"
 
   let construct _srk open_formula = match open_formula with
@@ -1253,6 +1260,7 @@ module Formula = struct
     | `Atom (`Arith (`Leq, s, t)) -> mk_leq _srk s t
     | `Atom (`Arith (`Lt, s, t)) -> mk_lt _srk s t
     | `Atom (`ArrEq (s, t)) -> mk_arr_eq _srk s t
+    | `Atom (`IsInt s) -> mk_is_int _srk s
     | `Proposition (`Var v) -> mk_var _srk v `TyBool
     | `Proposition (`App (f, args)) -> mk_app _srk f args
     | `Ite (cond, bthen, belse) -> mk_ite _srk cond bthen belse
@@ -1263,12 +1271,12 @@ module Formula = struct
     | `Or disjuncts -> alg (`Or (List.map (eval srk alg) disjuncts))
     | `And conjuncts -> alg (`And (List.map (eval srk alg) conjuncts))
     | `Quantify (qt, name, typ, phi) ->
-      alg (`Quantify (qt, name, typ, eval srk alg phi))
+       alg (`Quantify (qt, name, typ, eval srk alg phi))
     | `Not phi -> alg (`Not (eval srk alg phi))
     | `Atom c -> alg (`Atom c)
     | `Proposition p -> alg (`Proposition p)
     | `Ite (cond, bthen, belse) ->
-      alg (`Ite (eval srk alg cond, eval srk alg bthen, eval srk alg belse))
+       alg (`Ite (eval srk alg cond, eval srk alg bthen, eval srk alg belse))
 
   let eval_memo srk alg =
     let table = BatInnerWeaktbl.create 991 in
@@ -1462,6 +1470,7 @@ let mk_exists_consts srk = quantify_consts srk `Exists
 let mk_forall_consts srk = quantify_consts srk `Forall
 
 let node_typ symbols label children =
+  (* NK: TODO: This should do proper typechecking *)
   match label with
   | Real qq ->
     begin match QQ.to_zz qq with
@@ -1496,7 +1505,7 @@ let node_typ symbols label children =
         end
       |  _ -> assert false
     end
-  | Select -> 
+  | Select ->
     begin match children with
       | [a; i] -> begin match a.obj, i.obj with
           | Node (_, _, `TyArr), Node(_, _, `TyInt) -> `TyInt
@@ -1504,8 +1513,10 @@ let node_typ symbols label children =
         end
       |  _ -> assert false
     end
-  | Forall (_, _) | Exists (_, _) | And | Or | Not
-  | True | False | Eq | Leq | Lt | ArrEq -> `TyBool
+  | True | False -> `TyBool
+  | And | Or | Not
+    | Forall (_, _) | Exists (_, _)
+    | Eq | Leq | Lt | ArrEq -> `TyBool
   | Floor -> `TyInt
   | Div -> `TyReal
   | Add | Mul | Mod | Neg ->
@@ -1534,6 +1545,15 @@ let node_typ symbols label children =
         end
       | _ -> assert false
     end
+  | IsInt ->
+     match children with
+     | [gen] ->
+        begin match gen.obj with
+        | Node (_, _, `TyInt)
+          | Node (_, _, `TyReal) -> `TyBool
+        | _ -> invalid_arg "ill-typed IsInt"
+        end
+     | _ -> assert false
 
 let expr_typ _ node =
   match node.obj with
@@ -1542,32 +1562,33 @@ let expr_typ _ node =
   | Node (_, _, `TyArr) -> `TyArr
   | Node (_, _, `TyBool) -> `TyBool
 
-type 'a rewriter = ('a, typ_fo) expr -> ('a, typ_fo) expr
+type ('a, 'b) rewriter = ('a, 'b) expr -> ('a, 'b) expr
 
-let rec nnf_rewriter srk sexpr =
+let nnf_rewriter srk sexpr =
   match sexpr.obj with
   | Node (Not, [phi], _) ->
     begin match phi.obj with
-      | Node (Not, [psi], _) -> nnf_rewriter srk psi
+      | Node (Not, [psi], _) -> psi
       | Node (And, conjuncts, _) -> mk_or srk (List.map (mk_not srk) conjuncts)
       | Node (Or, conjuncts, _) -> mk_and srk (List.map (mk_not srk) conjuncts)
-      | Node (Leq, [s; t], _) -> mk_lt srk t s
-      | Node (Eq, [s; t], _) -> mk_or srk [mk_lt srk s t; mk_lt srk t s]
-      | Node (Lt, [s; t], _) -> mk_leq srk t s
-      | Node (ArrEq, [s; t], _) ->
-        let s_i = mk_select srk (decapture srk 0 1 s) (mk_var srk 0 `TyInt) in
-        let t_i = mk_select srk (decapture srk 0 1 t) (mk_var srk 0 `TyInt) in
-        mk_exists 
-          srk 
-          ~name:"i" 
-          `TyInt 
-          (mk_or srk [mk_lt srk s_i t_i; mk_lt srk t_i s_i])
       | Node (Exists (name, typ), [psi], _) ->
         mk_forall srk ~name typ (mk_not srk psi)
       | Node (Forall (name, typ), [psi], _) ->
         mk_exists srk ~name typ (mk_not srk psi)
       | Node (Ite, [cond; bthen; belse], `TyBool) ->
         mk_ite srk cond (mk_not srk bthen) (mk_not srk belse)
+      | _ -> sexpr
+    end
+  | _ -> sexpr
+
+let pos_rewriter srk sexpr =
+  let sexpr = nnf_rewriter srk sexpr in
+  match sexpr.obj with
+  | Node (Not, [phi], _) ->
+    begin match phi.obj with
+      | Node (Leq, [s; t], _) -> mk_lt srk t s
+      | Node (Eq, [s; t], _) -> mk_or srk [mk_lt srk s t; mk_lt srk t s]
+      | Node (Lt, [s; t], _) -> mk_leq srk t s
       | _ -> sexpr
     end
   | _ -> sexpr
@@ -1620,12 +1641,12 @@ let eliminate_ite srk phi =
       map_ite (fun t -> `Term (mk_neg srk t)) (promote_ite x)
     | `Unop (`Floor, x) ->
       map_ite (fun t -> `Term (mk_floor srk t)) (promote_ite x)
-    | `Store (a, v, i) -> 
+    | `Store (a, v, i) ->
       let promote_i = promote_ite i in
       let promote_v = promote_ite v in
       map_ite
-        (fun t -> 
-           map_ite 
+        (fun t ->
+           map_ite
              (fun s -> map_ite (fun u -> `Term (mk_store srk t s u)) promote_i)
              promote_v)
         (promote_ite a)
@@ -1664,7 +1685,7 @@ let eliminate_ite srk phi =
       | `Quantify (`Exists, name, typ, phi) -> mk_exists srk ~name typ phi
       | `Quantify (`Forall, name, typ, phi) -> mk_forall srk ~name typ phi
       | `Ite (cond, bthen, belse) -> mk_ite cond bthen belse
-      | `Atom (`Arith (op, s, t)) -> 
+      | `Atom (`Arith (op, s, t)) ->
         let promote_t = promote_ite t in
         map_ite
           (fun s -> map_ite (fun t -> `Term (mk_compare op srk s t)) promote_t)
@@ -1676,6 +1697,9 @@ let eliminate_ite srk phi =
           (fun s -> map_ite (fun t -> `Term (mk_arr_eq srk s t)) promote_t)
           (promote_ite s)
         |> ite_formula
+      | `Atom (`IsInt s) ->
+         map_ite (fun s -> `Term (mk_is_int srk s)) (promote_ite s)
+         |> ite_formula
       | `Proposition (`Var i) -> mk_var srk i `TyBool
       | `Proposition (`App (func, args)) ->
         List.fold_right (fun x rest ->
@@ -1699,14 +1723,15 @@ let eliminate_ite srk phi =
 let eliminate_arr_eq srk phi =
   let alg = function
     | `Atom (`ArrEq (s, t)) ->
-      let s_i = mk_select srk (decapture srk 0 1 s) (mk_var srk 0 `TyInt) in 
+      let s_i = mk_select srk (decapture srk 0 1 s) (mk_var srk 0 `TyInt) in
       let t_i = mk_select srk (decapture srk 0 1 t) (mk_var srk 0 `TyInt) in
       mk_forall srk ~name:"i" `TyInt (mk_eq srk s_i t_i)
     | phi -> Formula.construct srk phi
   in
   Formula.eval srk alg phi
 
-let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991) srk formatter assertions =
+let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
+      srk formatter assertions =
   let open Format in
   let pp_sep = pp_print_space in
 
@@ -1787,7 +1812,7 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
           name
           (SrkUtil.pp_print_enum ~pp_sep pp_typ_fo) (BatList.enum args)
           pp_typ_fo ret
-    );
+  );
 
     let rec go env formatter expr =
     let Node (label, children, _) = expr.obj in
@@ -1912,6 +1937,8 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
         (go env) a
         (go env) i
         (go env) v
+    | IsInt, [s] ->
+       fprintf formatter "(is_integer %a)" (go env) s
     | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
   List.iteri (fun i phi ->
@@ -1938,7 +1965,7 @@ struct
   let ( = ) = mk_eq C.context
   let tru = mk_true C.context
   let fls = mk_false C.context
-      
+
   let ( + ) x y = mk_add C.context [x; y]
   let ( - ) x y = mk_add C.context [x; mk_neg C.context y]
   let ( * ) x y = mk_mul C.context [x; y]
@@ -1952,6 +1979,8 @@ struct
   let ( .%[] ) = mk_select C.context
   let ( .%[]<- ) = mk_store C.context
   let ( == ) = mk_arr_eq C.context
+
+  let is_int = mk_is_int C.context
 end
 
 module type Context = sig
@@ -1992,6 +2021,7 @@ module type Context = sig
   val mk_arr_eq : arr_term -> arr_term -> formula
   val mk_true : formula
   val mk_false : formula
+  val mk_is_int : arith_term -> formula
   val mk_ite : formula -> (t, 'a) expr -> (t, 'a) expr -> (t, 'a) expr
   val stats : unit -> (int * int * int)
 end
@@ -2031,6 +2061,7 @@ module ImplicitContext(C : sig
   let mk_arr_eq = mk_arr_eq context
   let mk_true = mk_true context
   let mk_false = mk_false context
+  let mk_is_int = mk_is_int context
   let mk_ite = mk_ite context
   let stats _ = context_stats context
 end
@@ -2102,7 +2133,7 @@ struct
             if QQ.equal xv yv then true_ else false_
           | _ -> if x = y then true_ else hc label [x; y]
         end
-      
+
       | ArrEq, [x; y] -> if x = y then true_ else hc label [x; y]
 
       | And, conjuncts ->

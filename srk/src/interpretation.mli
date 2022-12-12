@@ -46,7 +46,7 @@ val evaluate_term : 'a interpretation ->
   ?env:[`Real of QQ.t | `Bool of bool] Env.t ->
   'a arith_term ->
   QQ.t
-    
+
 val evaluate_formula : 'a interpretation ->
   ?env:[`Real of QQ.t | `Bool of bool] Env.t ->
   'a formula ->

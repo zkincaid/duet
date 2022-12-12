@@ -149,13 +149,30 @@ type term =
   | TInt of Ctx.arith_term
   | TPointer of ptr_term
 
+let mk_mod_c99 left right =
+  let zero = Ctx.mk_real QQ.zero in
+  let pos t =
+    (* Redundant encoding is robust under negation w.r.t. LIRR *)
+    Ctx.mk_and [Ctx.mk_leq zero t
+               ; Ctx.mk_not (Ctx.mk_lt t zero)]
+  in
+  let m = Ctx.mk_mod left right in
+  Ctx.mk_ite
+    (pos left)
+    m
+    (Ctx.mk_ite
+       (pos right)
+       (Ctx.mk_sub m right)
+       (Ctx.mk_add [m; right]))
+
 let int_binop op left right =
   match op with
   | Add -> Ctx.mk_add [left; right]
   | Minus -> Ctx.mk_sub left right
   | Mult -> Ctx.mk_mul [left; right]
-  | Div -> Ctx.mk_idiv left right
-  | Mod -> Ctx.mk_mod left right
+  | Div ->
+    Ctx.mk_div (Ctx.mk_sub left (mk_mod_c99 left right)) right
+  | Mod -> mk_mod_c99 left right
   | _ -> Ctx.mk_const (Ctx.mk_symbol ~name:"havoc" `TyInt)
 
 let term_binop op left right = match left, op, right with
@@ -240,15 +257,95 @@ and tr_bexpr bexpr =
   let alg = function
     | Core.OAnd (a, b) -> Ctx.mk_and [a; b]
     | Core.OOr (a, b) -> Ctx.mk_or [a; b]
-    | Core.OAtom (pred, x, y) ->
-      let x = tr_expr_val x in
-      let y = tr_expr_val y in
+    | Core.OAtom (pred, rx, ry) ->
+      let x = tr_expr_val rx in
+      let y = tr_expr_val ry in
       begin
         match pred with
-        | Lt -> Ctx.mk_lt x y
+        | Lt ->
+          begin
+            let t1 = (Core.resolve_type (Core.Aexpr.get_type rx)) in
+            let t2 = (Core.resolve_type (Core.Aexpr.get_type ry)) in
+            match t1, t2 with
+            | Core.Int _, Core.Int _ ->
+              Ctx.mk_leq (Ctx.mk_add [x; (Ctx.mk_int 1)]) y
+            | _, _ ->
+              Ctx.mk_lt x y
+          end
         | Le -> Ctx.mk_leq x y
-        | Eq -> Ctx.mk_eq x y
-        | Ne -> Ctx.mk_not (Ctx.mk_eq x y)
+        | Eq ->
+          begin
+            match rx, ry with
+            | (BinaryOp (a, Mod, b, _), Constant (CInt (k, _))) ->
+              (* a mod b = k <==> (a - k)/b is an integer (+ sign constraints) *)
+              let ta = tr_expr_val a in
+              let tb = tr_expr_val b in
+              let sign_constraint =
+                if k >= 0 then
+                  Syntax.mk_iff Ctx.context
+                    (Ctx.mk_leq (Ctx.mk_int 0) ta)
+                    (Ctx.mk_leq (Ctx.mk_int 0) tb)
+                else
+                  Syntax.mk_iff Ctx.context
+                    (Ctx.mk_leq ta (Ctx.mk_int 0))
+                    (Ctx.mk_leq (Ctx.mk_int 0) tb)
+              in
+              (Ctx.mk_and
+                 [(Ctx.mk_div (Ctx.mk_sub ta (Ctx.mk_int k)) tb)
+                  |> Ctx.mk_is_int
+                 ; sign_constraint])
+            | _ ->
+              Ctx.mk_eq x y
+          end
+        | Ne ->
+          begin
+            match rx, ry with
+            | (BinaryOp (a, Mod, b, _), Constant (CInt (k, _))) ->
+              (* a mod b != k <==> (a + r - k)/b is an integer for some 1 <= r
+                 <= |b|-1 or k has the wrong sign (positive when signs of a/b
+                 are the different, or negative when they are the same *)
+              let ta = tr_expr_val a in
+              let tb = tr_expr_val b in
+              let r = nondet_const "rem" `TyInt in
+              begin
+                if k >= 0 then
+                  Ctx.mk_or
+                    [Syntax.mk_iff Ctx.context
+                       (Ctx.mk_leq ta (Ctx.mk_int 0))
+                       (Ctx.mk_leq (Ctx.mk_int 0) tb)
+                    ; Ctx.mk_and
+                        [ Ctx.mk_leq (Ctx.mk_int 0) r
+                        ; Ctx.mk_or [ Ctx.mk_leq r (Ctx.mk_int (k-1))
+                                    ; Ctx.mk_leq (Ctx.mk_int (k+1)) r]
+                        ; Ctx.mk_or [ Ctx.mk_leq r (Ctx.mk_sub tb (Ctx.mk_int 1))
+                                    ; Ctx.mk_leq r (Ctx.mk_sub (Ctx.mk_int 1) tb)]
+                        ; Ctx.mk_is_int (Ctx.mk_div (Ctx.mk_sub ta r) tb)]]
+                else
+                  Ctx.mk_or
+                    [Syntax.mk_iff Ctx.context
+                       (Ctx.mk_leq (Ctx.mk_int 0) ta)
+                       (Ctx.mk_leq (Ctx.mk_int 0) tb)
+                    ; Ctx.mk_and
+                        [ Ctx.mk_leq r (Ctx.mk_int 0)
+                        ; Ctx.mk_or [ Ctx.mk_leq r (Ctx.mk_int (k-1))
+                                    ; Ctx.mk_leq (Ctx.mk_int (k+1)) r]
+                        ; Ctx.mk_or [ Ctx.mk_leq (Ctx.mk_sub tb (Ctx.mk_int 1)) r
+                                    ; Ctx.mk_leq (Ctx.mk_sub (Ctx.mk_int 1) tb) r]
+                        ; Ctx.mk_is_int (Ctx.mk_div (Ctx.mk_add [ta; r]) tb)]]
+              end
+            | _ ->
+              begin
+                let t1 = (Core.resolve_type (Core.Aexpr.get_type rx)) in
+                let t2 = (Core.resolve_type (Core.Aexpr.get_type ry)) in
+                match t1, t2 with
+                | Core.Int _, Core.Int _ ->
+                  Ctx.mk_or [Ctx.mk_leq (Ctx.mk_add [x; (Ctx.mk_int 1)]) y;
+                             Ctx.mk_leq (Ctx.mk_add [y; (Ctx.mk_int 1)]) x]
+                | _, _ ->
+
+                  Ctx.mk_or [Ctx.mk_lt x y; Ctx.mk_lt y x]
+              end
+          end
       end
   in
   Bexpr.fold alg bexpr
@@ -691,7 +788,6 @@ let analyze file =
       let rg = Interproc.make_recgraph file in
       let entry = (RG.block_entry rg main).did in
       let (ts, assertions) = make_transition_system rg in
-
       (*TSDisplay.display ts;*)
       let query = mk_query ts entry in
       assertions |> SrkUtil.Int.Map.iter (fun v (phi, loc, msg) ->
@@ -710,12 +806,24 @@ let analyze file =
           logf "Path condition:@\n%a"
             (Syntax.pp_smtlib2 Ctx.context) path_condition;
           dump_goal loc path_condition;
-          match Wedge.is_sat Ctx.context path_condition with
-          | `Sat -> Report.log_error loc msg
+          if !monotone then
+            begin
+            match LirrSolver.is_sat Ctx.context path_condition with
+              | `Sat -> Report.log_error loc msg
           | `Unsat -> Report.log_safe ()
           | `Unknown ->
             logf ~level:`warn "Z3 inconclusive";
-            Report.log_error loc msg);
+            Report.log_error loc msg;
+          end
+          else
+              begin
+              match Wedge.is_sat Ctx.context path_condition with
+              | `Sat -> Report.log_error loc msg
+              | `Unsat -> Report.log_safe ()
+              | `Unknown ->
+                logf ~level:`warn "Z3 inconclusive";
+                Report.log_error loc msg
+            end);
 
       Report.print_errors ();
       Report.print_safe ();
@@ -884,7 +992,7 @@ let omega_algebra = function
 (* Raise universal quantifiers to top-level.  *)
 let lift_universals srk phi =
   let open Syntax in
-  let phi = rewrite srk ~down:(nnf_rewriter srk) phi in
+  let phi = rewrite srk ~down:(pos_rewriter srk) phi in
   let rec quantify_universals (nb, phi) =
     if nb > 0 then
       quantify_universals (nb - 1, mk_forall srk `TyInt phi)
@@ -898,6 +1006,7 @@ let lift_universals srk phi =
     | `Atom (`Arith (`Lt, x, y)) -> (0, mk_lt srk x y)
     | `Atom (`Arith (`Leq, x, y)) -> (0, mk_leq srk x y)
     | `Atom (`ArrEq (a, b)) -> (0, mk_arr_eq srk a b)
+    | `Atom (`IsInt x) -> (0, mk_is_int srk x)
     | `And conjuncts ->
        let max_nb = List.fold_left max 0 (List.map fst conjuncts) in
        let shift_conjuncts =
@@ -1124,6 +1233,13 @@ let _ =
          monotone := true;
          K.domain := (module Product(LossyTranslation)(PolyhedronGuard))),
      " Disable non-monotone analysis features");
+  CmdLine.register_config
+    ("-lirr",
+     Arg.Unit (fun () ->
+         let open Iteration in
+         monotone := true;
+         K.domain := (module Product(LIRR)(LIRRGuard))),
+     " Use weak arithmetic theory");
   CmdLine.register_config
     ("-termination-no-exp",
      Arg.Clear termination_exp,
