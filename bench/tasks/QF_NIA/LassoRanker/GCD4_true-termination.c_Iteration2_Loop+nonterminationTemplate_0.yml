@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'GCD4_true-termination.c_Iteration2_Loop+nonterminationTemplate_0.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: false
-    

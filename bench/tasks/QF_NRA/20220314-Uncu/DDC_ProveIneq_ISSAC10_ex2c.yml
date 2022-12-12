@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'DDC_ProveIneq_ISSAC10_ex2c.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: true
-    

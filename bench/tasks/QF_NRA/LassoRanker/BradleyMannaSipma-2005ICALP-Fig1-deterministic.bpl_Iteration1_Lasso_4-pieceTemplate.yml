@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'BradleyMannaSipma-2005ICALP-Fig1-deterministic.bpl_Iteration1_Lasso_4-pieceTemplate.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    
-    

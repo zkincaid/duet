@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'matrix-5-all-7.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    
-    

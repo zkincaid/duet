@@ -1,7 +1,0 @@
-format_version: '1.0'
-
-input_files: './stencils/jacobi-2d-imper/jacobi-2d-imper.merged.c'
-
-properties:
-  - property_file: ../properties/termination.prp
-    expected_verdict: true

@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'problem-002617.cvc.1.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: true
-    

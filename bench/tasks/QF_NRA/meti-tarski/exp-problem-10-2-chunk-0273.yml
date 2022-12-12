@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'exp-problem-10-2-chunk-0273.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: false
-    

@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'Stroeder_15__MirrorInterv.c__p24413_edge_closing_0.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: true
-    

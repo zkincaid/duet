@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'LarrazOliverasRodriguez-CarbonellRubio-2013FMCAD-Fig1-alloca_unknown-termination.c.i_Iteration4_Lasso+nonterminationTemplate.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: false
-    

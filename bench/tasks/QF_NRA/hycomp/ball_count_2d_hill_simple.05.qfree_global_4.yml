@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'ball_count_2d_hill_simple.05.qfree_global_4.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: false
-    

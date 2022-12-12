@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'up.i_4_4_5.bpl_3.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    
-    

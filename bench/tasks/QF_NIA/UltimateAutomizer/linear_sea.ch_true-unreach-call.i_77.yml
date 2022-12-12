@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'linear_sea.ch_true-unreach-call.i_77.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: false
-    

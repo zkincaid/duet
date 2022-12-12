@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: '1599121862252472000.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    
-    

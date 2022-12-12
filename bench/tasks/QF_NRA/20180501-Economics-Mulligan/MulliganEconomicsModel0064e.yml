@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'MulliganEconomicsModel0064e.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: true
-    

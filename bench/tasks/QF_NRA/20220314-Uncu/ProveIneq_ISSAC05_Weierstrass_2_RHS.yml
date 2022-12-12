@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'ProveIneq_ISSAC05_Weierstrass_2_RHS.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: false
-    

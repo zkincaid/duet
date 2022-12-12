@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'SQ_10.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    
-    

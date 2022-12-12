@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'PodelskiRybalchenko-2004VMCAI-Ex2-alloca_false-termination.c.i_Iteration1_Lasso+nonterminationTemplate.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: true
-    

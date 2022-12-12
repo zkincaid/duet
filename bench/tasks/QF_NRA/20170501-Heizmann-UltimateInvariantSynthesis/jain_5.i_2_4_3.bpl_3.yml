@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'jain_5.i_2_4_3.bpl_3.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    
-    

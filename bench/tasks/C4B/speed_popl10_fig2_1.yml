@@ -1,7 +1,0 @@
-format_version: '1.0'
-
-input_files: 'speed_popl10_fig2_1.c'
-
-properties:
-  - property_file: ../../properties/unreach-call.prp
-    expected_verdict: true

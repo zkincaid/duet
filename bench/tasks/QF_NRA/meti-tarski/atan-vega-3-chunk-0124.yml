@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'atan-vega-3-chunk-0124.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: true
-    

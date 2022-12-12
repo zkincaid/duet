@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'mgc_08.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: false
-    

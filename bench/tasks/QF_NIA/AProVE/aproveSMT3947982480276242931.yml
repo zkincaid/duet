@@ -1,9 +1,0 @@
-
-format_version: '1.0'
-
-input_files: 'aproveSMT3947982480276242931.smt2'
-
-properties:
-  - property_file: ../../properties/sat.prp
-    expected_verdict: true
-    
