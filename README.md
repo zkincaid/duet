@@ -15,21 +15,26 @@ Duet depends on several software packages.  The following dependencies need to b
  + [NTL](http://www.shoup.net/ntl/): number theory library
  + Java
  + Python
+ + Libffi
+ + Pkg-config
+ + Autoconf
+ + Libtool
 
 On Ubuntu, you can install these packages with:
 ```
- sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre python
+ sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre python python3-distutils python3-lib2to3 libffi-dev pkg-config autoconf libtool
 ```
 
 On MacOS, you can install these packages (except Java) with:
 ```
- brew install opam gmp mpfr ntl python
+ brew install opam gmp mpfr ntl python libffi pkg-config autoconf libtool
 ```
 
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
  opam remote add sv https://github.com/zkincaid/sv-opam.git#modern
- opam install ocamlgraph batteries ppx_deriving z3 apron ounit menhir cil OCRS ntl normalizffi
+ opam install ocamlbuild ocamlfind zarith ocamlgraph batteries ppx_deriving ounit menhir ctypes-foreign
+ opam install cil apron ocrs ntl normalizffi z3
 ```
 
 ### Building Duet
