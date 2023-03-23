@@ -132,8 +132,7 @@ let of_implicant ?(admit=false) cs conjuncts =
       in
       let p = match p with `Eq -> `Zero | `Leq -> `Nonneg | `Lt -> `Pos in
       P.singleton (p, t)
-    | `Literal (_, _) -> top
-    | `ArrEq _ -> top
+    | _ -> top
   in
   List.fold_left meet top (List.map linearize conjuncts)
 

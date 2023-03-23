@@ -17,8 +17,8 @@ let negate = Z.neg
 let one = Z.one
 let zero = Z.zero
 
-let modulo = Z.rem
-let div = Z.div
+let modulo = Z.erem
+let div = Z.ediv
 let div_rem = Z.ediv_rem
 
 let fdiv = Z.fdiv
