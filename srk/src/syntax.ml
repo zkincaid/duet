@@ -1938,7 +1938,7 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
         (go env) i
         (go env) v
     | IsInt, [s] ->
-       fprintf formatter "(is_integer %a)" (go env) s
+       fprintf formatter "(is_int %a)" (go env) s
     | _ -> failwith "pp_smtlib2: ill-formed expression"
   in
   List.iteri (fun i phi ->

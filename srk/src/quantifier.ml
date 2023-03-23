@@ -696,7 +696,7 @@ let select_real_term srk interp x atoms =
   let x_val = Interpretation.real interp x in
   let bound_of_atom atom =
     match Interpretation.destruct_atom srk atom with
-    | `Literal (_, _) 
+    | `Literal (_, _)
     | `ArrEq _ -> (None, None)
     | `ArithComparison (op, s, t) ->
       let t = V.add (linterm_of srk s) (V.negate (linterm_of srk t)) in

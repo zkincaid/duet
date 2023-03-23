@@ -1,5 +1,6 @@
 open Srk
 open OUnit
+open Test_pervasives
 
 let nudge1 () =
   let q =
@@ -35,4 +36,9 @@ let suite = "Scalar" >:::
     "nudge1" >:: nudge1;
     "nudge2" >:: nudge2;
     "nudge3" >:: nudge3;
+    "mod_neg" >:: (fun () ->
+        assert_equal_qq
+          (QQ.modulo (QQ.negate (QQ.of_int 3)) (QQ.of_int 2))
+          (QQ.of_int 1)
+      );
   ]

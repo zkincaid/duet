@@ -419,6 +419,17 @@ let destruct_atom srk phi =
   | `Tru ->
     let zero = mk_real srk QQ.zero in
     `ArithComparison (`Eq, zero, zero)
+  | `Atom (`IsInt t) ->
+    (* Z3 does not like mod 1 -- avoid if possible. *)
+    begin
+      try
+        let lin = Linear.linterm_of srk t in
+        let denom = QQ.of_zz (Linear.QQVector.common_denominator lin) in
+        let t = Linear.QQVector.scalar_mul denom lin |> Linear.of_linterm srk in
+        `ArithComparison (`Eq, mk_mod srk t (mk_real srk denom), mk_zero srk)
+      with Linear.Nonlinear ->
+        `ArithComparison (`Eq, mk_mod srk t (mk_one srk), mk_zero srk)
+    end
   | `Fls -> `ArithComparison (`Eq, mk_real srk QQ.zero, mk_real srk QQ.one)
   | _ ->
     invalid_arg @@ Format.asprintf "destruct_atom: %a is not atomic" (Formula.pp srk) phi

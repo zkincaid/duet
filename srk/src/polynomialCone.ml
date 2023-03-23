@@ -33,7 +33,7 @@ let make_cone zero positive =
       positive
   in
   { zero; positive }
-  
+
 let get_cone_generators pc = pc.positive
 
 (* Change monomial ordering of a polynomial cone. *)
@@ -173,7 +173,7 @@ let inverse_homomorphism pc hom =
   let expanded = add_generators ~zeros:transform_polys pc in
   (* The constant dimension is always present in a polynomial cone and
      1 is always preserved by ring homomorphisms.
-   *)
+  *)
   let dims = Linear.const_dim :: dims in
   project expanded (fun x -> List.mem x dims)
 
@@ -182,7 +182,7 @@ let inverse_linear_map pc hom =
   let (linear_zeros, linear_positives) =
     (* Projection uses a graded elimination order keeping Y.
        TODO: Figure out if we actually need this.
-     *)
+    *)
     let p =
       restrict (fun m -> Monomial.total_degree m <= 1) preimage
     in
@@ -209,7 +209,7 @@ let mem p pc =
   then
     false
   else
-     begin
+    begin
       let vec_target_poly = PV.densify ctx reduced in
       let dim = PV.dim ctx in
       let cone =

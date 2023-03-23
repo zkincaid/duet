@@ -293,14 +293,47 @@ and z3_of_formula srk z3 =
     | `Not phi -> Z3.Boolean.mk_not z3 phi
     | `Quantify (qt, name, typ, phi) ->
       mk_quantified z3 qt ~name typ phi
-    | `Atom (`Arith (`Eq, s, t)) -> Z3.Boolean.mk_eq z3 (of_arith_term s) (of_arith_term t)
+    | `Atom (`Arith (`Eq, s, t)) ->
+      begin
+        let default () =
+          Z3.Boolean.mk_eq z3 (of_arith_term s) (of_arith_term t)
+        in
+(*n        try
+          match s with
+          |
+        with Linear.Nonlinear -> default ()
+*)
+        default ()
+      end
     | `Atom (`Arith (`Leq, s, t)) -> Z3.Arithmetic.mk_le z3 (of_arith_term s) (of_arith_term t)
     | `Atom (`Arith (`Lt, s, t)) -> Z3.Arithmetic.mk_lt z3 (of_arith_term s) (of_arith_term t)
     | `Atom (`ArrEq (s, t)) -> Z3.Boolean.mk_eq z3 (of_arr_term s) (of_arr_term t)
     | `Proposition (`Var i) ->
-       Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
+      Z3.Quantifier.mk_bound z3 i (sort_of_typ z3 `TyBool)
     | `Atom (`IsInt s) ->
-       Z3.Arithmetic.Real.mk_is_integer z3 (z3_of_expr srk z3 (s :> ('a, typ_fo) expr))
+      begin
+        let default () =
+          Z3.Arithmetic.Real.mk_is_integer z3
+            (z3_of_expr srk z3 (s :> ('a, typ_fo) expr))
+        in
+        try
+          (* Z3 handles mod better than is_int, so translate to mod if
+             possible. *)
+          let lin = Linear.linterm_of srk s in
+          let denom = Linear.QQVector.common_denominator lin in
+          let t = Linear.QQVector.scalar_mul (QQ.of_zz denom) lin
+                  |> Linear.of_linterm srk
+          in
+          (match expr_typ srk t with
+           | `TyInt ->
+             let d = Z3.Arithmetic.Integer.mk_numeral_s z3 (ZZ.show denom) in
+             let t = z3_of_expr srk z3 (t :> ('a, typ_fo) expr) in
+             Z3.Boolean.mk_eq z3
+               (Z3.Arithmetic.Integer.mk_mod z3 t d)
+               (Z3.Arithmetic.Integer.mk_numeral_i z3 0)
+           | _ -> default ())
+        with Linear.Nonlinear -> default ()
+      end
     | `Proposition (`App (p, [])) ->
       let decl =
         Z3.FuncDecl.mk_const_decl z3
