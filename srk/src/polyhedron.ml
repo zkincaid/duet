@@ -111,6 +111,20 @@ let implicant_of cs polyhedron =
     polyhedron
     []
 
+let cube_of srk polyhedron =
+  let zero = mk_real srk QQ.zero in
+  let term = Linear.of_linterm srk in
+  P.fold (fun (p, t) constraints ->
+      let new_constraint =
+        match p with
+        | `Zero -> mk_eq srk (term t) zero
+        | `Nonneg -> mk_leq srk zero (term t)
+        | `Pos -> mk_lt srk zero (term t)
+      in
+      new_constraint::constraints)
+    polyhedron
+    []
+
 let to_formula cs polyhedron =
   implicant_of cs polyhedron
   |> mk_and (CS.get_context cs)
@@ -135,6 +149,21 @@ let of_implicant ?(admit=false) cs conjuncts =
     | _ -> top
   in
   List.fold_left meet top (List.map linearize conjuncts)
+
+let of_cube srk cube =
+  let add polyhedron atom =
+    match Interpretation.destruct_atom srk atom with
+    | `ArithComparison (p, x, y) ->
+      let t =
+        V.sub (Linear.linterm_of srk x) (Linear.linterm_of srk y)
+      in
+      let p = match p with `Eq -> `Zero | `Leq -> `Nonneg | `Lt -> `Pos in
+      P.add (p, t) polyhedron
+    | _ ->
+      Log.logf ~level:`warn "Discarded constraint in Polyhedron.of_cube";
+      polyhedron
+  in
+  List.fold_left add top cube
 
 (* Given a coordinate x and a polyhedron p, find a term t such that p |= x=t
    and x does not appear in t, should one exist. *)

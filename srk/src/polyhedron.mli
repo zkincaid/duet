@@ -56,6 +56,16 @@ val of_implicant : ?admit:bool -> 'a CoordinateSystem.t -> ('a formula) list -> 
     [Interpretation.select_implicant]). *)
 val implicant_of : 'a CoordinateSystem.t -> t -> ('a formula) list
 
+
+(** Convert a conjunction of atomic formulas (as returned by
+    [Interpretation.select_implicant]) to a polyhedron. *)
+val of_cube : 'a context -> ('a formula) list -> t
+
+(** Convert a polyhedron to a conjunction of atomic formulas (as returned by
+    [Interpretation.select_implicant]). *)
+val cube_of : 'a context -> t -> ('a formula) list
+
+
 (** Model-guided projection of a polyhedron.  Given a point m within a
     polyhedron p and a set of dimension xs, compute a polyhedron q such that
     m|_xs is within q, and q is a subset of p|_xs (using |_xs to denote
