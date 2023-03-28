@@ -6,6 +6,8 @@ include Log.Make(struct let name = "srk.abstract" end)
 
 module V = Linear.QQVector
 module CS = CoordinateSystem
+module LM = Linear.MakeLinearMap(QQ)(SrkUtil.Int)(V)(V)
+
 
 let opt_abstract_limit = ref (-1)
 
@@ -102,24 +104,19 @@ let abstract ?exists:(p=fun _ -> true) srk man phi =
 
   let disjuncts = ref 0 in
   let rec go prop =
-    Smt.Solver.push solver;
     Smt.Solver.add solver [mk_not srk (SrkApron.formula_of_property prop)];
     let result =
       Log.time "lazy_dnf/sat" (Smt.Solver.get_concrete_model solver) symbol_list
     in
     match result with
-    | `Unsat ->
-      Smt.Solver.pop solver 1;
-      prop
+    | `Unsat -> prop
     | `Unknown ->
       begin
         logf ~level:`warn "abstraction timed out (%d disjuncts); returning top"
           (!disjuncts);
-        Smt.Solver.pop solver 1;
         SrkApron.top man env_proj
       end
     | `Sat interp -> begin
-        Smt.Solver.pop solver 1;
         incr disjuncts;
         logf "[%d] abstract lazy_dnf" (!disjuncts);
         if (!disjuncts) = (!opt_abstract_limit) then begin
@@ -159,6 +156,106 @@ let abstract ?exists:(p=fun _ -> true) srk man phi =
   in
   Smt.Solver.add solver [phi];
   Log.time "Abstraction" go (SrkApron.bottom man env_proj)
+
+let conv_hull ?(man=Polka.manager_alloc_loose ()) srk phi terms =
+  let solver = Smt.mk_solver srk in
+  let disjuncts = ref 0 in
+  let dim = Array.length terms in
+
+  (* Map linear terms over the symbols in phi to the range [-1, n], such that
+     -1 -> -1, 0 -> term(0), ... n -> term(n) *)
+  let basis = BatDynArray.create () in
+  let map =
+    let neg_one = V.of_term QQ.one Linear.const_dim in
+    BatArray.fold_lefti (fun map i t ->
+        let vec = Linear.linterm_of srk t in
+        BatDynArray.add basis vec;
+        LM.may_add vec (V.of_term QQ.one i) map)
+      (LM.add_exn neg_one neg_one LM.empty)
+      terms
+    |> Symbol.Set.fold (fun symbol map ->
+        let symbol_vec = V.of_term QQ.one (Linear.dim_of_sym symbol) in
+        let ambient_dim = BatDynArray.length basis in
+        match LM.add symbol_vec (V.of_term QQ.one ambient_dim) map with
+        | Some map' ->
+          BatDynArray.add basis symbol_vec;
+          map'
+        | None -> map
+      )
+      (symbols phi)
+  in
+  let elim_dims = BatList.of_enum (dim -- (BatDynArray.length basis)) in
+  let term_of_dim i =
+    if i == Linear.const_dim then mk_one srk else terms.(i)
+  in
+  let mk_top () =
+    DD.of_constraints_closed ~man dim (BatEnum.empty ())
+  in
+  let rec go prop =
+    let prop_formula =
+      DD.enum_constraints_closed prop
+      /@ (fun (kind, v) ->
+          let t = Linear.term_of_vec srk term_of_dim v in
+          match kind with
+          | `Zero -> mk_eq srk (mk_zero srk) t
+          | `Nonneg -> mk_leq srk (mk_zero srk) t)
+      |> BatList.of_enum
+      |> mk_and srk
+    in
+    Smt.Solver.add solver [mk_not srk prop_formula];
+    match Smt.Solver.get_model solver with
+    | `Unsat -> prop
+    | `Unknown ->
+      begin
+        logf ~level:`warn "abstraction timed out (%d disjuncts); returning top"
+          (!disjuncts);
+        mk_top ()
+      end
+    | `Sat interp -> begin
+        incr disjuncts;
+        logf "[%d] abstract lazy_dnf" (!disjuncts);
+        if (!disjuncts) = (!opt_abstract_limit) then begin
+          logf ~level:`warn "Met symbolic abstraction limit; returning top";
+          mk_top ()
+        end else begin
+          let cube =
+            match Interpretation.select_implicant interp phi with
+            | Some cube ->
+              let constraints = BatEnum.empty () in
+              BatList.iter (fun atom ->
+                  match Interpretation.destruct_atom srk atom with
+                  | `ArithComparison (p, x, y) ->
+                    let t =
+                      V.sub (Linear.linterm_of srk y) (Linear.linterm_of srk x)
+                      |> LM.apply map
+                      |> BatOption.get
+                    in
+                    let p = match p with `Eq -> `Zero | `Leq -> `Nonneg | `Lt -> `Pos in
+                    BatEnum.push constraints (p, t)
+                  | _ -> ())
+                cube;
+              Polyhedron.of_constraints constraints
+            | None -> assert false
+          in
+          let valuation i =
+            Linear.evaluate_linterm
+              (Interpretation.real interp)
+              (BatDynArray.get basis i)
+          in
+          let projected_disjunct =
+            Polyhedron.local_project valuation elim_dims cube
+            |> Polyhedron.dd_of ~man dim
+          in
+          go (DD.join prop projected_disjunct)
+        end
+      end
+  in
+  let bottom =
+    DD.of_constraints_closed ~man dim
+      (BatList.enum [(`Zero, V.of_term QQ.one Linear.const_dim)])
+  in
+  Smt.Solver.add solver [phi];
+  go bottom
 
 module Sign = struct
 

@@ -14,6 +14,14 @@ val affine_hull : 'a context -> 'a formula -> symbol list -> 'a arith_term list
    on all models of [phi]. *)
 val vanishing_space : 'a context -> 'a formula -> 'a arith_term array -> Linear.QQVectorSpace.t
 
+(** Given a formula [F] and terms [t_0,...,t_n], compute the convex hull all
+   points [ { (t_0(x),...,t_n(x)) : x |= F } ]. *)
+val conv_hull : ?man:(DD.closed Apron.Manager.t) ->
+  'a context ->
+  'a formula ->
+  ('a arith_term) array ->
+  DD.closed DD.t
+
 (** [boxify srk phi terms] computes the strongest formula of the form
     [/\ { lo <= t <= hi : t in terms }]
     that is implied by [phi]. *)

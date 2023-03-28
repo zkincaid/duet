@@ -313,8 +313,7 @@ let select_implicant interp ?(env=Env.empty) phi =
               Some (cons_nontriv (mk_leq srk s_term t_term) (s_impl@t_impl))
             | `Lt when QQ.lt s_val t_val ->
               Some (cons_nontriv (mk_lt srk s_term t_term) (s_impl@t_impl))
-            | _ ->
-              None
+            | _ -> None
           end
         with Divide_by_zero -> None
       end
