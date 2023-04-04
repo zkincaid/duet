@@ -155,7 +155,7 @@ let of_cube srk cube =
     match Interpretation.destruct_atom srk atom with
     | `ArithComparison (p, x, y) ->
       let t =
-        V.sub (Linear.linterm_of srk x) (Linear.linterm_of srk y)
+        V.sub (Linear.linterm_of srk y) (Linear.linterm_of srk x)
       in
       let p = match p with `Eq -> `Zero | `Leq -> `Nonneg | `Lt -> `Pos in
       P.add (p, t) polyhedron
