@@ -346,6 +346,15 @@ module Ideal : sig
   val project : (int -> bool) -> t -> t
 end
 
+
+module FGb : sig
+  val grobner_basis : Monomial.dim list -> Monomial.dim list -> QQXs.t list -> QQXs.t list
+
+  val get_mon_order : Monomial.dim list -> Monomial.dim list -> Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt]
+  
+end
+
+
 (** A witness is a representation of a polynomial combination of a set of
    generator polynomials, where each generator polynomial is represente by an
    integer identifier.  *)
