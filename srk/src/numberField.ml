@@ -23,17 +23,16 @@ let primitive_elem mp0x mp1x =
   let mp0, mp1 = make_multivariate v0 mp0x, make_multivariate v1 mp1x in
   let needed_deg = (QQXs.degree mp0) * (QQXs.degree mp1) in
   let v2 = (max v0 v1) + 1 in
-  let block_order = Monomial.block ([fun i -> if i <> v0 && i <> v1 then false else true]) Monomial.degrevlex in
   let rec aux i = 
     (* v0 + iv1 - v2*)
     let lin_comb = QQXs.of_list [Q.one, Monomial.singleton v0 1; Q.of_int i, Monomial.singleton v1 1; Q.minus_one, Monomial.singleton v2 1] in
-    let r = Rewrite.reduce_rewrite (Rewrite.grobner_basis (Rewrite.mk_rewrite block_order [mp0;mp1;lin_comb])) in
+    let gb = FGb.grobner_basis [0; 1] [2] [mp0; mp1; lin_comb] in
     let v2_poly = 
       List.find (
         fun p -> 
           let dims = QQXs.dimensions p in
-          SrkUtil.Int.Set.is_singleton dims && SrkUtil.Int.Set.mem v2 dims) (Rewrite.generators r) in
-    if QQXs.degree v2_poly = needed_deg then v2_poly, r
+          SrkUtil.Int.Set.is_singleton dims && SrkUtil.Int.Set.mem v2 dims) gb in
+    if QQXs.degree v2_poly = needed_deg then v2_poly, Rewrite.mk_rewrite (FGb.get_mon_order [0;1] [2]) gb
     else if i > needed_deg then failwith "Unable to find primitive element, which breaks the primitive element theorem."
     else aux (i+1)
   in
@@ -114,13 +113,17 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     let primxs = make_multivariate 0 prim in
     let v1_term = QQXs.sub (make_multivariate 1 (QQX.identity)) (make_multivariate 0 v1_in_prim) in
     let v2_term = QQXs.sub (make_multivariate 2 (QQX.identity)) (make_multivariate 0 v2_in_prim) in
-    let block_order = Monomial.block ([(fun i -> if i <> 1 && i <> 2 then true else false); fun i -> if i <> 1 then true else false]) Monomial.degrevlex in
-    let r = Rewrite.grobner_basis (Rewrite.mk_rewrite block_order [primxs; v1_term; v2_term]) in
+    (*let gb = FGb.grobner_basis [0] [1;2] [primxs; v1_term; v2_term] in*)
+    let mon_order = FGb.get_mon_order [0;2] [1] in
+    (*let r = Rewrite.grobner_basis (Rewrite.mk_rewrite mon_order gb) in*)
     let (_, factors) = QQX.factor prim in
     let find_factor (fact, deg) = 
       if deg > 1 then failwith "Primitive element contains square factor?";
       let factxs = make_multivariate 0 fact in
-      let ps = Rewrite.generators (Rewrite.reduce_rewrite (Rewrite.add_saturate r factxs)) in
+      let ps = FGb.grobner_basis [0;2] [1] [primxs; v1_term; v2_term; factxs] in
+      (*let pv fo v = if v = 0 then Format.pp_print_string fo "z" else if v = 1 then Format.pp_print_string fo "y" else Format.pp_print_string fo "x" in
+      Log.log ~level:`always "Searching for factor in";
+      Log.log_pp ~level:`always (Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_newline fo ()) (QQXs.pp pv)) ps;*)
       let v2ps = 
         List.filter (
           fun p -> 
@@ -130,8 +133,8 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         ) ps in
       if List.length v2ps <> 1 then failwith "Unable to find factor in reduced ring";
       let poly = List.hd v2ps in
-      let poly_lc, _, _ = QQXs.split_leading block_order poly in
-      let poly = QQXs.of_enum (BatEnum.map (fun (c, m) -> QQ.div poly_lc c, m) (QQXs.enum poly)) in 
+      let poly_lc, _, _ = QQXs.split_leading mon_order poly in
+      let poly = QQXs.of_enum (BatEnum.map (fun (c, m) -> QQ.div c poly_lc, m) (QQXs.enum poly)) in 
       QQXs.fold (
         fun m coef acc ->
           let var_part, coef_part = 

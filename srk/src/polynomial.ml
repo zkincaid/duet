@@ -1232,6 +1232,49 @@ module Rewrite = struct
   let reduce_rewrite = R.reduce_rewrite
 end
 
+
+module FGb = struct
+  type fmon = Z.t * (int list)
+  type fpoly = fmon list
+
+  let () = Faugere_zarith.Fgb_int_zarith.set_number_of_threads 2
+
+  let convert_to_faugere (vs : Monomial.dim list) (p : QQXs.t) : fpoly = 
+    let (clearing_denom, rat_fmon) = 
+      BatEnum.fold (
+        fun (cd, ml) (c, m)  -> 
+          let new_cd = Z.lcm (Q.den c) cd in 
+          let fmon = 
+            List.map (
+              fun v -> 
+                match Monomial.IntMap.find_opt v m with
+                  | None -> 0
+                  | Some d -> d)
+              vs in
+          (new_cd, (c, fmon) :: ml)
+       ) (Z.one, []) (QQXs.enum p)        
+      in
+    List.map (
+      fun (c, m) -> Q.num (Q.mul (Q.of_bigint clearing_denom) c), m
+    ) rat_fmon
+
+  let convert_from_faugere (vs : Monomial.dim list) (p : fpoly) : QQXs.t =
+    let convert_fmon_to_mon (c, fm) = 
+      Q.of_bigint c, Monomial.of_enum (BatList.enum (List.mapi (fun i deg -> List.nth vs i, deg) fm)) in
+    QQXs.of_list (List.map convert_fmon_to_mon p)
+
+  let grobner_basis (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) (polys : QQXs.t list) = 
+    let fpolys = List.map (convert_to_faugere (blk1 @ blk2)) polys in
+    let gb = Faugere_zarith.Fgb_int_zarith.fgb fpolys (List.map string_of_int blk1) (List.map string_of_int blk2) in
+    List.map (convert_from_faugere (blk1 @ blk2)) gb
+
+  (* Is this right? *)
+  let get_mon_order (blk1 : Monomial.dim list) (_ : Monomial.dim list) = 
+    Monomial.block [fun v -> if (List.mem v blk1) then true else false] Monomial.degrevlex
+
+end
+
+
 module Ideal = struct
   type t = Rewrite.t
   open Rewrite
