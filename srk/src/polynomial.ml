@@ -192,6 +192,34 @@ module QQX = struct
       p
       []
     |> Syntax.mk_add srk
+
+
+  let qr a b = 
+    let d = order b in
+    let c = coeff d b in
+    if d = 0 then 
+      (scalar_mul (QQ.div QQ.one c) a, zero)
+    else
+      let rec aux q r =
+        let rd = order r in
+        if rd < d then (q, r)
+        else
+          let s = (of_term (QQ.div (coeff rd r) c) (rd - d)) in
+          aux (add q s) (sub r (mul s b))
+        in
+      aux zero a
+  
+  let ex_euc a b = 
+    let rec aux r0 r1 s0 s1 t0 t1 = 
+      if is_zero r1 then 
+        let lcri = QQ.div QQ.one (coeff (order r0) r0) in
+        (scalar_mul lcri r0, scalar_mul lcri s0, scalar_mul lcri t0)
+      else
+        let q = fst (qr r0 r1) in
+        aux r1 (sub r0 (mul q r1)) s1 (sub s0 (mul q s1)) t1 (sub t0 (mul q t1))
+    in
+    aux a b one zero zero one
+
 end
 
 module Monomial = struct
@@ -1264,9 +1292,12 @@ module FGb = struct
     QQXs.of_list (List.map convert_fmon_to_mon p)
 
   let grobner_basis (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) (polys : QQXs.t list) = 
-    let fpolys = List.map (convert_to_faugere (blk1 @ blk2)) polys in
-    let gb = Faugere_zarith.Fgb_int_zarith.fgb fpolys (List.map string_of_int blk1) (List.map string_of_int blk2) in
-    List.map (convert_from_faugere (blk1 @ blk2)) gb
+    let non_zero = List.filter (fun p -> not (QQXs.is_zero p)) polys in 
+    if List.length non_zero = 0 then [QQXs.zero]
+    else
+      let fpolys = List.map (convert_to_faugere (blk1 @ blk2)) non_zero in
+      let gb = Faugere_zarith.Fgb_int_zarith.fgb fpolys (List.map string_of_int blk1) (List.map string_of_int blk2) in
+      List.map (convert_from_faugere (blk1 @ blk2)) gb
 
   (* Is this right? *)
   let get_mon_order (blk1 : Monomial.dim list) (_ : Monomial.dim list) = 

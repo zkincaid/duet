@@ -71,6 +71,37 @@ let test_summation2 () = (* Gauss sum *)
   in
   assert_equal_qqx r (QQX.summation p)
 
+
+let test_qr1 () = 
+  let a = mk_qqx [1; 0; 1] in
+  let b = mk_qqx [1;1] in
+  let (q, r) = QQX.qr a b in
+  assert_bool "Test remainder" (QQX.order r < QQX.order b);
+  assert_equal_qqx a (QQX.add (QQX.mul b q) r)
+
+let test_qr2 () = 
+  let a = mk_qqx [-6; -5; 1] in
+  let b = mk_qqx [12;12] in
+  let (q, r) = QQX.qr a b in
+  assert_bool "Test remainder" (QQX.order r < QQX.order b);
+  assert_equal_qqx a (QQX.add (QQX.mul b q) r)
+
+let test_gcd1 () = 
+  let a = mk_qqx [6;7;1] in
+  let b = mk_qqx [-6;-5;1] in
+  let (g, u, v) = QQX.ex_euc a b in
+  let g_correct = mk_qqx [1; 1] in
+  assert_equal_qqx g g_correct;
+  assert_equal_qqx g (QQX.add (QQX.mul u a) (QQX.mul v b))
+
+let test_gcd2 () = 
+  let a = mk_qqx [-2;0;1] in
+  let b = mk_qqx [0;1] in
+  let (g, u, v) = QQX.ex_euc a b in
+  let g_correct = mk_qqx [1] in
+  assert_equal_qqx g g_correct;
+  assert_equal_qqx g (QQX.add (QQX.mul u a) (QQX.mul v b))
+
 let test_rewrite1 () =
   let open QQXsInfix in
   let x = dim 'x' in
@@ -235,6 +266,10 @@ let suite = "Polynomial" >::: [
     "eval" >:: test_eval;
     "test_summation1" >:: test_summation1;
     "test_summation2" >:: test_summation2;
+    "test_qr1" >:: test_qr1;
+    "test_qr2" >:: test_qr2;
+    "test_gcd1" >:: test_gcd1;
+    "test_gcd2" >:: test_gcd2;
     "test_rewrite1" >:: test_rewrite1;
     "test_rewrite2" >:: test_rewrite2;
     "test_grobner1" >:: test_grobner1;

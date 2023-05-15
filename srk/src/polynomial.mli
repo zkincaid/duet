@@ -51,6 +51,14 @@ module QQX : sig
 
   (** [term_of srk t p] computes a term representing [p(t)]. *)
   val term_of : ('a context) -> 'a arith_term -> t -> 'a arith_term
+
+  (** Given polynomials a and b with b not 0, compute q, r such that
+      a = bq + r with deg(r) < deg (b).*)
+  val qr : t -> t -> t * t
+
+  (** Given two non-zero polynomials a and b, computes u, v, g such that 
+      gcd(a, b) = g, g is monic, and au + bv = g via the extended euclidean algorithm.*)
+  val ex_euc : t -> t -> t * t * t
 end
 
 (** Monomials *)
@@ -346,12 +354,21 @@ module Ideal : sig
   val project : (int -> bool) -> t -> t
 end
 
-
+(**Grobner basis computation using the FGb library.*)
 module FGb : sig
+  (**[grobner_basis block1 block2 polys] computes a Grobner basis of the polynomials in [polys] within the ring Q\[block1, block2\]. 
+  The monomial order used in the computation is a block ordering defined by the variables in [block1] and [block2] with [block1] >> [block2]. That is,
+  for any monomials m1 and m2 where, m1 contains variables in [block1] but m2 does not, m1>m2. The monomial order within each block is degree reverse
+  lexicographic defined by the order of the variables in the given list. That is [grobner_basis \["x"; "y"; "z"\] \[\] polys] defines a drl order with [x] > [y] > [z].
+  As in the previous example [block2] can be empty, indicated a normal drl order. However, [block1] must be non-empty. For the input polynomials to be 
+  well formed the variables in [polys] need to be in the set [block1 @ block2]. *)
   val grobner_basis : Monomial.dim list -> Monomial.dim list -> QQXs.t list -> QQXs.t list
 
+  (**[get_mon_order block1 block2] should return the monomial ordering used in the Grobner basis computation [grobner_basis block1 block2 polys]. 
+      TODO: Actually, this isn't quite right. The degrevlex of fgb uses the order of the variables in the block, whereas the monomial degrevlex uses the 
+      lex ordering of the variables regardless of the order they appear in the list.*)
   val get_mon_order : Monomial.dim list -> Monomial.dim list -> Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt]
-  
+
 end
 
 
