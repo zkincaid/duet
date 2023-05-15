@@ -49,7 +49,33 @@ let grobner_test1 () =
   assert_equal_qqxs (int (0)) p2red;
   assert_equal_qqxs (int (0)) p3red
 
-let suite = "FGb" >:::
+let grobner_test2 () = 
+  let open QQXsInfix in
+  let p1 = int(0) in
+  let p2 = int(0) in
+  let gb = FGb.grobner_basis [Char.code 'x';Char.code 'y'] [Char.code 'z'] [p1;p2] in
+  (*let pv fo v = if v = Char.code 'x' then Format.pp_print_string fo "x" else if v = Char.code 'y' then Format.pp_print_string fo "y" else Format.pp_print_string fo "z" in
+  let ppoly = 
+      QQXs.pp pv in
+  let plist = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_newline fo ()) ppoly in
+  Log.log_pp ~level:`always plist gb;*)
+  assert_equal_qqxs (int (0)) (List.hd gb)
+
+let grobner_test3 () = 
+  let open QQXsInfix in
+  let p1 = int(1) in
+  let p2 = int(1) in
+  let gb = FGb.grobner_basis [Char.code 'x';Char.code 'y'] [Char.code 'z'] [p1;p2] in
+  (*let pv fo v = if v = Char.code 'x' then Format.pp_print_string fo "x" else if v = Char.code 'y' then Format.pp_print_string fo "y" else Format.pp_print_string fo "z" in
+  let ppoly = 
+      QQXs.pp pv in
+  let plist = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_newline fo ()) ppoly in
+  Log.log_pp ~level:`always plist gb;*)
+  assert_equal_qqxs (int (1)) (List.hd gb)
+
+let suite = "fgb" >:::
   [
-    "grobner_test1" >:: grobner_test1
+    "grobner_test1" >:: grobner_test1;
+    "grobner_test2" >:: grobner_test2;
+    "grobner_test3" >:: grobner_test3
   ]
