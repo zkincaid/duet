@@ -134,15 +134,15 @@ let factor_test3 () =
 let splitting_test1 () =
   let open QQXInfix in
   let p = v * v * v - int(2) in
-  let root_field, (_, roots) = NumberField.splitting_field p in
+  let root_field, roots = NumberField.splitting_field p in
   let module NF = NumberField.MakeNF(struct let min_poly = root_field end) in
-  let print_roots f rs = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_string fo "; ") NF.pp f (List.map fst rs) in
+  (*let print_roots f rs = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_string fo "; ") NF.pp f (List.map fst rs) in
   Log.log ~level:`always "Field polynomial";
   Log.log_pp ~level:`always QQX.pp root_field;
   Log.log ~level:`always "Roots";
-  Log.log_pp ~level:`always print_roots roots;
+  Log.log_pp ~level:`always print_roots roots;*)
   let check_root (r, _) = 
-    assert_bool "Test root" (NF.is_zero (NF.X.eval (NF.X.lift p) r))
+    assert_bool "Test root" (NF.is_zero (NF.X.eval (NF.X.lift p) (NF.make_elem r)))
   in
   List.iter check_root roots
 

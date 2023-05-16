@@ -1,7 +1,5 @@
 open Polynomial
 
-type pseudo_uni = QQXs.t * Monomial.dim
-
 let make_multivariate dim p = 
   QQXs.of_enum (BatEnum.map (fun (coef, pow) -> coef, Monomial.singleton dim pow) (QQX.enum p))
 
@@ -47,8 +45,6 @@ let primitive_elem mp0 mp1 v0 v1 =
 
 module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
-  type t = QQX.t
-
   type elem = QQX.t
 
   let reduce a = 
@@ -92,10 +88,10 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
   let pp = 
     QQX.pp
 
-  module E = struct let mul = mul let negate = negate end
+  module E = struct let one = one let mul = mul let negate = negate let exp = exp end
 
   module X = struct 
-    include MakeUnivariate(
+    include MakeEuclidean(
       struct 
         type t = elem
         let equal = equal
@@ -104,6 +100,9 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         let one = one
         let mul = mul
         let negate = negate
+        let pp = pp
+        let inverse = inverse
+        let int_mul i x = QQX.scalar_mul (QQ.of_int i) x
       end)
     let pp formatter p = 
       let pp_monomial formatter (coeff, order) = 
@@ -131,9 +130,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
           QQXs.add (QQXs.mul_monomial (Monomial.singleton 1 m) (make_multivariate 0 coef)) acc
       ) p QQXs.zero
 
-    
-  (** Need to square free factor p*)
-    let factor (p : t) = 
+    let factor_square_free_poly p =
       if QQX.is_zero A.min_poly then
         let p_uni = make_univariate (de_lift p) in
         let lc, facts = QQX.factor p_uni in
@@ -182,6 +179,16 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         in
         (lc, List.map find_factor factors)
 
+
+    let factor (p : t) = 
+      let square_free_facts = square_free_factor p in
+      List.fold_left (
+        fun (coef, factors) (square_free_fact, deg) ->
+          let (lc, facts) = factor_square_free_poly square_free_fact in
+          let new_facts = List.map (fun (f, d) -> (f, d * deg)) facts in
+          E.mul (E.exp lc deg) coef, new_facts @ factors
+      ) (E.one, []) square_free_facts
+
     let extract_root_from_linear p = 
       if order p <> 1 then failwith "Trying to extract root from non-linear polynomial"
       else
@@ -194,18 +201,17 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
 end
 
-(**Need to square free factor*)
-let splitting_field p = 
+let splitting_field p_with_squares = 
+  let square_free_facts = QQX.square_free_factor p_with_squares in
+  let p = List.fold_left (fun acc (f, _) -> QQX.mul acc f) QQX.one square_free_facts in 
   let rec aux min_poly = 
     let module NF = MakeNF(struct let min_poly = min_poly end) in
-    let (lc, facts) = NF.X.factor (NF.X.lift p) in (*Can probably be made more efficient.*)
+    let (_, facts) = NF.X.factor (NF.X.lift p) in (*Can probably be made more efficient.*)
     let (lin_facts, non_lin_facts) = List.partition (fun (x, _) -> NF.X.order x = 1) facts in
     if List.length non_lin_facts = 0 then
-      min_poly, (lc, (List.map (fun (x, d) -> NF.X.extract_root_from_linear x, d) lin_facts))
+      min_poly, (List.map (fun (x, d) -> NF.X.extract_root_from_linear x, d) lin_facts)
     else
       let non_lin_fact, _ = List.hd non_lin_facts in
-      Log.log ~level:`always "Constructing field out of nonlinear factor";
-      Log.log_pp ~level:`always NF.X.pp non_lin_fact;
       let new_min_poly, _, _ = primitive_elem (make_multivariate 0 min_poly) (NF.X.de_lift non_lin_fact) 0 1 in
       aux new_min_poly
   in
