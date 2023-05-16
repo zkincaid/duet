@@ -26,9 +26,33 @@ end
 (** Univariate polynomials over a given ring *)
 module MakeUnivariate (R : Algebra.Ring) : Univariate with type scalar = R.t
 
+module type Euclidean = sig
+  include Univariate
+
+  (** Given polynomials a and b with b not 0, compute q, r such that
+    a = bq + r with deg(r) < deg (b).*)
+  val qr : t -> t -> t * t
+
+  (** Given two non-zero polynomials a and b, computes u, v, g such that 
+    gcd(a, b) = g, g is monic, and au + bv = g via the extended euclidean algorithm.*)
+  val ex_euc : t -> t -> t * t * t
+
+  (** Given a polynomial p, computes (a1, i1), ..., (ak, ik) such that a1^i1...ak^ik = p
+      and each ai is square free.*)
+  val square_free_factor : t -> (t * int) list
+end
+
+(** Univariate polynomials over a field give a Euclidean domain. *)
+module MakeEuclidean (
+  F : sig
+    include Algebra.Field
+    val int_mul : int -> t -> t (*Mathematically this isn't needed ix = x + x + ... + x. But there could be faster implementations.*)
+  end
+  ) : Euclidean with type scalar = F.t
+
 (** Univariate polynomials with rational coefficients *)
 module QQX : sig
-  include Univariate with type scalar = QQ.t
+  include Euclidean with type scalar = QQ.t
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
@@ -52,13 +76,6 @@ module QQX : sig
   (** [term_of srk t p] computes a term representing [p(t)]. *)
   val term_of : ('a context) -> 'a arith_term -> t -> 'a arith_term
 
-  (** Given polynomials a and b with b not 0, compute q, r such that
-      a = bq + r with deg(r) < deg (b).*)
-  val qr : t -> t -> t * t
-
-  (** Given two non-zero polynomials a and b, computes u, v, g such that 
-      gcd(a, b) = g, g is monic, and au + bv = g via the extended euclidean algorithm.*)
-  val ex_euc : t -> t -> t * t * t
 end
 
 (** Monomials *)

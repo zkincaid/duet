@@ -68,8 +68,83 @@ module MakeUnivariate(R : Algebra.Ring) = struct
   let eval p k = fst (pivot 0 (compose p (scalar k)))
 end
 
+module type Euclidean = sig
+  include Univariate
+
+  val qr : t -> t -> t * t
+
+  val ex_euc : t -> t -> t * t * t
+
+  val square_free_factor : t -> (t * int) list
+end
+
+module MakeEuclidean (
+  F : sig
+    include Algebra.Field
+    val int_mul : int -> t -> t (*Mathematically this isn't needed ix = x + x + ... + x. But there could be faster implementations.*)
+  end) = struct
+  include MakeUnivariate(F)
+
+  let qr a b = 
+    if is_zero b then failwith "Divide by 0";
+    let d = order b in
+    let c = coeff d b in
+    if d = 0 then 
+      (scalar_mul (F.inverse c) a, zero)
+    else
+      let rec aux q r =
+        let rd = order r in
+        if rd = 0 || rd < d then (q, r)
+        else
+          let s = (of_term (F.mul (coeff rd r) (F.inverse c)) (rd - d)) in
+          aux (add q s) (sub r (mul s b))
+        in
+      aux zero a
+  
+  let ex_euc a b = 
+    let rec aux r0 r1 s0 s1 t0 t1 = 
+      if is_zero r1 then 
+        let lcri = F.inverse (coeff (order r0) r0) in
+        (scalar_mul lcri r0, scalar_mul lcri s0, scalar_mul lcri t0)
+      else
+        let q = fst (qr r0 r1) in
+        aux r1 (sub r0 (mul q r1)) s1 (sub s0 (mul q s1)) t1 (sub t0 (mul q t1))
+    in
+    aux a b one zero zero one
+  
+  let derivative f = 
+    of_list (fold (
+      fun deg coef acc ->
+        if deg = 0 then (F.zero, 0) :: acc
+        else
+         (F.int_mul deg coef, deg - 1) :: acc
+    ) f [])
+
+  let square_free_factor p = 
+    let rec aux b d i facts = 
+      if equal b one then
+        facts
+      else
+        let a, _, _ = ex_euc b d in
+        let new_b = fst (qr b a) in
+        let c = fst (qr d a) in
+        let new_d = sub c (derivative new_b) in
+        if equal a one then 
+          aux new_b new_d (i+1) facts
+        else
+          aux new_b new_d (i+1) ((a, i) :: facts)
+      in
+    let p_p = derivative p in
+    let a_0, _, _ = ex_euc p p_p in
+    let b_1 = fst (qr p a_0) in
+    let c_1 = fst (qr p_p a_0) in
+    let d_1 = sub c_1 (derivative b_1) in
+    aux b_1 d_1 1 []
+end
+
+
 module QQX = struct
-  include MakeUnivariate(QQ)
+  include MakeEuclidean(struct include QQ let int_mul i x = QQ.mul (QQ.of_int i) x end)
 
   let pp formatter p =
     let pp_monomial formatter (coeff, order) =
@@ -193,32 +268,6 @@ module QQX = struct
       []
     |> Syntax.mk_add srk
 
-
-  let qr a b = 
-    let d = order b in
-    let c = coeff d b in
-    if d = 0 then 
-      (scalar_mul (QQ.div QQ.one c) a, zero)
-    else
-      let rec aux q r =
-        let rd = order r in
-        if rd < d then (q, r)
-        else
-          let s = (of_term (QQ.div (coeff rd r) c) (rd - d)) in
-          aux (add q s) (sub r (mul s b))
-        in
-      aux zero a
-  
-  let ex_euc a b = 
-    let rec aux r0 r1 s0 s1 t0 t1 = 
-      if is_zero r1 then 
-        let lcri = QQ.div QQ.one (coeff (order r0) r0) in
-        (scalar_mul lcri r0, scalar_mul lcri s0, scalar_mul lcri t0)
-      else
-        let q = fst (qr r0 r1) in
-        aux r1 (sub r0 (mul q r1)) s1 (sub s0 (mul q s1)) t1 (sub t0 (mul q t1))
-    in
-    aux a b one zero zero one
 
 end
 

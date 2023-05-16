@@ -86,6 +86,19 @@ let test_qr2 () =
   assert_bool "Test remainder" (QQX.order r < QQX.order b);
   assert_equal_qqx a (QQX.add (QQX.mul b q) r)
 
+let test_qr3 () = 
+  let a = mk_qqx [-6; -5; 1] in
+  let b = mk_qqx [0] in
+  let f () = QQX.qr a b in
+  assert_raises (Failure "Divide by 0") f
+
+let test_qr4 () = 
+  let a = mk_qqx [0] in
+  let b = mk_qqx [-6; -5; 1] in
+  let (q, r) = QQX.qr a b in
+  assert_bool "Test remainder" (QQX.order r < QQX.order b);
+  assert_equal_qqx a (QQX.add (QQX.mul b q) r)
+
 let test_gcd1 () = 
   let a = mk_qqx [6;7;1] in
   let b = mk_qqx [-6;-5;1] in
@@ -101,6 +114,52 @@ let test_gcd2 () =
   let g_correct = mk_qqx [1] in
   assert_equal_qqx g g_correct;
   assert_equal_qqx g (QQX.add (QQX.mul u a) (QQX.mul v b))
+
+
+let test_gcd3 () = 
+  let a = mk_qqx [-2;0;1] in
+  let b = mk_qqx [0] in
+  let (g, u, v) = QQX.ex_euc a b in
+  let g_correct = a in
+  assert_equal_qqx g g_correct;
+  assert_equal_qqx g (QQX.add (QQX.mul u a) (QQX.mul v b))
+
+let test_gcd4 () = 
+  let a = mk_qqx [0] in
+  let b = mk_qqx [-2;0;1] in
+  let (g, u, v) = QQX.ex_euc a b in
+  let g_correct = b in
+  assert_equal_qqx g g_correct;
+  assert_equal_qqx g (QQX.add (QQX.mul u a) (QQX.mul v b))
+
+
+(*let test_derivative () = 
+  let derivative f = 
+    QQX.of_list (QQX.fold (
+      fun deg coef acc ->
+        if deg = 0 then (QQ.zero, 0) :: acc
+        else
+         (QQ.mul (QQ.of_int deg) coef, deg - 1) :: acc
+    ) f []) in
+  let p = mk_qqx [1;3;4;3;1] in
+  let p_p = mk_qqx [3;8;9;4] in
+  assert_equal_qqx p_p (derivative p)*)
+  
+
+let test_square_free1 () = 
+  (* p = (x^3+1)^3(x^2+1)^2(x^2+x+1)*)
+  let p = mk_qqx [1;4;9;15;19;19;15;9;4;1] in
+  let factors = QQX.square_free_factor p in
+  let multiplied = List.fold_left (fun acc (factor, deg) -> QQX.mul acc (QQX.exp factor deg)) QQX.one factors in
+  assert_equal_qqx p multiplied
+
+let test_square_free2 () = 
+  (* p = (x+1)^4*)
+  let p = mk_qqx [1;4;6;4;1] in
+  let factors = QQX.square_free_factor p in
+  let multiplied = List.fold_left (fun acc (factor, deg) -> QQX.mul acc (QQX.exp factor deg)) QQX.one factors in
+  assert_equal_qqx p multiplied
+
 
 let test_rewrite1 () =
   let open QQXsInfix in
@@ -268,8 +327,14 @@ let suite = "Polynomial" >::: [
     "test_summation2" >:: test_summation2;
     "test_qr1" >:: test_qr1;
     "test_qr2" >:: test_qr2;
+    "test_qr3" >:: test_qr3;
+    "test_qr4" >:: test_qr4;
     "test_gcd1" >:: test_gcd1;
     "test_gcd2" >:: test_gcd2;
+    "test_gcd3" >:: test_gcd3;
+    "test_gcd4" >:: test_gcd4;
+    "test_square_free1" >:: test_square_free1;
+    "test_square_free2" >:: test_square_free2;
     "test_rewrite1" >:: test_rewrite1;
     "test_rewrite2" >:: test_rewrite2;
     "test_grobner1" >:: test_grobner1;
