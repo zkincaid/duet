@@ -1,5 +1,7 @@
 open Polynomial
 
+include Log.Make(struct let name = "srk.numberField" end)
+
 let make_multivariate dim p = 
   QQXs.of_enum (BatEnum.map (fun (coef, pow) -> coef, Monomial.singleton dim pow) (QQX.enum p))
 
@@ -70,7 +72,10 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     u
 
   let exp a i = 
-    reduce (QQX.exp a i)
+    if i < 0 then
+      inverse (reduce (QQX.exp a i))
+    else
+      reduce (QQX.exp a i)
 
   let equal a b = 
     QQX.equal (reduce a) (reduce b)
