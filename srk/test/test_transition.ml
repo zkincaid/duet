@@ -337,6 +337,7 @@ let negative_eigenvalue () =
   let post = mk_leq srk k n in
   assert_post tr post
 
+(* aux procedure for checking extrapolate results. TODO: stricter checking *)
 let check_extrapolate test_name tr1 tr2 tr3 = 
   match T.extrapolate tr1 tr2 tr3 with 
       | `Sat (f1, f2) -> 
