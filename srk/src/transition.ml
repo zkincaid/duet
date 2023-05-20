@@ -544,7 +544,6 @@ struct
     in
       match Smt.get_model ~solver:solver ~symbols:symbols_conj srk conj with 
       | `Sat m -> 
-        Printf.printf "extrapolate: result is SAT, got model\n";
         Interpretation.pp Format.std_formatter m ;
         Format.print_flush ();
         let pre_, post_ = extrapolate_project srk ss_t1 ss_t3 symbols_t1_t2 symbols_t3_t2 m in 
@@ -553,18 +552,10 @@ struct
             try 
               let sym = Hashtbl.find reverse_subscript_tbl symb in 
                 mk_const srk sym 
-            with Not_found -> 
-                Printf.printf  " not found symbol %s\n" (Syntax.show_symbol srk symb); mk_const srk symb
+            with Not_found -> mk_const srk symb
           in 
           let ex1 = (substitute_const srk (reverse_substitute) pre_) in 
           let ex2 = (substitute_const srk (reverse_substitute) post_) in 
-          Printf.printf "\npre extrapolant after renaming: ";
-          Syntax.pp_expr_unnumbered srk Format.std_formatter ex1;
-          Format.print_flush();
-          Printf.printf "\npost extrapolant after renaming: ";
-          Syntax.pp_expr_unnumbered srk Format.std_formatter ex2;
-          Format.print_flush();
-          Printf.printf "\n--------------------------\n";  
           `Sat (ex1, ex2) 
       | _ -> `Unsat (* failed; [t1 * t2 * t3] is UNSAT so unable to project. *)
 
