@@ -337,6 +337,91 @@ let negative_eigenvalue () =
   let post = mk_leq srk k n in
   assert_post tr post
 
+let check_extrapolate test_name tr1 tr2 tr3 = 
+  match T.extrapolate tr1 tr2 tr3 with 
+      | `Sat (f1, f2) -> 
+        begin match T.valid_triple (mk_true srk) [tr1] f1 with 
+        | `Valid -> 
+          begin match T.valid_triple f2 [tr3] (mk_true srk) with 
+          | `Valid -> 
+            () 
+          | _ -> assert_failure @@ test_name ^ " error: extrapolant 2 is bad\n"
+          end
+        | _ -> assert_failure @@ test_name ^ " error: extrapolant 1 is bad\n" 
+        end 
+      | `Unsat -> 
+        assert_failure @@ test_name ^ "extrapolate: UNSAT\n"
+
+let extrapolate1 () = 
+  let open Infix in 
+  let tr1 = 
+    mk_block [
+      T.havoc ["x"];
+      T.assume ((int 0) < x);
+      T.assign "y" x
+    ]
+  in let tr2 = 
+    mk_block [
+      T.assume ((int 0 ) < z);
+      T.assign "z" (x + (int 1));
+      T.assign "w" (z + (int 3))
+    ]
+  in let tr3 = 
+    mk_block [
+      T.assume ((int 0) < x);
+      T.assume ((int 0) < k);
+      T.assign "k" (w + (int 4));
+    ]
+  in check_extrapolate "extrapolate1" tr1 tr2 tr3
+
+let extrapolate2 () = 
+  let open Infix in 
+  let tr1 = 
+    mk_block [
+      T.havoc ["x"];
+      T.assume ((int 0) <= x);
+      T.assign "y" (int 0)
+    ]
+  in let tr2 = 
+    mk_block [
+      T.assign "y" (y + (int 1));
+      T.assign "z" (y + (int 3));
+      T.assign "x" (x + (int 1))
+    ]
+  in let tr3 = 
+    mk_block [
+      T.assume ((int 0) < x);
+      T.assume ((int 0) < y);
+      T.assume (y < z);
+      T.assign "k" (x + (int 10))
+    ]
+  in check_extrapolate "extrapolate2" tr1 tr2 tr3
+
+let extrapolate3 () = 
+  let open Infix in 
+  let tr1 = 
+    mk_block [
+      T.havoc ["x"];
+      T.assume ((int 0) < x);
+      T.assign "y" (int 0)
+    ]
+  in let tr2 = 
+    mk_block [
+      T.assign "z" ((int 0) + y);
+      T.assume ((int 0) <= y);
+      T.assume (((int 0) < x) || (x < (int 0)))
+    ]
+  in let tr3 = 
+    mk_block [
+      T.assume ((int 0) < x);
+      T.assign "z" ((int 1) + x);
+      T.assume ((int 0) < z);
+      T.assign "y" ((int 1) + y);
+      T.assume ((int 0) < y)
+    ]
+  in check_extrapolate "extrapolate3" tr1 tr2 tr3
+
+
 let suite = "Transition" >::: [
     "degree1" >:: degree1;
     "degree2" >:: degree2;
@@ -350,4 +435,7 @@ let suite = "Transition" >::: [
     "interpolate2" >:: interpolate2;
     "interpolate_havoc" >:: interpolate_havoc;
     "negative_eigenvalue" >:: negative_eigenvalue;
+    "extrapolate1" >:: extrapolate1;
+    "extrapolate2" >:: extrapolate2;
+    "extrapolate3" >:: extrapolate3;
   ]
