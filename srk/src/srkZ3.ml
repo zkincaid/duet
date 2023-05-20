@@ -562,6 +562,19 @@ module Solver = struct
     | `Unsat ->
       `Unsat (List.map solver.formula_of (Z3.Solver.get_unsat_core solver.s))
 
+  let get_unsat_core_or_concrete_model solver assumptions symbols = 
+    let srk = solver.srk in 
+    let z3 = solver.z3 in
+    match check solver assumptions with 
+    | `Sat -> 
+      begin match Z3.Solver.get_model solver.s with 
+        | Some m -> `Sat (Interpretation.wrap ~symbols srk (model_get_value srk z3 m))
+        | None -> `Unknown 
+      end
+    | `Unknown -> `Unknown 
+    | `Unsat -> 
+      `Unsat (List.map solver.formula_of (Z3.Solver.get_unsat_core solver.s))
+
   let get_reason_unknown solver = Z3.Solver.get_reason_unknown solver.s
 end
 

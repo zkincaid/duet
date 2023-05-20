@@ -342,20 +342,63 @@ struct
     | `And xs -> List.concat_map (destruct_and srk) xs
     | _ -> [phi]
 
-  let interpolate trs post =
+  let interpolate_unsat_core solver' trs post guards core = 
+    let refresh s = Smt.Solver.reset s; s 
+    in let core_symbols =
+      List.fold_left (fun core phi ->
+          match Formula.destruct srk phi with
+          | (`Proposition (`App (s, []))) -> Symbol.Set.add s core
+          | _ -> assert false)
+        Symbol.Set.empty
+        core
+    in
+    let (itp, _) =
+      List.fold_right2 (fun tr guard (itp, post) ->
+          let subst sym =
+            match Var.of_symbol sym with
+            | Some var ->
+              if M.mem var tr.transform then
+                M.find var tr.transform
+              else
+                mk_const srk sym
+            | None -> mk_const srk sym
+          in
+          let post' = substitute_const srk subst post in
+          let reduced_guard =
+            List.filter_map (fun (indicator, guard) ->
+                if Symbol.Set.mem indicator core_symbols then
+                  Some (mk_not srk guard)
+                else
+                  None)
+              guard
+          in
+          let wp =
+            (mk_not srk (mk_or srk (post'::reduced_guard)))
+            |> Quantifier.mbp srk ~solver:(refresh solver') (fun s -> Var.of_symbol s != None)
+            |> mk_not srk
+          in
+          (wp::itp, wp))
+        trs
+        guards
+        ([post], post)
+    in `Valid (List.tl itp)  
+
+
+  let interpolate_query ?(solver=Smt.mk_solver C.context) trs post sat_callback unsat_callback = 
+    let _ = Smt.Solver.reset solver in 
     let trs =
       trs |> List.map (fun tr ->
-                 let fresh_skolem =
-                   Memo.memo (fun sym ->
-                       match Var.of_symbol sym with
-                       | Some _ -> mk_const srk sym
-                       | None ->
+                  let fresh_skolem =
+                    Memo.memo (fun sym ->
+                        match Var.of_symbol sym with
+                        | Some _ -> mk_const srk sym
+                        | None ->
                           let name = show_symbol srk sym in
                           let typ = typ_symbol srk sym in
                           mk_const srk (mk_symbol srk ~name typ))
-                 in
-                 { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
-                   guard = substitute_const srk fresh_skolem tr.guard })
+                  in
+                  { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
+                    guard = substitute_const srk fresh_skolem tr.guard })
     in
     (* Break guards into conjunctions, associate each conjunct with an indicator *)
     let guards =
@@ -369,13 +412,14 @@ struct
       List.concat_map (List.map (fun (s, _) -> mk_const srk s)) guards
     in
     let subscript_tbl = Hashtbl.create 991 in
+    let ss_inv = Hashtbl.create 991 in 
     let subscript sym =
       try
         Hashtbl.find subscript_tbl sym
       with Not_found -> mk_const srk sym
     in
     (* Convert tr into a formula, and simultaneously update the subscript
-       table *)
+        table *)
     let to_ss_formula tr guards =
       let ss_guards =
         List.map (fun (indicator, guard) ->
@@ -390,63 +434,32 @@ struct
             let var_ss_sym = mk_symbol srk (Var.typ var :> typ) in
             let var_ss_term = mk_const srk var_ss_sym in
             let term_ss = substitute_const srk subscript term in
-            ((var_sym, var_ss_term)::ss,
-             mk_eq srk var_ss_term term_ss::phis))
+            ((var_sym, var_ss_sym, var_ss_term)::ss,
+              mk_eq srk var_ss_term term_ss::phis))
           tr.transform
           ([], ss_guards)
       in
-      List.iter (fun (k, v) -> Hashtbl.add subscript_tbl k v) ss;
+      List.iter (fun (k, l, v) -> 
+        Hashtbl.add subscript_tbl k v;
+        Hashtbl.add ss_inv l k) ss;
       mk_and srk phis
     in
-    let solver = Smt.mk_solver srk in
-    List.iter2 (fun tr guard ->
-        Smt.Solver.add solver [to_ss_formula tr guard])
-      trs
-      guards;
-    Smt.Solver.add solver [substitute_const srk subscript (mk_not srk post)];
-    match Smt.Solver.get_unsat_core solver indicators with
-    | `Sat -> `Invalid
-    | `Unknown -> `Unknown
-    | `Unsat core ->
-       let core_symbols =
-         List.fold_left (fun core phi ->
-             match Formula.destruct srk phi with
-             | (`Proposition (`App (s, []))) -> Symbol.Set.add s core
-             | _ -> assert false)
-           Symbol.Set.empty
-           core
-       in
-       let (itp, _) =
-         List.fold_right2 (fun tr guard (itp, post) ->
-             let subst sym =
-               match Var.of_symbol sym with
-               | Some var ->
-                  if M.mem var tr.transform then
-                    M.find var tr.transform
-                  else
-                    mk_const srk sym
-               | None -> mk_const srk sym
-             in
-             let post' = substitute_const srk subst post in
-             let reduced_guard =
-               List.filter_map (fun (indicator, guard) ->
-                   if Symbol.Set.mem indicator core_symbols then
-                     Some (mk_not srk guard)
-                   else
-                     None)
-                 guard
-             in
-             let wp =
-               (mk_not srk (mk_or srk (post'::reduced_guard)))
-               |> Quantifier.mbp srk (fun s -> Var.of_symbol s != None)
-               |> mk_not srk
-             in
-             (wp::itp, wp))
-           trs
-           guards
-           ([post], post)
-       in
-       `Valid (List.tl itp)
+    let target = substitute_const srk subscript (mk_not srk post) in 
+    let symbols = List.fold_left 
+      (fun symbols (tr, guard) ->
+        let f = to_ss_formula tr guard in 
+          Smt.Solver.add solver [f];
+          (Syntax.symbols f |> Symbol.Set.elements) @ symbols)
+        (Syntax.symbols target |> Symbol.Set.elements) (List.combine trs guards) in 
+    Smt.Solver.add solver [target];
+    match Smt.Solver.get_unsat_core_or_concrete_model solver indicators symbols with 
+      | `Sat m -> (sat_callback m ss_inv)
+      | `Unsat core -> (unsat_callback trs post guards core)
+      | `Unknown -> `Unknown 
+
+  let interpolate ?(solver=Smt.mk_solver C.context) ?(qflia_solver=(Smt.mk_solver ~theory:"QF_LIA" srk)) trs post =
+    Smt.Solver.reset solver;
+    interpolate_query ~solver:solver trs post (fun _ _ -> `Invalid) @@ interpolate_unsat_core qflia_solver
 
   let extrapolate ?(solver=Smt.mk_solver srk) t1 t2 t3 : [`Sat of (C.t formula * C.t formula) | `Unsat ] =
     (* Create fresh copies of skolem variables: nondet consts, loop tripcount variables, etc. *)
