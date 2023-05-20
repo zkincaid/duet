@@ -114,6 +114,18 @@ module Make
                                              | `Invalid
                                              | `Unknown ]
 
+  (** Extrapolation operation as defined in Ruijie Fang's undergraduate thesis  
+      "Software Model Checking with Path and Procedure Summaries", Princeton, 2023. 
+      Given 3 transition formulas t1, t2, t3, such that [t1 * t2 * t3] is SAT, 
+      [extrapolate t1 t2 t3] returns a pair of state formulas (p, q) such that
+      (1) p[X'/X] |=  (exists X. t1)
+      (2) (exists X. p(X) /\ t2(X, X'))[X/X'] /\ q is SAT 
+      (3) q |= (exists X'. t2(X, X')  
+      The actual implementation of extrapolation uses model-based projection in srk. *)
+  val extrapolate : ?solver:(C.t Smt.Solver.t) -> t -> t -> t -> [ `Sat of (C.t formula * C.t formula ) 
+                                                                 | `Unsat ]
+
+
   (** Given a pre-condition [P], a path [path], and a post-condition [Q],
       determine whether the Hoare triple [{P}path{Q}] is valid. *)
   val valid_triple : C.t formula -> t list -> C.t formula -> [ `Valid

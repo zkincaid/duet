@@ -448,6 +448,114 @@ struct
        in
        `Valid (List.tl itp)
 
+  let extrapolate ?(solver=Smt.mk_solver srk) t1 t2 t3 : [`Sat of (C.t formula * C.t formula) | `Unsat ] =
+    (* Create fresh copies of skolem variables: nondet consts, loop tripcount variables, etc. *)
+    let t1, t2, t3 =
+      let refresh = (fun tr ->
+                  let fresh_skolem =
+                    Memo.memo (fun sym ->
+                        match Var.of_symbol sym with
+                        | Some _ -> mk_const srk sym
+                        | None ->
+                          let name = show_symbol srk sym in
+                          let typ = typ_symbol srk sym in
+                          mk_const srk (mk_symbol srk ~name typ))
+                  in
+                  { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
+                    guard = substitute_const srk fresh_skolem tr.guard }) 
+    in refresh t1, refresh t2, refresh t3 
+    (* Perform variable subscripting; equivalent to "SSA"ing the formulas t1, t2, t3 *)
+    in let subscript_tbl = Hashtbl.create 991 in
+    let reverse_subscript_tbl = Hashtbl.create 991 in 
+    let subscript sym =
+      try
+        Hashtbl.find subscript_tbl sym
+      with Not_found -> mk_const srk sym
+    in
+    (* Same as interpolation: Convert tr into a formula, and simultaneously update the subscript table *)
+    let to_ss_formula tr =
+      let ss_guard = substitute_const srk subscript (guard tr)
+      in let (ss, phis) =
+        M.fold (fun var term (ss, phis) ->
+            let var_sym = Var.symbol_of var in
+            let var_ss_sym = mk_symbol srk (Var.typ var :> typ) in
+            let var_ss_term = mk_const srk var_ss_sym in
+            let term_ss = substitute_const srk subscript term in
+            ((var_sym, var_ss_term, var_ss_sym)::ss,
+              (mk_eq srk var_ss_term term_ss)::phis))
+          tr.transform
+          ([], [ ss_guard ])
+      in
+      List.iter (fun (k, v, l) -> Hashtbl.add subscript_tbl k v; Hashtbl.add reverse_subscript_tbl l k) ss;
+      mk_and srk phis
+    in let ss_t1 = to_ss_formula t1 
+    in let ss_t2 = to_ss_formula t2 
+    in let ss_t3 = to_ss_formula t3 
+    in let conj = mk_and srk [ss_t1; ss_t2; ss_t3]
+    (* Get variables in the intersection of vocabularues of (t1, t2) and (t3, t2) *)
+    in let symbols_t1_t2 = 
+      let symbt1 = Syntax.symbols ss_t1 in 
+      let symbt2 = Syntax.symbols ss_t2 in 
+      let symbt1t2 = Symbol.Set.diff symbt1 symbt2 in 
+      symbt1t2 |> Symbol.Set.elements 
+    in let symbols_t3_t2 = 
+      let symbt3 = Syntax.symbols ss_t3 in 
+      let symbt2 = Syntax.symbols ss_t2 in 
+      let symbt3t2 = Symbol.Set.diff symbt3 symbt2 in 
+      symbt3t2 |> Symbol.Set.elements 
+    in let symbols_conj = Syntax.symbols conj |> Symbol.Set.elements 
+    (* aux routine for doing projection operations using Srk.polyhedron *)
+    in let extrapolate_project srk (f1: 'a formula) (f3: 'a formula) symbols_f1 symbols_f3 model = 
+      (* first do NNF conversion on f1, f3 before computing their implicants *)
+      let nnf_rewriter = Syntax.pos_rewriter srk in
+      let f1 = Syntax.rewrite srk ~down:(nnf_rewriter) f1 in 
+      let f3 = Syntax.rewrite srk ~down:(nnf_rewriter) f3 in 
+      let implicant_f1_o = Interpretation.select_implicant model f1 in 
+      let implicant_f3_o = Interpretation.select_implicant model f3 in 
+        match implicant_f1_o, implicant_f3_o with 
+        | Some if1, Some if3 ->
+          let cube_f1 = Polyhedron.of_cube srk if1 in 
+          let cube_f3 = Polyhedron.of_cube srk if3 in 
+          let value_of_coord = (* coord (int) -> x (symbol) -> m[x] (value in R) *)
+            fun coord ->
+              Syntax.symbol_of_int coord 
+              |> Interpretation.real model
+          in let xs_f1 = List.map Syntax.int_of_symbol symbols_f1 
+          in let xs_f3 = List.map Syntax.int_of_symbol symbols_f3
+          in let f1_projected = Polyhedron.local_project value_of_coord xs_f1 cube_f1
+          in let f3_projected = Polyhedron.local_project value_of_coord xs_f3 cube_f3
+          in
+            (Polyhedron.cube_of srk f1_projected |> Syntax.mk_and srk, 
+             Polyhedron.cube_of srk f3_projected |> Syntax.mk_and srk)
+        | _ -> failwith "error extrapolating: select_implicant returned None"
+    in
+      match Smt.get_model ~solver:solver ~symbols:symbols_conj srk conj with 
+      | `Sat m -> 
+        Printf.printf "extrapolate: result is SAT, got model\n";
+        Interpretation.pp Format.std_formatter m ;
+        Format.print_flush ();
+        let pre_, post_ = extrapolate_project srk ss_t1 ss_t3 symbols_t1_t2 symbols_t3_t2 m in 
+          (* Perform reverse-renaming to de-subscript variables based on reverse lookup table *)
+          let reverse_substitute symb = 
+            try 
+              let sym = Hashtbl.find reverse_subscript_tbl symb in 
+                mk_const srk sym 
+            with Not_found -> 
+                Printf.printf  " not found symbol %s\n" (Syntax.show_symbol srk symb); mk_const srk symb
+          in 
+          let ex1 = (substitute_const srk (reverse_substitute) pre_) in 
+          let ex2 = (substitute_const srk (reverse_substitute) post_) in 
+          Printf.printf "\npre extrapolant after renaming: ";
+          Syntax.pp_expr_unnumbered srk Format.std_formatter ex1;
+          Format.print_flush();
+          Printf.printf "\npost extrapolant after renaming: ";
+          Syntax.pp_expr_unnumbered srk Format.std_formatter ex2;
+          Format.print_flush();
+          Printf.printf "\n--------------------------\n";  
+          `Sat (ex1, ex2) 
+      | _ -> `Unsat (* failed; [t1 * t2 * t3] is UNSAT so unable to project. *)
+
+
   let valid_triple phi path post =
     let path_not_post = List.fold_right mul path (assume (mk_not srk post)) in
     match Smt.is_sat srk (mk_and srk [phi; path_not_post.guard]) with
