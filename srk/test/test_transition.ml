@@ -40,7 +40,8 @@ let () =
   V.register_var "n" `TyInt;
   V.register_var "x" `TyInt;
   V.register_var "y" `TyInt;
-  V.register_var "z" `TyInt
+  V.register_var "z" `TyInt;
+  V.register_var "w" `TyInt
 
 let x = Ctx.mk_const (V.symbol_of "x")
 let y = Ctx.mk_const (V.symbol_of "y")
@@ -49,6 +50,7 @@ let i = Ctx.mk_const (V.symbol_of "i")
 let j = Ctx.mk_const (V.symbol_of "j")
 let k = Ctx.mk_const (V.symbol_of "k")
 let n = Ctx.mk_const (V.symbol_of "n")
+let w = Ctx.mk_const (V.symbol_of "w")
 
 let assert_post tr phi =
   let not_post =

@@ -544,8 +544,6 @@ struct
     in
       match Smt.get_model ~solver:solver ~symbols:symbols_conj srk conj with 
       | `Sat m -> 
-        Interpretation.pp Format.std_formatter m ;
-        Format.print_flush ();
         let pre_, post_ = extrapolate_project srk ss_t1 ss_t3 symbols_t1_t2 symbols_t3_t2 m in 
           (* Perform reverse-renaming to de-subscript variables based on reverse lookup table *)
           let reverse_substitute symb = 
