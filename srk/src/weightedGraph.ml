@@ -151,6 +151,7 @@ let max_vertex wg = U.fold_vertex max wg.graph 0
    every other vertex.  Remaining edges start at src or are a
    self-loop. *)
 let _solve_dense (wg : 'a weighted_graph) (src : vertex) =
+  let self_loops = Hashtbl.create 97 in
   let mul = wg.algebra.mul in
   (* Contract the successor edges of a vertex, except self-loops. *)
   let bypass_vertex wg v =
@@ -161,6 +162,7 @@ let _solve_dense (wg : 'a weighted_graph) (src : vertex) =
         let mul_loop =
           if M.mem (v, v) wg.labels then
             let loop = wg.algebra.star (M.find (v,v) wg.labels) in
+            Hashtbl.add self_loops v loop;
             (fun x -> mul x loop)
           else
             (fun x -> x)
@@ -192,7 +194,7 @@ let _solve_dense (wg : 'a weighted_graph) (src : vertex) =
        let wg = List.fold_left go wg (L.children loop) in
        bypass_vertex wg (L.header loop)
   in
-  List.fold_left go wg (L.loop_nest wg.graph)
+  List.fold_left go wg (L.loop_nest wg.graph), self_loops
 
 (* Main logic for single-source multi-target path weights and omega
    path weights.  The algorithm is a variation of Tarjan's algorithm
@@ -215,7 +217,6 @@ let _path_weight
   let module F = CompressedWeightedForest in
   let mul = wg.algebra.mul in
   let one = wg.algebra.one in
-  let star = wg.algebra.star in
   let forest =
     F.create ~mul:(fun x y -> mul y x) ~one
   in
@@ -274,7 +275,7 @@ let _path_weight
               (empty wg.algebra)
               component
           in
-          let reduced = _solve_dense component_wg v in
+          let reduced, self_loops = _solve_dense component_wg v in
           List.fold_left (fun omega_weight c ->
               let v_to_c = edge_weight reduced v c in
               let (omega_weight, weight) =
@@ -282,7 +283,7 @@ let _path_weight
                   let c_to_c = edge_weight reduced c c in
                   let v_c_omega = omega.omega_mul v_to_c (omega.omega c_to_c) in
                   (omega.omega_add omega_weight v_c_omega,
-                   mul v_to_c (star c_to_c))
+                   mul v_to_c (Hashtbl.find self_loops c))
                 else (omega_weight, v_to_c)
               in
               link c weight v;
