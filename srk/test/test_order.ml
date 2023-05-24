@@ -20,7 +20,20 @@ let zzmify = ZZM.of_dense
 let unzzmify matrix = 
   ZZM.dense_of matrix (ZZM.nb_rows matrix) (ZZM.nb_columns matrix)
 
-module SqrtNeg5 = Order.MakeOrder(
+
+module QQM = Ring.MakeMatrix(QQ)
+let pp_field_mult f q =  QQM.pp QQ.pp f (QQM.of_dense q)
+let pp_order_mult f z = ZZM.pp ZZ.pp f (ZZM.of_dense z)
+
+module SqrtNeg5F = NumberField.MakeNF(struct
+  let min_poly = 
+    let open QQXInfix in
+    v * v + int(5)
+end)
+
+module SqrtNeg5 = SqrtNeg5F.O
+
+(*module SqrtNeg5 = Order.MakeOrder(
   struct 
     let rank = 2 
     let mult i j = 
@@ -30,7 +43,7 @@ module SqrtNeg5 = Order.MakeOrder(
         [|ZZ.one; ZZ.zero|]
       else
         [|ZZ.zero; ZZ.one|]
-  end)
+  end)*)
 
 let assert_equal_ideal p q =
   assert_equal ~cmp:SqrtNeg5.equal_i ~printer:(SrkUtil.mk_show SqrtNeg5.pp_i) p q
@@ -171,7 +184,7 @@ let test_factor_refinement () =
   let print_list = Format.pp_print_list ~pp_sep:(Format.pp_print_newline) print_factor in
   Log.log ~level:`always "Factors";
   Log.log_pp ~level:`always print_list gcd_basis;*)
-  let multiplied_rhs = List.fold_left (fun acc (factor, deg) -> SqrtNeg5.mul acc (SqrtNeg5.exp deg factor)) (SqrtNeg5.one) gcd_basis in
+  let multiplied_rhs = List.fold_left (fun acc (factor, deg) -> SqrtNeg5.mul acc (SqrtNeg5.exp factor deg)) (SqrtNeg5.one) gcd_basis in
   let multiplied_lhs = List.fold_left SqrtNeg5.mul c [six; one_plus_sqrt_m5; one_minus_sqrt_m5] in
   assert_equal_frac_ideal multiplied_rhs multiplied_lhs
 
@@ -182,7 +195,7 @@ let test_factor () =
   let exp_list, gcd_basis, overorder = SqrtNeg5.compute_factorization [six; one_plus_sqrt_m5; one_minus_sqrt_m5] in
   let check_factor i ideal = 
     let exp_list = List.nth exp_list i in
-    let rhs = List.fold_left SqrtNeg5.mul SqrtNeg5.one (List.map2 SqrtNeg5.exp exp_list gcd_basis) in
+    let rhs = List.fold_left SqrtNeg5.mul SqrtNeg5.one (List.map2 SqrtNeg5.exp gcd_basis exp_list) in
     let lhs = SqrtNeg5.mul ideal overorder in
     assert_equal_frac_ideal lhs rhs
   in
@@ -197,15 +210,22 @@ let test_unit_find () =
   assert_equal 1 (List.length exp_list);
   let unit_exp = List.hd exp_list in
   let open QQXInfix in
-  let module NF = NumberField.MakeNF(struct let min_poly = v * v + int(5) end) in
-  let six_e = NF.make_elem (int(6)) in
-  let one_plus_sqrt_m5_e = NF.make_elem (int(1) + v) in
-  let one_minus_sqrt_m5_e = NF.make_elem (int(1) - v) in
-  let exp = List.map2 NF.exp [six_e; one_plus_sqrt_m5_e; one_minus_sqrt_m5_e] unit_exp in
-  let prod = List.fold_left NF.mul NF.one exp in
-  assert_bool "Looking for unit" (NF.equal prod NF.one)
+  let six_e = SqrtNeg5F.make_elem (int(6)) in
+  let one_plus_sqrt_m5_e = SqrtNeg5F.make_elem (int(1) + v) in
+  let one_minus_sqrt_m5_e = SqrtNeg5F.make_elem (int(1) - v) in
+  let exp = List.map2 SqrtNeg5F.exp [six_e; one_plus_sqrt_m5_e; one_minus_sqrt_m5_e] unit_exp in
+  let prod = List.fold_left SqrtNeg5F.mul SqrtNeg5F.one exp in
+  assert_bool "Looking for unit" (SqrtNeg5F.equal prod SqrtNeg5F.one)
 
-module Sqrt5 = Order.MakeOrder(
+module Sqrt5F = NumberField.MakeNF(struct
+  let min_poly = 
+    let open QQXInfix in
+    v * v - int(5)
+end)
+
+module Sqrt5 = Sqrt5F.O
+
+(*module Sqrt5 = Order.MakeOrder(
   struct 
     let rank = 2 
     let mult i j = 
@@ -216,7 +236,7 @@ module Sqrt5 = Order.MakeOrder(
       else
         [|ZZ.zero; ZZ.one|]
   
-  end)
+  end)*)
 
 let assert_equal_ideal p q =
   assert_equal ~cmp:Sqrt5.equal_i ~printer:(SrkUtil.mk_show Sqrt5.pp_i) p q
@@ -237,7 +257,7 @@ let test_overorder2 () =
   assert_equal_frac_ideal overorder (Sqrt5.mul inverse invertible)
 
 
-let suite = "Multiplicative" >:::
+let suite = "Order" >:::
   [
     "test_ideal_create1" >:: test_ideal_create1;
     "test_hnf" >:: test_hnf;

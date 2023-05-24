@@ -47,6 +47,8 @@ let primitive_elem mp0 mp1 v0 v1 =
 
 module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
+  let deg = QQX.order A.min_poly
+
   type elem = QQX.t
 
   let reduce a = 
@@ -203,6 +205,46 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
   end
 
+
+  let field_mult = 
+    let m = Array.make_matrix (deg * deg) deg QQ.zero in
+    for i = 0 to deg - 1 do
+      for j = 0 to deg - 1 do
+        let mult = mul (QQX.exp QQX.identity i) (QQX.exp QQX.identity j) in
+        for k = 0 to deg - 1 do
+          m.((deg-1-i)*deg + (deg-1-j)).(deg - 1 - k) <- (QQX.coeff k mult)
+        done;
+      done;
+    done;
+    m
+  
+  let gcd_field_mult = 
+    Array.fold_left (
+      fun gc row ->
+        Array.fold_left (
+          fun g coef ->
+            QQ.gcd g (QQ.of_zz (QQ.denominator coef))
+        ) gc row
+    ) QQ.zero field_mult
+  
+  let order_mult = 
+    Array.map (
+      fun row ->
+        Array.map (
+          fun coef ->
+            QQ.numerator (QQ.mul coef gcd_field_mult)
+        ) row
+    ) field_mult
+    
+
+  module O = Order.MakeOrder(struct
+    let rank = deg
+
+    let mult i j = 
+      if i >= rank || j >= rank then Array.make rank ZZ.zero
+      else
+        order_mult.(i*rank + j)
+  end)
 
 end
 

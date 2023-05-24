@@ -23,6 +23,9 @@ module MakeNF (A : sig val min_poly : QQX.t end) : sig
   (** The type of elements of the number field. *)
   type elem
 
+  (** The degree of the extension.*)
+  val deg : int
+
   (** Converts a univariate polynomial to an element of the number field.*)
   val make_elem : QQX.t -> elem
 
@@ -73,6 +76,9 @@ module MakeNF (A : sig val min_poly : QQX.t end) : sig
           @raise Failure if the input is not linear*)
       val extract_root_from_linear : t -> elem
     end
+
+  module O : Order.Order
+
 end
 
 (** [min_poly, roots] = [splitting_field p] is such that Q[x]/min_poly is the
