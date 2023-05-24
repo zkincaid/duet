@@ -1,4 +1,4 @@
-module L =  Log.Make(struct let name = "srk.multiplicative" end)
+module L =  Log.Make(struct let name = "srk.order" end)
 
 open Normalizffi
 

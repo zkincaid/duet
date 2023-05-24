@@ -20,7 +20,7 @@ let zzmify = ZZM.of_dense
 let unzzmify matrix = 
   ZZM.dense_of matrix (ZZM.nb_rows matrix) (ZZM.nb_columns matrix)
 
-module SqrtNeg5 = Multiplicative.MakeOrder(
+module SqrtNeg5 = Order.MakeOrder(
   struct 
     let rank = 2 
     let mult i j = 
@@ -205,7 +205,7 @@ let test_unit_find () =
   let prod = List.fold_left NF.mul NF.one exp in
   assert_bool "Looking for unit" (NF.equal prod NF.one)
 
-module Sqrt5 = Multiplicative.MakeOrder(
+module Sqrt5 = Order.MakeOrder(
   struct 
     let rank = 2 
     let mult i j = 
