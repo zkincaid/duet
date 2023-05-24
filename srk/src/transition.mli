@@ -114,6 +114,12 @@ module Make
                                 | `Invalid
                                 | `Unknown ]
 
+  (** Same as interpolate, but returns a concrete model if interpllation fails. *)
+  val interpolate_or_concrete_model : ?solver:(C.t Smt.Solver.t) -> ?qflia_solver:(C.t Smt.Solver.t) 
+    -> t list -> C.t formula -> [`Valid of C.t formula list 
+                                | `Invalid of C.t Interpretation.interpretation 
+                                | `Unknown ]
+
   (** Extrapolation operation as defined in Ruijie Fang's undergraduate thesis  
       "Software Model Checking with Path and Procedure Summaries", Princeton, 2023. 
       Given 3 transition formulas t1, t2, t3, such that [t1 * t2 * t3] is SAT, 

@@ -429,6 +429,108 @@ let extrapolate3 () =
     ]
   in check_extrapolate "extrapolate3" tr1 tr2 tr3
 
+(** helper methods for checking `Transition.interpolate_or_get_model` *)
+
+let check_model test_name m expected_cnt expected_valuations = 
+  let fail s = 
+    assert_failure @@
+      Printf.sprintf "check_model error: test %s: %s\n" test_name s in 
+  let e = Interpretation.enum m in 
+  if BatEnum.count e < expected_cnt then 
+    let m_str = Format.asprintf "%a" Interpretation.pp m in 
+    fail @@
+      Printf.sprintf "expected %d entires in model but got %d\nmodel:%s\n" 
+        expected_cnt (BatEnum.count e) m_str 
+  else   
+    BatEnum.iter  
+      (fun (sym, v) ->
+        match Hashtbl.find_opt expected_valuations sym with 
+        | Some (predicate, expected) -> 
+          begin match v with 
+          | `Real r -> 
+            if not @@ predicate (Q.to_float r) then 
+              fail @@
+                Printf.sprintf "symbol %s, expected value %s but got %f\n"
+                  (Syntax.show_symbol srk sym) expected (Q.to_float r)
+          | `Bool _ | `Fun _ -> 
+              fail @@ 
+                Printf.sprintf "symbol %s, unknown value\n"
+                  (Syntax.show_symbol srk sym) 
+          end
+        | None -> (** we currently allow havoc symbols in returned models*) ()) e
+
+let form_valuation l = 
+  let tbl = Hashtbl.create 991 in 
+  List.iter (fun (k,v) -> Hashtbl.add tbl k v) l; 
+  tbl 
+
+(** tests for checking `Transition.interpolate_or_get_model` *)
+
+let interpolate_fail () = 
+  let path = 
+    let open Infix in
+    [T.assign "x" (int 0);
+      T.assign "y" (int 0);
+      T.assign "z" (int 999);
+      T.assign "y" (z + (int 1));
+      T.assign "y" (int 0);
+      T.assign "y" (y + (int 1));
+      T.assign "x" (x + (int 1));
+      T.assign "y" (y - (int 1));
+      T.assign "x" y;
+      T.assume ((int 0) <= x);
+      T.assume ((int 0) <= y)
+    ]
+  in
+  let post = let open Infix in mk_not srk ((int 0) <= x) in 
+  begin match T.interpolate_or_concrete_model path post with 
+  | `Invalid m -> 
+    check_model "interpolate_fail" m 3 
+      (form_valuation 
+        [(V.symbol_of "x", ((fun x -> x = 0.0), "0"));
+          (V.symbol_of "y", ((fun y -> y = 0.0), "0"));
+          (V.symbol_of "z", ((fun z -> z = 999.0), "999"))])
+  | _ ->  
+    assert_failure "interpolate_fail: got interpolant when should be sat" 
+  end 
+  
+
+let interpolate_fail1 () = 
+    let path = 
+      let open Infix in 
+      [T.havoc ["x"]; 
+        T.assign "y" ((int 10) + x); 
+        T.assign "z" ((int 100));
+        T.assign "y" ((int 10) + z);
+
+        T.assume ((int 0) < y)] 
+    in let post = let open Infix in Syntax.mk_not srk ((int 100) <= y) in 
+    match T.interpolate_or_concrete_model path post with 
+    | `Invalid m -> 
+      check_model "interpolate_fail1" m 3 
+        (form_valuation 
+          [(V.symbol_of "x"), ((fun x -> x = 0.0), "0");
+            (V.symbol_of "y"), ((fun y -> y = 110.0), "110");
+            (V.symbol_of "z"), ((fun z -> z = 100.0), "100")])
+    | _ -> 
+      assert_failure "interpolate_fail1: got interpolant when should be sat"
+
+let interpolate_fail2 () = 
+    let prefix = [T.havoc ["x"] ] 
+    in let suffix =
+      let open Infix in 
+        T.mul (T.assume ((int 10) < x)) (T.assign "x" ((int 10) + x))
+    in let post =
+      let open Infix in
+        T.guard (T.mul suffix (T.assume ((int 1000) < x))) |> Syntax.mk_not srk 
+    in match T.interpolate_or_concrete_model prefix post with 
+    | `Invalid m -> 
+      check_model "interpolate_fail2" m 1 
+        (form_valuation [V.symbol_of "x", ((fun x -> x > 990.0), "value greater than 990")])
+    | _ -> 
+      assert_failure "interpolate_fail1: got interpolant when should be sat"
+  
+
 
 let suite = "Transition" >::: [
     "degree1" >:: degree1;
@@ -446,4 +548,7 @@ let suite = "Transition" >::: [
     "extrapolate1" >:: extrapolate1;
     "extrapolate2" >:: extrapolate2;
     "extrapolate3" >:: extrapolate3;
+    "interpolate_fail" >:: interpolate_fail;
+    "interpolate_fail1" >:: interpolate_fail1;
+    "interpolate_fail2" >:: interpolate_fail2;
   ]
