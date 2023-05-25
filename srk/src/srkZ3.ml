@@ -424,7 +424,17 @@ type 'a solver =
     formula_of : z3_expr -> 'a formula;
     of_formula : 'a formula -> z3_expr }
 
-let mk_solver ?(context=Z3.mk_context []) ?(theory="") srk =
+let get_default_context =
+  let default_context = ref None in
+  fun () ->
+    match !default_context with
+    | Some ctx -> ctx
+    | None ->
+      let ctx = Z3.mk_context [] in
+      default_context := Some ctx;
+      ctx
+
+let mk_solver ?(context=get_default_context ()) ?(theory="") srk =
   let s =
     if theory = "" then
       Z3.Solver.mk_simple_solver context
@@ -565,7 +575,7 @@ module Solver = struct
   let get_reason_unknown solver = Z3.Solver.get_reason_unknown solver.s
 end
 
-let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
+let optimize_box ?(context=get_default_context ()) srk phi objectives =
   let open Z3.Optimize in
   let z3 = context in
   let opt = mk_opt z3 in
@@ -626,7 +636,7 @@ let optimize_box ?(context=Z3.mk_context []) srk phi objectives =
 let interpolate_seq ?context:_ _ _ =
   failwith "SrkZ3.interpolate_seq not implemented"
 
-let load_smtlib2 ?(context=Z3.mk_context []) srk str =
+let load_smtlib2 ?(context=get_default_context ()) srk str =
   let z3 = context in
   let ast = Z3.SMT.parse_smtlib2_string z3 str [] [] [] [] in
   let sym_of_decl =
@@ -662,7 +672,7 @@ let of_apply_result srk result =
   List.map (of_goal srk) (Z3.Tactic.ApplyResult.get_subgoals result)
   |> mk_and srk
 
-let qe ?(context=Z3.mk_context []) srk phi =
+let qe ?(context=get_default_context ()) srk phi =
   let open Z3 in
   let z3 = context in
   let solve = Tactic.mk_tactic z3 "qe" in
@@ -672,7 +682,7 @@ let qe ?(context=Z3.mk_context []) srk phi =
   Goal.add g [z3_of_formula srk z3 phi];
   of_apply_result srk (Tactic.apply qe g None)
 
-let simplify ?(context=Z3.mk_context []) srk phi =
+let simplify ?(context=get_default_context ()) srk phi =
   let open Z3 in
   let open Tactic in
   let z3 = context in
@@ -705,7 +715,7 @@ module CHC = struct
       mutable head_relations : Symbol.Set.t;
       fp : Z3.Fixedpoint.fixedpoint }
 
-  let mk_solver ?(context=Z3.mk_context []) srk =
+  let mk_solver ?(context=get_default_context ()) srk =
     let fp = Z3.Fixedpoint.mk_fixedpoint context in
     let error = mk_symbol srk ~name:"error" (`TyFun ([], `TyBool)) in
     let error_decl = decl_of_symbol context srk error in
