@@ -21,10 +21,6 @@ let unzzmify matrix =
   ZZM.dense_of matrix (ZZM.nb_rows matrix) (ZZM.nb_columns matrix)
 
 
-module QQM = Ring.MakeMatrix(QQ)
-let pp_field_mult f q =  QQM.pp QQ.pp f (QQM.of_dense q)
-let pp_order_mult f z = ZZM.pp ZZ.pp f (ZZM.of_dense z)
-
 module SqrtNeg5F = NumberField.MakeNF(struct
   let min_poly = 
     let open QQXInfix in
