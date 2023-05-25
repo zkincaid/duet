@@ -233,16 +233,23 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
           ) gc row
       ) QQ.zero field_mult
     
+    
+
     let rank = deg
 
     let mult_table = 
-      Array.map (
-        fun row ->
-          Array.map (
-            fun coef ->
-              QQ.numerator (QQ.mul coef gcd_field_mult)
-          ) row
-      ) field_mult
+      let m = Array.make_matrix (deg * deg) deg ZZ.zero in
+      for i = 0 to deg - 1 do
+        for j = 0 to deg - 1 do
+          let mult = mul (QQX.scalar_mul gcd_field_mult (QQX.exp QQX.identity i)) (QQX.scalar_mul gcd_field_mult (QQX.exp QQX.identity j)) in
+          for k = 0 to deg - 1 do
+            let e = QQX.coeff k mult in
+            if not (ZZ.equal (QQ.denominator e) ZZ.one) then failwith "Failed constructing order";
+            m.((deg-1-i)*deg + (deg-1-j)).(deg - 1 - k) <- QQ.numerator e
+          done;
+        done;
+      done;
+      m
 
     let mult_table_m = ZZM.of_dense mult_table
 
@@ -261,6 +268,39 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     type ideal = pre_ideal ref
 
     type o = ZZ.t array
+
+    let pp_o f o = 
+      let strs = Array.mapi (
+        fun i coef ->
+          if i = 0 then
+            ZZ.show coef
+          else if ZZ.equal ZZ.one (QQ.numerator gcd_field_mult) then
+            (ZZ.show coef)^ "x^" ^ (string_of_int (deg - 1 - i))
+          else
+            (ZZ.show coef) ^ "(" ^ (QQ.show gcd_field_mult) ^ "x^" ^ (string_of_int (deg - 1 - i)) ^ ")"
+        ) o in
+      let str = String.concat " + " (List.rev (Array.to_list strs)) in
+      Format.fprintf f "@[%s@]  where x is a root of @[%a@]" str QQX.pp A.min_poly
+      
+
+    let make_o_el e = 
+      let e_in_order_basis = QQX.map (fun dim c -> if dim = 0 then c else QQ.div c gcd_field_mult) e in
+      let gcd = QQX.fold (
+        fun _ coe acc ->
+          ZZ.gcd acc (QQ.denominator coe)
+      ) e_in_order_basis ZZ.one in
+      let order_e = Array.make rank ZZ.zero in
+      BatEnum.iter (
+        fun (coef, d) ->
+          order_e.(deg - 1 - d) <- QQ.numerator (QQ.mul coef (QQ.of_zz gcd))
+      ) (QQX.enum e_in_order_basis);
+      gcd, order_e
+
+    let order_el_to_f_elem (den, o_el) = 
+      QQX.of_enum (BatArray.enum (Array.mapi (
+        fun i coef ->
+          QQ.mul (QQ.of_zz coef) (QQ.div gcd_field_mult (QQ.of_zz den)), (deg - 1 - i)
+      ) o_el))
 
     let get_mat i = match !i with Red m | UnRed m -> m
 

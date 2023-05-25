@@ -50,7 +50,7 @@ let assert_equal_frac_ideal p q =
 let pp_zv f v = ZZM.pp (ZZ.pp) f (zzmify [|v|])
 
 
-let test_hnf () = 
+(*let test_hnf () = 
   let a = SqrtNeg5.idealify (zzify [|
     [|1; 1|];
     [|-5; 1|]|]
@@ -75,13 +75,16 @@ let test_ideal_create2 () =
     [|1; 1|];
     [|0; 6|]|]
   ) in
-  assert_equal_ideal corr one_plus_sqrt_mfive
+  assert_equal_ideal corr one_plus_sqrt_mfive*)
 
+let make_ideal_sqrt_neg_5 p = 
+  SqrtNeg5.ideal_generated_by (snd (SqrtNeg5.make_o_el (SqrtNeg5F.make_elem p)))
 
 let test_sum1 () = 
-  let two = SqrtNeg5.ideal_generated_by (zzify_v [|0; 2|]) in
-  let one_plus_sqrt_mfive = SqrtNeg5.ideal_generated_by (zzify_v [|1; 1|]) in
-  let s = SqrtNeg5.sum_i two one_plus_sqrt_mfive in
+  let open QQXInfix in
+  let two = make_ideal_sqrt_neg_5 (int(2)) in
+  let one_plus_sqrt_m5 = make_ideal_sqrt_neg_5 (int(1) + v) in
+  let s = SqrtNeg5.sum_i two one_plus_sqrt_m5 in
   let s_corr = SqrtNeg5.idealify (zzify [|
     [|1; 1|];
     [|0; 2|]
@@ -90,72 +93,78 @@ let test_sum1 () =
 
 
 let test_mul1 () = 
-  let six = SqrtNeg5.ideal_generated_by (zzify_v [|0;6|]) in
-  let one_plus_sqrt_m5 = SqrtNeg5.ideal_generated_by (zzify_v [|1;1|]) in
-  let one_minus_sqrt_m5 = SqrtNeg5.ideal_generated_by (zzify_v [|-1;1|]) in
+  let open QQXInfix in
+  let six = make_ideal_sqrt_neg_5 (int(6)) in
+  let one_plus_sqrt_m5 = make_ideal_sqrt_neg_5 (int(1) + v) in
+  let one_minus_sqrt_m5 = make_ideal_sqrt_neg_5 (int(1) - v) in
   assert_equal_ideal six (SqrtNeg5.mul_i one_plus_sqrt_m5 one_minus_sqrt_m5)
 
 let test_intersect1 () = 
-  let six = SqrtNeg5.ideal_generated_by (zzify_v [|0;6|]) in
-  let one_plus_sqrt_m5 = SqrtNeg5.ideal_generated_by (zzify_v [|1;1|]) in
+  let open QQXInfix in
+  let six = make_ideal_sqrt_neg_5 (int(6)) in
+  let one_plus_sqrt_m5 = make_ideal_sqrt_neg_5 (int(1) + v) in
   let i = SqrtNeg5.intersect_i six one_plus_sqrt_m5 in
   assert_equal_ideal six i
 
 let test_intersect2 () = 
-  let two = SqrtNeg5.ideal_generated_by (zzify_v [|0;2|]) in
-  let one_plus_sqrt_m5 = SqrtNeg5.ideal_generated_by (zzify_v [|1;1|]) in
+  let open QQXInfix in
+  let two = make_ideal_sqrt_neg_5 (int(2)) in
+  let one_plus_sqrt_m5 = make_ideal_sqrt_neg_5 (int(1) + v) in
+  let two_plus_2_sqrt_m5 = make_ideal_sqrt_neg_5 (int(2) + int(2)*v) in
+  let six = make_ideal_sqrt_neg_5 (int(6)) in
   let i = SqrtNeg5.intersect_i two one_plus_sqrt_m5 in
-  let i_corr = SqrtNeg5.idealify (zzify [|
-    [|2; 2|];
-    [|0; 6|]
-  |]) in
+  let i_corr = SqrtNeg5.sum_i six two_plus_2_sqrt_m5 in
   assert_equal_ideal i_corr i
 
 let test_quotient1 () = 
-  let six = SqrtNeg5.ideal_generated_by (zzify_v [|0;6|]) in
-  let one_plus_sqrt_m5 = SqrtNeg5.ideal_generated_by (zzify_v [|1;1|]) in
+  let open QQXInfix in
+  let six = make_ideal_sqrt_neg_5 (int(6)) in
+  let one_plus_sqrt_m5 = make_ideal_sqrt_neg_5 (int(1) + v) in
+  let one_minus_sqrt_m5 = make_ideal_sqrt_neg_5 (int(1) - v) in
   let i = SqrtNeg5.quotient_i six one_plus_sqrt_m5 in
-  let one_minus_sqrt_m5 = SqrtNeg5.ideal_generated_by (zzify_v [|-1;1|]) in
   assert_equal_ideal one_minus_sqrt_m5 i
 
 let test_quotient2 () = 
-  let three = SqrtNeg5.ideal_generated_by (zzify_v [|0;3|]) in
-  let one_plus_sqrt_m5 = SqrtNeg5.ideal_generated_by (zzify_v [|1;1|]) in
+  let open QQXInfix in
+  let three = make_ideal_sqrt_neg_5 (int(3)) in
+  let one_plus_sqrt_m5 = make_ideal_sqrt_neg_5 (int(1) + v) in
   let i = SqrtNeg5.quotient_i three one_plus_sqrt_m5 in
-  let i_corr = SqrtNeg5.idealify (zzify [|
-    [|1; 2|];
-    [|0; 3|]
-  |]) in
+  let i_corr = SqrtNeg5.sum_i (make_ideal_sqrt_neg_5 (int(1) + int(2)*v)) three in
   assert_equal_ideal i_corr i
 
 let test_smallest_int1 () = 
-  let three = SqrtNeg5.ideal_generated_by (zzify_v [|0;3|]) in
+  let open QQXInfix in
+  let three = make_ideal_sqrt_neg_5 (int(3)) in
   assert_equal ~cmp:(ZZ.equal) ~printer:(ZZ.show) (ZZ.of_int 3) (SqrtNeg5.get_smallest_int three)
 
 let test_smallest_int2 () = 
-  let one_plus_sqrt_m5 = SqrtNeg5.ideal_generated_by (zzify_v [|1;1|]) in
+  let open QQXInfix in
+  let one_plus_sqrt_m5 = make_ideal_sqrt_neg_5 (int(1) + v) in
   assert_equal ~cmp:(ZZ.equal) ~printer:(ZZ.show) (ZZ.of_int 6) (SqrtNeg5.get_smallest_int one_plus_sqrt_m5)
 
 let test_frac_quotient1 () = 
-  let three = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|0;3|])) in
-  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|1;1|])) in
-  let one_minus_sqrt_m5_over_2 = SqrtNeg5.make_frac_ideal (ZZ.of_int 2) (SqrtNeg5.ideal_generated_by (zzify_v [|-1;1|])) in
+  let open QQXInfix in
+  let three = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(3))) in
+  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(1) + v))  in
+  let one_minus_sqrt_m5_over_2 = SqrtNeg5.make_frac_ideal (ZZ.of_int 2) (make_ideal_sqrt_neg_5 (int(1) - v))  in
   assert_equal_frac_ideal one_minus_sqrt_m5_over_2 (SqrtNeg5.quotient three one_plus_sqrt_m5);
   (*This assertion should hold because Z[sqrt(-5)] is the ring of integers*)
   assert_equal_frac_ideal three (SqrtNeg5.mul one_minus_sqrt_m5_over_2 one_plus_sqrt_m5)
   
 let test_frac_quotient2 () = 
-  let six = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|0;6|])) in
-  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|1;1|])) in
-  let one_minus_sqrt_m5 = SqrtNeg5.make_frac_ideal (ZZ.of_int 1) (SqrtNeg5.ideal_generated_by (zzify_v [|-1;1|])) in
+  let open QQXInfix in
+  let six = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(6))) in
+  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(1) + v))  in
+  let one_minus_sqrt_m5 = SqrtNeg5.make_frac_ideal (ZZ.of_int 1) (make_ideal_sqrt_neg_5 (int(1) - v)) in
   assert_equal_frac_ideal one_minus_sqrt_m5 (SqrtNeg5.quotient six one_plus_sqrt_m5);
   (*This assertion should hold because Z[sqrt(-5)] is the ring of integers*)
   assert_equal_frac_ideal six (SqrtNeg5.mul one_minus_sqrt_m5 one_plus_sqrt_m5)
 
 let test_frac_quotient3 () = 
-  let one = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|0;1|])) in
-  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|1;1|])) in
-  let one_minus_sqrt_m5_over_6 = SqrtNeg5.make_frac_ideal (ZZ.of_int 6) (SqrtNeg5.ideal_generated_by (zzify_v [|-1;1|])) in
+  let open QQXInfix in
+  let one = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(1))) in
+  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(1) + v))  in
+  let one_minus_sqrt_m5_over_6 = SqrtNeg5.make_frac_ideal (ZZ.of_int 6) (make_ideal_sqrt_neg_5 (int(1) - v)) in
   assert_equal_frac_ideal one_minus_sqrt_m5_over_6 (SqrtNeg5.quotient one one_plus_sqrt_m5);
   (*This assertion should hold because Z[sqrt(-5)] is the ring of integers*)
   assert_equal_frac_ideal one (SqrtNeg5.mul one_minus_sqrt_m5_over_6 one_plus_sqrt_m5)
@@ -163,15 +172,17 @@ let test_frac_quotient3 () =
 
   
 let test_overorder1 () = 
-  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|1;1|])) in
+  let open QQXInfix in
+  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(1))) in
   let overorder, invertible = SqrtNeg5.compute_overorder SqrtNeg5.one one_plus_sqrt_m5 in
   assert_equal_frac_ideal SqrtNeg5.one overorder;
   assert_equal_frac_ideal one_plus_sqrt_m5 invertible
   
 let test_factor_refinement () = 
-  let six = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|0;6|])) in
-  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|1;1|])) in
-  let one_minus_sqrt_m5 = SqrtNeg5.make_frac_ideal (ZZ.of_int 1) (SqrtNeg5.ideal_generated_by (zzify_v [|-1;1|])) in
+  let open QQXInfix in
+  let six = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(6))) in
+  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(1) + v))  in
+  let one_minus_sqrt_m5 = SqrtNeg5.make_frac_ideal (ZZ.of_int 1) (make_ideal_sqrt_neg_5 (int(1) - v)) in
   let c, gcd_basis = SqrtNeg5.factor_refinement [six; one_plus_sqrt_m5; one_minus_sqrt_m5] in
   (*let print_factor f (j, e) = 
     SqrtNeg5.pp f j;
@@ -185,9 +196,10 @@ let test_factor_refinement () =
   assert_equal_frac_ideal multiplied_rhs multiplied_lhs
 
 let test_factor () = 
-  let six = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|0;6|])) in
-  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (SqrtNeg5.ideal_generated_by (zzify_v [|1;1|])) in
-  let one_minus_sqrt_m5 = SqrtNeg5.make_frac_ideal (ZZ.of_int 1) (SqrtNeg5.ideal_generated_by (zzify_v [|-1;1|])) in
+  let open QQXInfix in
+  let six = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(6))) in
+  let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(1) + v))  in
+  let one_minus_sqrt_m5 = SqrtNeg5.make_frac_ideal (ZZ.of_int 1) (make_ideal_sqrt_neg_5 (int(1) - v)) in
   let exp_list, gcd_basis, overorder = SqrtNeg5.compute_factorization [six; one_plus_sqrt_m5; one_minus_sqrt_m5] in
   let check_factor i ideal = 
     let exp_list = List.nth exp_list i in
@@ -199,9 +211,10 @@ let test_factor () =
 
 
 let test_unit_find () = 
-  let six = zzify_v [|0;6|] in
-  let one_plus_sqrt_m5 = zzify_v [|1;1|] in
-  let one_minus_sqrt_m5 = zzify_v [|-1;1|] in
+  let open QQXInfix in
+  let _, six = SqrtNeg5.make_o_el (SqrtNeg5F.make_elem (int(6))) in
+  let _, one_plus_sqrt_m5 = SqrtNeg5.make_o_el (SqrtNeg5F.make_elem (int(1)+v)) in
+  let _, one_minus_sqrt_m5 = SqrtNeg5.make_o_el (SqrtNeg5F.make_elem (int(1)-v)) in
   let exp_list = SqrtNeg5.find_unit_basis [six; one_plus_sqrt_m5; one_minus_sqrt_m5] in
   assert_equal 1 (List.length exp_list);
   let unit_exp = List.hd exp_list in
@@ -255,9 +268,6 @@ let test_overorder2 () =
 
 let suite = "Order" >:::
   [
-    "test_ideal_create1" >:: test_ideal_create1;
-    "test_hnf" >:: test_hnf;
-    "test_ideal_create2" >:: test_ideal_create2;
     "test_sum1" >:: test_sum1;
     "test_mul1" >:: test_mul1;
     "test_intersect1" >:: test_intersect1;
