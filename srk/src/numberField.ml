@@ -47,18 +47,60 @@ let primitive_elem mp0 mp1 v0 v1 =
 
 module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
-  let deg = QQX.order A.min_poly
+
+
+
 
   type elem = QQX.t
 
+  let compute_min_poly_p el p = 
+    let open Linear in
+    let p_deg = QQX.order p in
+    if p_deg = 0 then el
+    else
+      let m = Array.make_matrix p_deg (p_deg+1) QQ.zero in (*m is a matrix to hold onto the powers of el*)
+      (*m.(0).(0) <- QQ.one; (* The zero'th power of el is 1; 0; ...*)*)
+      for i = 0 to p_deg do
+        let r = snd (QQX.qr (QQX.exp el i) p) in
+        BatEnum.iter (
+          fun (c, d) -> 
+            m.(d).(i) <- c
+        ) (QQX.enum r)
+      done;
+      (*In general I don't think null is guarenteed to be reduced with respect to powers of el. However,
+         I think it is do to how nullspace is implemented.*)
+      let null = nullspace (QQMatrix.of_dense m) (List.init (p_deg + 1) (fun i -> i)) in
+      let min = snd (List.fold_left (
+        fun (min_deg, min_p) vec ->
+          let poly = QQX.of_enum (QQVector.enum vec) in
+          if QQX.order poly < min_deg then (QQX.order poly, poly)
+          else (min_deg, min_p)
+      ) (p_deg + 2, QQX.one) null) in
+      let lc = QQX.coeff (QQX.order min) min in
+      QQX.map (fun _ c -> QQ.div c lc) min
+
+
+  let min_poly_den_lcm = 
+    QQX.fold (
+      fun _ c l ->
+        ZZ.lcm (QQ.denominator c) l
+    ) A.min_poly (QQ.numerator (QQX.coeff (QQX.order A.min_poly) A.min_poly))
+
+  let int_poly = compute_min_poly_p (QQX.scalar_mul (QQ.of_zz min_poly_den_lcm) QQX.identity) A.min_poly
+
+
+  let compute_min_poly e = compute_min_poly_p e int_poly
+
+  let deg = QQX.order int_poly
+
   let reduce a = 
-    if QQX.is_zero A.min_poly then a
-    else snd (QQX.qr a A.min_poly)
+    if QQX.is_zero int_poly then a
+    else snd (QQX.qr a int_poly)
 
   (*let r = 
     Rewrite.mk_rewrite (Monomial.degrevlex) [make_multivariate 0 A.min_poly]*)
 
-  let make_elem p = reduce p
+  let make_elem p = reduce (QQX.map (fun d c -> QQ.div c (QQ.exp (QQ.of_zz min_poly_den_lcm) d)) p)
 
   let mul a b = 
     reduce (QQX.mul a b)
@@ -70,7 +112,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     QQX.sub
 
   let inverse a = 
-    let (_, u, _) = QQX.ex_euc a A.min_poly in
+    let (_, u, _) = QQX.ex_euc a int_poly in
     u
 
   let exp a i = 
@@ -92,8 +134,9 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
   let negate = QQX.negate
 
 
-  let pp = 
-    QQX.pp
+  let pp f e = 
+    QQX.pp f e;
+    Format.fprintf f "Where x is a root of @[%a@]" QQX.pp int_poly
 
   module E = struct let one = one let mul = mul let negate = negate let exp = exp end
 
@@ -138,7 +181,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       ) p QQXs.zero
 
     let factor_square_free_poly p =
-      if QQX.is_zero A.min_poly then
+      if QQX.is_zero int_poly then
         let p_uni = make_univariate (de_lift p) in
         let lc, facts = QQX.factor p_uni in
         make_elem (QQX.scalar lc), List.map (fun (f, d) -> lift f, d) facts
@@ -146,7 +189,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         let lc = coeff (order p) p in
         let pmonic = scalar_mul (inverse lc) p in
         let pmonicxs = de_lift pmonic in (* p is a multivariate polynomial in 0, the variable of the field, and 1 the variable of the polynomial.*)
-        let prim, v0_in_prim, v1_in_prim = primitive_elem (make_multivariate 0 A.min_poly) pmonicxs 0 1 in
+        let prim, v0_in_prim, v1_in_prim = primitive_elem (make_multivariate 0 int_poly) pmonicxs 0 1 in
         let primxs = make_multivariate 0 prim in
         let v1_term = QQXs.sub (make_multivariate 1 (QQX.identity)) (make_multivariate 0 v0_in_prim) in 
         let v2_term = QQXs.sub (make_multivariate 2 (QQX.identity)) (make_multivariate 0 v1_in_prim) in
@@ -204,59 +247,43 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         E.mul (inverse lc) const 
 
   end
-
-
-  let field_mult = 
-    let m = Array.make_matrix (deg * deg) deg QQ.zero in
-    for i = 0 to deg - 1 do
-      for j = 0 to deg - 1 do
-        let mult = mul (QQX.exp QQX.identity i) (QQX.exp QQX.identity j) in
-        for k = 0 to deg - 1 do
-          m.((deg-1-i)*deg + (deg-1-j)).(deg - 1 - k) <- (QQX.coeff k mult)
-        done;
-      done;
-    done;
-    m
-
-    
+   
 
   module O = struct
     module ZZV = Ring.MakeVector(ZZ)
     module ZZM = Ring.MakeMatrix(ZZ)
 
-    let gcd_field_mult = 
-      Array.fold_left (
-        fun gc row ->
-          Array.fold_left (
-            fun g coef ->
-              QQ.gcd g (QQ.of_zz (QQ.denominator coef))
-          ) gc row
-      ) QQ.zero field_mult
-    
-    
-
     let rank = deg
 
-    let mult_table = 
-      let m = Array.make_matrix (deg * deg) deg ZZ.zero in
-      for i = 0 to deg - 1 do
-        for j = 0 to deg - 1 do
-          let mult = mul (QQX.scalar_mul gcd_field_mult (QQX.exp QQX.identity i)) (QQX.scalar_mul gcd_field_mult (QQX.exp QQX.identity j)) in
-          for k = 0 to deg - 1 do
-            let e = QQX.coeff k mult in
-            if not (ZZ.equal (QQ.denominator e) ZZ.one) then failwith "Failed constructing order";
-            m.((deg-1-i)*deg + (deg-1-j)).(deg - 1 - k) <- QQ.numerator e
+    let mult_table = ref None
+
+    let get_mult_table () = 
+      match !mult_table with
+      | Some x -> x
+      | None ->
+        let m = Array.make_matrix (deg * deg) deg ZZ.zero in
+        for i = 0 to deg - 1 do
+          for j = 0 to deg - 1 do
+            let mult = mul (QQX.exp QQX.identity i) (QQX.exp QQX.identity j) in
+            for k = 0 to deg - 1 do
+              let e = QQX.coeff k mult 
+              in
+              if not (ZZ.equal (QQ.denominator e) ZZ.one) then failwith "Failed constructing order";
+              m.((deg-1-i)*deg + (deg-1-j)).(deg - 1 - k) <- QQ.numerator e
+            done;
           done;
         done;
-      done;
-      m
+        mult_table := Some (m);
+        m
 
-    let mult_table_m = ZZM.of_dense mult_table
+    let mult_table_m () = 
+      ZZM.of_dense (get_mult_table ())
 
     let mult i j = 
       if i >= rank || j >= rank then Array.make rank ZZ.zero
       else
-        mult_table.(i*rank + j)
+        let m = get_mult_table () in
+        m.(i*rank + j)
     
     let zzmify = ZZM.of_dense
 
@@ -272,34 +299,28 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     let pp_o f o = 
       let strs = Array.mapi (
         fun i coef ->
-          if i = 0 then
-            ZZ.show coef
-          else if ZZ.equal ZZ.one (QQ.numerator gcd_field_mult) then
             (ZZ.show coef)^ "x^" ^ (string_of_int (deg - 1 - i))
-          else
-            (ZZ.show coef) ^ "(" ^ (QQ.show gcd_field_mult) ^ "x^" ^ (string_of_int (deg - 1 - i)) ^ ")"
         ) o in
       let str = String.concat " + " (List.rev (Array.to_list strs)) in
-      Format.fprintf f "@[%s@]  where x is a root of @[%a@]" str QQX.pp A.min_poly
+      Format.fprintf f "@[%s@]  where x is a root of @[%a@]" str QQX.pp int_poly
       
 
     let make_o_el e = 
-      let e_in_order_basis = QQX.map (fun dim c -> if dim = 0 then c else QQ.div c gcd_field_mult) e in
-      let gcd = QQX.fold (
+      let lcm = QQX.fold (
         fun _ coe acc ->
-          ZZ.gcd acc (QQ.denominator coe)
-      ) e_in_order_basis ZZ.one in
+          ZZ.lcm acc (QQ.denominator coe)
+      ) e ZZ.one in
       let order_e = Array.make rank ZZ.zero in
       BatEnum.iter (
         fun (coef, d) ->
-          order_e.(deg - 1 - d) <- QQ.numerator (QQ.mul coef (QQ.of_zz gcd))
-      ) (QQX.enum e_in_order_basis);
-      gcd, order_e
+          order_e.(deg - 1 - d) <- QQ.numerator (QQ.mul coef (QQ.of_zz lcm))
+      ) (QQX.enum e);
+      lcm, order_e
 
     let order_el_to_f_elem (den, o_el) = 
       QQX.of_enum (BatArray.enum (Array.mapi (
         fun i coef ->
-          QQ.mul (QQ.of_zz coef) (QQ.div gcd_field_mult (QQ.of_zz den)), (deg - 1 - i)
+          (QQ.div (QQ.of_zz coef) (QQ.of_zz den)), (deg - 1 - i)
       ) o_el))
 
     let get_mat i = match !i with Red m | UnRed m -> m
@@ -383,7 +404,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       ref (UnRed (stack (get_mat a) (get_mat b)))
 
     let mul_i a b = 
-      ref (UnRed (ZZM.mul (kronecker (get_reduced a) (get_reduced b)) mult_table_m))
+      ref (UnRed (ZZM.mul (kronecker (get_reduced a) (get_reduced b)) (mult_table_m ())))
 
     let mul_v_by_basis_v v basis_i = 
       fst (Array.fold_left (

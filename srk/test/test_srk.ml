@@ -27,8 +27,8 @@ let suite = "Main" >::: [
     Test_transition.suite;
     Test_WeightedGraph.suite;
     Test_chc.suite;*)
-    (*Test_numberField.suite;*)
-    Test_order.suite;
+    Test_numberField.suite;
+    (*Test_order.suite;*)
     (*Test_fgb.suite*)
 ]
 

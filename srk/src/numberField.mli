@@ -20,14 +20,21 @@ val primitive_elem : QQXs.t -> QQXs.t -> Monomial.dim -> Monomial.dim -> QQX.t *
     polynomial that is not irreducible in Q[x] gives undefined behavior.*)
 module MakeNF (A : sig val min_poly : QQX.t end) : sig
   
-  (** The type of elements of the number field. *)
-  type elem
 
   (** The degree of the extension.*)
   val deg : int
 
+  (** int_poly is a monic integer polynomial that defines the same field as A.min_poly. *)
+  val int_poly : QQX.t
+
+  (** The type of elements of the number field. *)
+  type elem
+
   (** Converts a univariate polynomial to an element of the number field.*)
   val make_elem : QQX.t -> elem
+
+  (** Computes the monic minimal polynomial of a given element. *)
+  val compute_min_poly : elem -> QQX.t
 
   val mul : elem -> elem -> elem
 
