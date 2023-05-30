@@ -284,7 +284,7 @@ let test_overorder1 () =
   assert_equal_frac_ideal SqrtNeg5.one overorder;
   assert_equal_frac_ideal one_plus_sqrt_m5 invertible
   
-let test_factor_refinement () = 
+let test_factor_refinement1 () = 
   let open QQXInfix in
   let six = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(6))) in
   let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(1) + v))  in
@@ -301,7 +301,7 @@ let test_factor_refinement () =
   let multiplied_lhs = List.fold_left SqrtNeg5.mul c [six; one_plus_sqrt_m5; one_minus_sqrt_m5] in
   assert_equal_frac_ideal multiplied_rhs multiplied_lhs
 
-let test_factor () = 
+let test_factor1 () = 
   let open QQXInfix in
   let six = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(6))) in
   let one_plus_sqrt_m5 = SqrtNeg5.make_frac_ideal ZZ.one (make_ideal_sqrt_neg_5 (int(1) + v))  in
@@ -309,28 +309,41 @@ let test_factor () =
   let exp_list, gcd_basis, overorder = SqrtNeg5.compute_factorization [six; one_plus_sqrt_m5; one_minus_sqrt_m5] in
   let check_factor i ideal = 
     let exp_list = List.nth exp_list i in
-    let rhs = List.fold_left SqrtNeg5.mul SqrtNeg5.one (List.map2 SqrtNeg5.exp gcd_basis exp_list) in
-    let lhs = SqrtNeg5.mul ideal overorder in
+    if SqrtNeg5.equal ideal SqrtNeg5.one then
+      assert_bool "Non-proper ideal is basis to zero'th power" (List.for_all ((=) 0) exp_list)
+    else
+      let rhs = List.fold_left SqrtNeg5.mul SqrtNeg5.one (List.map2 SqrtNeg5.exp gcd_basis exp_list) in
+      let lhs = SqrtNeg5.mul ideal overorder in
     assert_equal_frac_ideal lhs rhs
   in
   List.iteri check_factor [six; one_plus_sqrt_m5; one_minus_sqrt_m5]
 
 
-let test_unit_find () = 
+let test_unit_find1 () = 
   let open QQXInfix in
-  let _, six = SqrtNeg5.make_o_el (SqrtNeg5F.make_elem (int(6))) in
-  let _, one_plus_sqrt_m5 = SqrtNeg5.make_o_el (SqrtNeg5F.make_elem (int(1)+v)) in
-  let _, one_minus_sqrt_m5 = SqrtNeg5.make_o_el (SqrtNeg5F.make_elem (int(1)-v)) in
-  let exp_list = SqrtNeg5.find_unit_basis [six; one_plus_sqrt_m5; one_minus_sqrt_m5] in
+  let six = SqrtNeg5F.make_elem (int(6)) in
+  let one_plus_sqrt_m5 = SqrtNeg5F.make_elem (int(1)+v) in
+  let one_minus_sqrt_m5 = SqrtNeg5F.make_elem (int(1)-v) in
+  let exp_list = SqrtNeg5F.find_unit_basis [six; one_plus_sqrt_m5; one_minus_sqrt_m5] in
   assert_equal 1 (List.length exp_list);
   let unit_exp = List.hd exp_list in
-  let open QQXInfix in
-  let six_e = SqrtNeg5F.make_elem (int(6)) in
-  let one_plus_sqrt_m5_e = SqrtNeg5F.make_elem (int(1) + v) in
-  let one_minus_sqrt_m5_e = SqrtNeg5F.make_elem (int(1) - v) in
-  let exp = List.map2 SqrtNeg5F.exp [six_e; one_plus_sqrt_m5_e; one_minus_sqrt_m5_e] unit_exp in
+  let exp = List.map2 SqrtNeg5F.exp [six; one_plus_sqrt_m5; one_minus_sqrt_m5] unit_exp in
   let prod = List.fold_left SqrtNeg5F.mul SqrtNeg5F.one exp in
-  assert_bool "Looking for unit" (SqrtNeg5F.equal prod SqrtNeg5F.one)
+  assert_equal ~cmp:SqrtNeg5F.equal ~printer:(SrkUtil.mk_show SqrtNeg5F.pp) SqrtNeg5F.one prod
+
+
+let test_unit_find2 () = 
+  let open QQXInfix in
+  let module NF = NumberField.MakeNF(struct let min_poly = QQX.zero end) in
+  let two = NF.make_elem (int(2)) in
+  let three_fourths = NF.make_elem (rat 3 4) in
+  let nine_eighths = NF.make_elem (rat 9 8) in
+  let exp_list = NF.find_unit_basis [two; three_fourths; nine_eighths] in
+  assert_equal 1 (List.length exp_list);
+  let unit_exp = List.hd exp_list in
+  let exp = List.map2 NF.exp [two; three_fourths; nine_eighths] unit_exp in
+  let prod = List.fold_left NF.mul NF.one exp in
+  assert_equal ~cmp:NF.equal ~printer:(SrkUtil.mk_show NF.pp) NF.one prod
 
 module Sqrt5F = NumberField.MakeNF(struct
   let min_poly = 
@@ -370,8 +383,62 @@ let test_make_order () =
   let back_as_el = N.O.order_el_to_f_elem (d, o) in
   assert_equal ~cmp:(ZZ.equal) ~printer:(ZZ.show) (ZZ.of_int 4) d;
   assert_equal ~cmp:(N.equal) ~printer:(SrkUtil.mk_show N.pp) sqrt5_over_2 back_as_el
+ 
+let test_factor_refinement2 () = 
+  let open QQXInfix in
+  let two_o = (snd (Sqrt5.make_o_el (Sqrt5F.make_elem (int(2))))) in
+  let minus_one_o = (snd (Sqrt5.make_o_el (Sqrt5F.make_elem (int(-1))))) in
+  let one_plus_sqrt_5_o = (snd (Sqrt5.make_o_el (Sqrt5F.make_elem (int(1) + v)))) in
+  let one_minus_sqrt_5_o = (snd (Sqrt5.make_o_el (Sqrt5F.make_elem (int(1) - v)))) in
+  let two_i = Sqrt5.make_frac_ideal ZZ.one (Sqrt5.ideal_generated_by two_o) in
+  let minus_one_i = Sqrt5.make_frac_ideal ZZ.one (Sqrt5.ideal_generated_by minus_one_o) in
+  let one_plus_sqrt_5_i = Sqrt5.make_frac_ideal ZZ.one (Sqrt5.ideal_generated_by one_plus_sqrt_5_o) in
+  let one_minus_sqrt_5_i = Sqrt5.make_frac_ideal ZZ.one (Sqrt5.ideal_generated_by one_minus_sqrt_5_o) in
+  let c, gcd_basis = Sqrt5.factor_refinement [minus_one_i; one_plus_sqrt_5_i; one_minus_sqrt_5_i; two_i] in
+  (*let print_factor f (j, e) = 
+    Sqrt5.pp f j;
+    Format.fprintf f "@[^%d@]" e
+  in
+  let print_list = Format.pp_print_list ~pp_sep:(Format.pp_print_newline) print_factor in
+  Log.log ~level:`always "Overorder";
+  Log.log_pp ~level:`always Sqrt5.pp c;
+  Log.log ~level:`always "Factors";
+  Log.log_pp ~level:`always print_list gcd_basis;*)
+  let multiplied_rhs = List.fold_left (fun acc (factor, deg) -> Sqrt5.mul acc (Sqrt5.exp factor deg)) (Sqrt5.one) gcd_basis in
+  let multiplied_lhs = List.fold_left Sqrt5.mul c [minus_one_i; one_plus_sqrt_5_i; one_minus_sqrt_5_i; two_i] in
+  assert_equal_frac_ideal multiplied_rhs multiplied_lhs
 
 
+let test_factor2 () = 
+  let open QQXInfix in
+  let two_o = (snd (Sqrt5.make_o_el (Sqrt5F.make_elem (int(2))))) in
+  let minus_one_o = (snd (Sqrt5.make_o_el (Sqrt5F.make_elem (int(-1))))) in
+  let one_plus_sqrt_5_o = (snd (Sqrt5.make_o_el (Sqrt5F.make_elem (int(1) + v)))) in
+  let one_minus_sqrt_5_o = (snd (Sqrt5.make_o_el (Sqrt5F.make_elem (int(1) - v)))) in
+  let two_i = Sqrt5.make_frac_ideal ZZ.one (Sqrt5.ideal_generated_by two_o) in
+  let minus_one_i = Sqrt5.make_frac_ideal ZZ.one (Sqrt5.ideal_generated_by minus_one_o) in
+  let one_plus_sqrt_5_i = Sqrt5.make_frac_ideal ZZ.one (Sqrt5.ideal_generated_by one_plus_sqrt_5_o) in
+  let one_minus_sqrt_5_i = Sqrt5.make_frac_ideal ZZ.one (Sqrt5.ideal_generated_by one_minus_sqrt_5_o) in
+  let exp_list, gcd_basis, overorder = Sqrt5.compute_factorization [two_i; minus_one_i; one_plus_sqrt_5_i; one_minus_sqrt_5_i] in
+  let check_factor i ideal = 
+    let exp_list = List.nth exp_list i in
+    if Sqrt5.equal ideal Sqrt5.one then
+      assert_bool "Non-proper ideal is basis to zero'th power" (List.for_all ((=) 0) exp_list)
+    else
+      let rhs = List.fold_left Sqrt5.mul Sqrt5.one (List.map2 Sqrt5.exp gcd_basis exp_list) in
+      let lhs = Sqrt5.mul ideal overorder in
+    assert_equal_frac_ideal lhs rhs
+  in
+  List.iteri check_factor [two_i; minus_one_i; one_plus_sqrt_5_i; one_minus_sqrt_5_i] 
+
+let test_unit_find3 () = 
+  let open QQXInfix in
+  let minus_one = Sqrt5F.make_elem (int(-1)) in
+  let one_plus_sqrt_5_over_2 = Sqrt5F.make_elem ((rat 1 2) + (rat 1 2) * v) in
+  let one_minus_sqrt_5_over_2 = Sqrt5F.make_elem ((rat 1 2) - (rat 1 2) * v) in
+  let exp_list = Sqrt5F.find_unit_basis [minus_one; one_plus_sqrt_5_over_2; one_minus_sqrt_5_over_2] in
+  assert_equal 3 (List.length exp_list);
+  assert_equal ~cmp:(List.equal (List.equal (=))) [[1; 0; 0]; [0; 1; 0]; [0; 0; 1]] exp_list
 
 
 let suite = "NumberField" >:::
@@ -398,8 +465,12 @@ let suite = "NumberField" >:::
     "test_frac_quotient3" >:: test_frac_quotient3;
     "test_overorder1" >:: test_overorder1;
     "test_overorder2" >:: test_overorder2;
-    "test_factor_refinement" >:: test_factor_refinement;
-    "test_factor" >:: test_factor;
-    "test_unit_find" >:: test_unit_find;
+    "test_factor_refinement1" >:: test_factor_refinement1;
+    "test_factor1" >:: test_factor1;
+    "test_unit_find1" >:: test_unit_find1;
+    "test_unit_find2" >:: test_unit_find2;
+    "test_factor_refinement2" >:: test_factor_refinement2;
+    "test_factor2" >:: test_factor2;
+    "test_unit_find3" >:: test_unit_find3;
     "test_make_order" >:: test_make_order;
   ]

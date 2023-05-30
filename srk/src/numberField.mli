@@ -184,6 +184,8 @@ module MakeNF (A : sig val min_poly : QQX.t end) : sig
     val find_unit_basis : o list -> int list list
   end
 
+  val find_unit_basis : elem list -> int list list
+
 end
 
 (** [min_poly, roots] = [splitting_field p] is such that Q[x]/min_poly is the

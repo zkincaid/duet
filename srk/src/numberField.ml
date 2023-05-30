@@ -86,7 +86,9 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         ZZ.lcm (QQ.denominator c) l
     ) A.min_poly (QQ.numerator (QQX.coeff (QQX.order A.min_poly) A.min_poly))
 
-  let int_poly = compute_min_poly_p (QQX.scalar_mul (QQ.of_zz min_poly_den_lcm) QQX.identity) A.min_poly
+  let int_poly = 
+    if QQX.is_zero A.min_poly then QQX.identity
+    else compute_min_poly_p (QQX.scalar_mul (QQ.of_zz min_poly_den_lcm) QQX.identity) A.min_poly
 
 
   let compute_min_poly e = compute_min_poly_p e int_poly
@@ -135,8 +137,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
 
   let pp f e = 
-    QQX.pp f e;
-    Format.fprintf f "Where x is a root of @[%a@]" QQX.pp int_poly
+    QQX.pp f e
 
   module E = struct let one = one let mul = mul let negate = negate let exp = exp end
 
@@ -525,9 +526,9 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       ref (UnNorm (new_d, intersect_i (scalar_mul_i (ZZ.div new_d d1) a) (scalar_mul_i (ZZ.div new_d d2) b)))
 
     let mul ai bi = 
-      match !ai, !bi with
-      | Norm (d1, a), Norm (d2, b) -> ref (Norm ((ZZ.mul d1 d2), mul_i a b))
-      | Norm(d1, a), UnNorm(d2, b) | UnNorm(d1, a), Norm(d2, b) | UnNorm(d1, a), UnNorm(d2, b) -> ref (UnNorm (ZZ.mul d1 d2, mul_i a b))
+      let (d1, a) = get_den_and_ideal ai in
+      let (d2, b) = get_den_and_ideal bi in
+      ref (UnNorm (ZZ.mul d1 d2, mul_i a b))
 
     let exp ai i = 
       let rec aux acc j = 
@@ -568,13 +569,14 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         let c_div_j = quotient c j in
         let x = quotient c_div_j c_div_j in
         if equal x c then (c, j)
-        else aux x (mul c j)
+        else aux x (mul x j)
       in
       aux o i
 
     module IM = SrkUtil.Int.Map
 
     let factor_refinement is = 
+      let is = List.filter (fun i -> not (equal i one)) is in
       let init_c = List.fold_left (fun acc i -> fst (compute_overorder acc i)) one is in
       let js = List.map (fun i -> mul i init_c, 1) is in
       let rec aux next_index worklist c l = 
@@ -589,6 +591,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
             let new_worklist = List.filter (fun (a, b) -> a <> m && a <> n && b <> m && b <> n) worklist in
             let new_l = IM.remove m (IM.remove n l) in
             let new_l = IM.map (fun (j, e) -> mul j new_c, e) new_l in
+            let jm, jn = (mul new_c jm, mul new_c jn) in
             let jmp = quotient jm h in
             let jnp = quotient jn h in
             let active_indices = IM.keys new_l in
@@ -639,32 +642,62 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
           List.rev fact_list
       ) is, fst (List.split gcd_basis), over
 
-    let find_unit_basis l = 
-      let is = List.map (fun a -> make_frac_ideal ZZ.one (ideal_generated_by a)) l in
-      let exps, _, _ = compute_factorization is in
+    let find_unit_basis_f l = 
+      (*Log.log ~level:`always "Making ideals";*)
+      let dens, nums = List.split l in 
+      let is = List.map (fun a -> make_frac_ideal ZZ.one (ideal_generated_by a)) nums in
+      let dens_i = List.map (
+        fun a -> 
+          let a_el = Array.make rank ZZ.zero in
+          a_el.(rank-1) <- a;
+          make_frac_ideal ZZ.one (ideal_generated_by a_el)
+        ) dens in
+  
+      let exps, _, _ = compute_factorization (is @ dens_i) in
+      let num_is = List.length l in
+      let num_den_equal_constr = List.init (2* num_is) (
+        fun index ->
+          List.init num_is (
+            fun j -> 
+              if index mod num_is = j then 1
+              else 0
+          )
+      ) in
       let exps_m = zzmify (
         Array.of_list (
           List.map (
             fun r ->
               Array.of_list (List.map ZZ.of_int r)
-          ) exps        
+          ) (List.map2 (@) exps num_den_equal_constr)       
         )) in
       let (h, u) = hermite_normal_form exps_m in
       let h_size = ZZM.nb_rows h in
       let basis_size = (ZZM.nb_rows exps_m) - h_size in
       let indices_to_grab = List.init basis_size (fun i -> h_size + i) in
-      List.map (
+      let js = List.init num_is (fun i -> i) in
+      let basis = List.map (
         fun i ->
-          let r = ZZM.row i u in
-          let int_rows = BatEnum.map (
-            fun (c, _) ->
-              match ZZ.to_int c with
+          List.map (
+            fun j ->
+              match ZZ.to_int ((ZZM.entry i j) u) with
               | None -> failwith "Exponent overflow"
-              | Some i -> i
-          ) (ZZV.enum r) in
-          BatList.of_enum int_rows
-      ) indices_to_grab
+              | Some x -> x
+          ) js
+      ) indices_to_grab in
+      List.map (
+        fun r ->
+          match List.find_opt (fun e -> e <> 0) r with
+          | None -> failwith "Basis with zero vector"
+          | Some lc -> if lc < 0 then List.map ( ( * ) (-1)) r else r
+      ) basis
+
+    let find_unit_basis l = 
+      find_unit_basis_f (List.map (fun i -> ZZ.one, i) l)
+      
   end
+
+  let find_unit_basis l = 
+    O.find_unit_basis_f (List.map O.make_o_el l)
 
 end
 
