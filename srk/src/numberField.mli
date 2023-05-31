@@ -184,7 +184,11 @@ module MakeNF (A : sig val min_poly : QQX.t end) : sig
     val find_unit_basis : o list -> int list list
   end
 
-  val find_unit_basis : elem list -> int list list
+  (*val find_unit_basis : elem list -> int list list
+
+  val find_relations_of_units : elem list -> int list list *)
+
+  val find_relations : elem list -> int list list
 
 end
 

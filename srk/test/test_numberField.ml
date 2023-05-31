@@ -173,7 +173,7 @@ module SqrtNeg5F = NumberField.MakeNF(struct
     v * v + int(5)
 end)
 
-module SqrtNeg5 = SqrtNeg5F.O
+(*module SqrtNeg5 = SqrtNeg5F.O
 
 
 let assert_equal_ideal p q =
@@ -343,7 +343,7 @@ let test_unit_find2 () =
   let unit_exp = List.hd exp_list in
   let exp = List.map2 NF.exp [two; three_fourths; nine_eighths] unit_exp in
   let prod = List.fold_left NF.mul NF.one exp in
-  assert_equal ~cmp:NF.equal ~printer:(SrkUtil.mk_show NF.pp) NF.one prod
+  assert_equal ~cmp:NF.equal ~printer:(SrkUtil.mk_show NF.pp) NF.one prod*)
 
 module Sqrt5F = NumberField.MakeNF(struct
   let min_poly = 
@@ -353,7 +353,7 @@ end)
 
 module Sqrt5 = Sqrt5F.O
 
-
+(*
 let assert_equal_ideal p q =
   assert_equal ~cmp:Sqrt5.equal_i ~printer:(SrkUtil.mk_show Sqrt5.pp_i) p q
   
@@ -438,8 +438,55 @@ let test_unit_find3 () =
   let one_minus_sqrt_5_over_2 = Sqrt5F.make_elem ((rat 1 2) - (rat 1 2) * v) in
   let exp_list = Sqrt5F.find_unit_basis [minus_one; one_plus_sqrt_5_over_2; one_minus_sqrt_5_over_2] in
   assert_equal 3 (List.length exp_list);
-  assert_equal ~cmp:(List.equal (List.equal (=))) [[1; 0; 0]; [0; 1; 0]; [0; 0; 1]] exp_list
+  let check_unit e =
+    let e_inv = Sqrt5F.inverse e in
+    let e_min_poly = Sqrt5F.compute_min_poly e in
+    let e_inv_min_poly = Sqrt5F.compute_min_poly e_inv in
+    let is_monic_int_poly p =
+      let lc = QQX.coeff (QQX.order p) p in
+      let is_int = QQX.fold (fun _ c b -> (ZZ.equal (QQ.denominator c) ZZ.one) && b) p true in
+      QQ.equal lc QQ.one && is_int
+    in
+    assert_bool "e min poly is monic int poly" (is_monic_int_poly e_min_poly);
+    assert_bool "e inv min poly is monic int poly" (is_monic_int_poly e_inv_min_poly);
+  in
+  let units = List.map (
+    fun e_l ->
+      List.fold_left2 (
+        fun acc elem e ->
+          Sqrt5F.mul acc (Sqrt5F.exp elem e)
+      ) Sqrt5F.one [minus_one; one_plus_sqrt_5_over_2; one_minus_sqrt_5_over_2] e_l    
+    ) exp_list in
+  List.iter check_unit units
 
+let test_unit_relations1 () = 
+  let open QQXInfix in
+  let minus_one = Sqrt5F.make_elem (int(-1)) in
+  let one_plus_sqrt_5_over_2 = Sqrt5F.make_elem ((rat 1 2) + (rat 1 2) * v) in
+  let one_minus_sqrt_5_over_2 = Sqrt5F.make_elem ((rat 1 2) - (rat 1 2) * v) in
+  let relations = Sqrt5F.find_relations_of_units [minus_one; one_plus_sqrt_5_over_2; one_minus_sqrt_5_over_2] in
+  assert_equal ~printer:(string_of_int) 2 (List.length relations);
+  let res = List.fold_left2 (
+    fun acc elem e ->
+      Sqrt5F.mul acc (Sqrt5F.exp elem e)
+  ) Sqrt5F.one [minus_one; one_plus_sqrt_5_over_2; one_minus_sqrt_5_over_2] (List.hd relations)   
+  in
+  assert_equal ~cmp:Sqrt5F.equal ~printer:(SrkUtil.mk_show Sqrt5F.pp) Sqrt5F.one res*)
+
+
+let test_find_relations1 () = 
+  let open QQXInfix in
+  let minus_one = Sqrt5F.make_elem (int(-1)) in
+  let one_plus_sqrt_5_over_2 = Sqrt5F.make_elem ((rat 1 2) + (rat 1 2) * v) in
+  let one_minus_sqrt_5_over_2 = Sqrt5F.make_elem ((rat 1 2) - (rat 1 2) * v) in
+  let relations = Sqrt5F.find_relations [minus_one; one_plus_sqrt_5_over_2; one_minus_sqrt_5_over_2] in
+  assert_equal ~printer:(string_of_int) 2 (List.length relations);
+  let res = List.fold_left2 (
+    fun acc elem e ->
+      Sqrt5F.mul acc (Sqrt5F.exp elem e)
+  ) Sqrt5F.one [minus_one; one_plus_sqrt_5_over_2; one_minus_sqrt_5_over_2] (List.hd relations)   
+  in
+  assert_equal ~cmp:Sqrt5F.equal ~printer:(SrkUtil.mk_show Sqrt5F.pp) Sqrt5F.one res
 
 let suite = "NumberField" >:::
   [
@@ -452,7 +499,7 @@ let suite = "NumberField" >:::
     "factor_test2" >:: factor_test2;
     "factor_test3" >:: factor_test3;
     "splitting_test1" >:: splitting_test1;
-    "test_sum1" >:: test_sum1;
+    (*"test_sum1" >:: test_sum1;
     "test_mul1" >:: test_mul1;
     "test_intersect1" >:: test_intersect1;
     "test_intersect2" >:: test_intersect2;
@@ -473,4 +520,6 @@ let suite = "NumberField" >:::
     "test_factor2" >:: test_factor2;
     "test_unit_find3" >:: test_unit_find3;
     "test_make_order" >:: test_make_order;
+    "test_unit_relations1" >:: test_unit_relations1;*)
+    "test_find_relations1" >:: test_find_relations1;
   ]

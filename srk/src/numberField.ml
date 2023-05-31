@@ -250,9 +250,49 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
   end
    
 
+  module ZZV = Ring.MakeVector(ZZ)
+  module ZZM = Ring.MakeMatrix(ZZ)
+
+  let zzmify = ZZM.of_dense
+
+  let unzzmify matrix = 
+    ZZM.dense_of matrix (ZZM.nb_rows matrix) (ZZM.nb_columns matrix)
+
+  let dense_hermite_normal_form matrix =
+    let mat = Normalizffi.Flint.new_matrix matrix in
+    Normalizffi.Flint.hermitize mat;
+    let rank = Normalizffi.Flint.rank mat in
+    let basis =
+      Normalizffi.Flint.denom_matrix_of_rational_matrix mat
+      |> snd
+      |> BatList.take rank (* The rows after rank should be all zeros *)
+    in
+    basis
+
+  let hermite_normal_form mat = 
+    let matrix = Array.to_list (Array.map (fun r -> Array.to_list (Array.map ZZ.mpz_of r)) (unzzmify mat)) in
+    let m = ZZM.nb_rows mat in
+    let n = ZZM.nb_columns mat in
+    let mapper i row = 
+      let pad = List.init m (fun j -> if i = j then Mpzf.of_int 1 else Mpzf.of_int 0) in
+      row @ pad
+    in
+    let hu = dense_hermite_normal_form (List.mapi mapper matrix) in
+    let splitter hurow = 
+      let rec aux i prev rest = 
+        if i >= n then
+          Array.of_list (List.rev prev), Array.of_list (List.map ZZ.of_mpz rest)
+        else
+          match rest with
+          | [] -> failwith "Didn't find u matrix?"
+          | x :: xs -> aux (i+1) (ZZ.of_mpz x :: prev) xs
+      in
+      aux 0 [] hurow
+    in
+    let h, u = Array.split (Array.of_list (List.map splitter hu)) in
+    zzmify h, zzmify u
+
   module O = struct
-    module ZZV = Ring.MakeVector(ZZ)
-    module ZZM = Ring.MakeMatrix(ZZ)
 
     let rank = deg
 
@@ -285,11 +325,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       else
         let m = get_mult_table () in
         m.(i*rank + j)
-    
-    let zzmify = ZZM.of_dense
-
-    let unzzmify matrix = 
-      ZZM.dense_of matrix (ZZM.nb_rows matrix) (ZZM.nb_columns matrix)
+  
 
     type pre_ideal = Red of ZZM.t | UnRed of ZZM.t
 
@@ -329,40 +365,6 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     let idealify aa = 
       ref (UnRed (zzmify aa))
 
-
-    let dense_hermite_normal_form matrix =
-      let mat = Normalizffi.Flint.new_matrix matrix in
-      Normalizffi.Flint.hermitize mat;
-      let rank = Normalizffi.Flint.rank mat in
-      let basis =
-        Normalizffi.Flint.denom_matrix_of_rational_matrix mat
-        |> snd
-        |> BatList.take rank (* The rows after rank should be all zeros *)
-      in
-      basis
-
-    let hermite_normal_form mat = 
-      let matrix = Array.to_list (Array.map (fun r -> Array.to_list (Array.map ZZ.mpz_of r)) (unzzmify mat)) in
-      let m = ZZM.nb_rows mat in
-      let n = ZZM.nb_columns mat in
-      let mapper i row = 
-        let pad = List.init m (fun j -> if i = j then Mpzf.of_int 1 else Mpzf.of_int 0) in
-        row @ pad
-      in
-      let hu = dense_hermite_normal_form (List.mapi mapper matrix) in
-      let splitter hurow = 
-        let rec aux i prev rest = 
-          if i >= n then
-            Array.of_list (List.rev prev), Array.of_list (List.map ZZ.of_mpz rest)
-          else
-            match rest with
-            | [] -> failwith "Didn't find u matrix?"
-            | x :: xs -> aux (i+1) (ZZ.of_mpz x :: prev) xs
-        in
-        aux 0 [] hurow
-      in
-      let h, u = Array.split (Array.of_list (List.map splitter hu)) in
-      zzmify h, zzmify u
 
     let get_reduced i = 
       match !i with 
@@ -693,11 +695,218 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
     let find_unit_basis l = 
       find_unit_basis_f (List.map (fun i -> ZZ.one, i) l)
-      
+
+
   end
 
   let find_unit_basis l = 
     O.find_unit_basis_f (List.map O.make_o_el l)
+
+  let calc_needed_prec n s b c lambda = 
+    let nq, sq, bq, cq = QQ.of_int n, QQ.of_int s, QQ.of_zz b, QQ.of_int c in
+    let operand2 = QQ.exp (QQ.div (QQ.mul (QQ.add nq QQ.one) bq) lambda) (2 * n) in (* ((n+1)B/lambda)^{2n}*)
+    let operand1 = QQ.add QQ.one (QQ.mul nq (QQ.mul sq (QQ.exp cq 2))) in (* 1 + nsc^2 *)
+    let m = QQ.ceiling (QQ.mul sq (QQ.mul operand1 operand2)) in
+    let two_to_s_minus_1_sqrt = Mpfr.of_int 2 Mpfr.Up in
+    let _ = Mpfr.pow_si two_to_s_minus_1_sqrt two_to_s_minus_1_sqrt (s-1) Mpfr.Up in
+    let _ = Mpfr.sqrt two_to_s_minus_1_sqrt two_to_s_minus_1_sqrt Mpfr.Up in (* 2^((s-1)/2)*)
+    let msn_sqrt = Mpfr.of_mpz (ZZ.mpz_of (ZZ.mul m (ZZ.mul (ZZ.of_int s) (ZZ.of_int n)))) Mpfr.Up in 
+    let _ = Mpfr.sqrt msn_sqrt msn_sqrt Mpfr.Up in (* sqrt(Msn) *)
+    let m_sqrt = Mpfr.of_mpz (ZZ.mpz_of m) Mpfr.Up in 
+    let _ = Mpfr.sqrt m_sqrt m_sqrt Mpfr.Up in (* sqrt(M) *)
+    let summand1, (_, summand2), res = Mpfr.init (), Mpfr.init_set_si c Mpfr.Up, Mpfr.init () in
+    let _ = Mpfr.mul summand1 two_to_s_minus_1_sqrt m_sqrt Mpfr.Up in (* 2^((s-1)/2) sqrt(M)*)
+    let _ = Mpfr.mul summand2 summand2 two_to_s_minus_1_sqrt Mpfr.Up in
+    let _ = Mpfr.mul summand2 summand2 msn_sqrt Mpfr.Up in (* 2^((s-1)/2)c sqrt(Msn)*)
+    let _ = Mpfr.add res summand1 summand2 Mpfr.Up in
+    let lambda_mpq = Mpq.init_set_z (ZZ.mpz_of (QQ.numerator lambda)) in
+    let _ = Mpq.div lambda_mpq lambda_mpq (Mpq.init_set_z (ZZ.mpz_of (QQ.denominator lambda))) in
+    let _ = Mpfr.div res res (Mpfr.of_mpq lambda_mpq Mpfr.Up) Mpfr.Up in
+    let _ = Mpfr.log2 res res Mpfr.Up in
+    let _ = Mpfr.ceil res res in 
+    let t_mpq = Mpfr.to_mpq res in
+    let t_mpz = Mpz.init () in
+    let _ = Mpq.get_num t_mpz t_mpq in
+    match ZZ.to_int (ZZ.of_mpz (Mpzf.of_mpz t_mpz)) with
+    | None -> failwith "Requiring more than max int bits of precision"
+    | Some x -> x, m
+
+  let get_conj_div_2pi e r prec = 
+    let conj = QQX.fold (
+      fun d coef acc ->
+        let coef_num = Arb.Acb.init_set_fmpz (Arb_zarith.Fmpzz.zarith_to_fmpz (QQ.numerator coef)) in
+        let coef_den = Arb.Acb.init_set_fmpz (Arb_zarith.Fmpzz.zarith_to_fmpz (QQ.denominator coef)) in
+        let coef_acb = Arb.Acb.div coef_num coef_den prec in (* should be exact. *)
+        let t = Arb.Acb.mul coef_acb (Arb.Acb.pow_si r d prec) prec in (* could increase prec? *)
+        Arb.Acb.add t acc prec
+    ) e (Arb.Acb.init_set_fmpz (Arb.Fmpz.init_set_str "0" 10)) in
+    let log_conj = Arb.Acb.log conj prec in
+    Arb.Acb.trim (Arb.Acb.div_si (Arb.Acb.div log_conj (Arb.Acb.pi prec) prec) 2 prec)
+
+  let pp_fmpz_mat m n f mat = 
+    let zz_mat = Array.map (
+      fun i ->
+        Array.map (
+          fun j ->
+            Arb_zarith.Fmpzz.fmpz_to_zarith (Arb.Fmpz_mat.get_entry mat i j)
+        ) (Array.init n (fun x -> x))
+    ) (Array.init m (fun x -> x )) in
+    ZZM.pp (ZZ.pp) f (ZZM.of_dense zz_mat)
+
+
+  let find_relations_of_units (units : elem list) = 
+    let arb_poly = Arb.Fmpz_poly.init () in
+    for i = 0 to deg do
+      Arb.Fmpz_poly.set_coef arb_poly i (Arb_zarith.Fmpzz.zarith_to_fmpz (QQ.numerator (QQX.coeff i int_poly)));
+    done;
+    let n = 2 * deg in
+    let s = (List.length units) + deg in
+    let b_guess = ZZ.of_int 1 in
+    let t_guess, _ = calc_needed_prec n s b_guess 1 (QQ.of_frac 1 16) in
+    Log.logf ~level:`info "Initial guess for required bits of precision: %d" t_guess;
+    let build_cross_matrix prec = 
+      let prec = prec + 5 in (* Guess plus a few extra bits. *)
+      let roots = Arb.Fmpz_poly.get_complex_roots arb_poly prec in 
+      List.map (
+        fun u ->
+          List.map (
+            fun r ->
+              get_conj_div_2pi u r prec
+          ) roots
+      ) units 
+    in
+    let u_r_cross_matrix = build_cross_matrix t_guess in
+    let real_b = List.fold_left (
+      fun maximum row -> 
+        let b_row = List.fold_left (
+          fun sum conj ->
+            let (c, d) = Arb.Acb.get_real_imag_mag_upper conj in
+            ZZ.add (ZZ.add (Arb_zarith.Fmpzz.fmpz_to_zarith c) (Arb_zarith.Fmpzz.fmpz_to_zarith d)) sum
+        ) ZZ.zero row in
+        ZZ.max maximum b_row
+    ) (ZZ.of_int (-1)) u_r_cross_matrix in
+    let t_req, m = calc_needed_prec n s real_b 1 (QQ.of_frac 1 16) in
+    let fmpz_mat = Arb.Fmpz_mat.init s (n+s) in
+    let t = 
+      let rec aux mat prec = 
+        let is_precise_enough = List.for_all (
+          fun row -> 
+            List.for_all (fun conj -> Arb.Acb.rel_accuracy_bits conj > t_req) row
+        ) mat in
+        if is_precise_enough then
+          let used_t, rev_mat = List.fold_left (
+            fun (max_t, ac) row ->
+              let t_row, r = List.fold_left (
+                fun (mx_t, acc) c ->
+                  let (ureal, ereal) = Arb.Acb.get_real_mid_fmpz c in
+                  let (uimag, eimag) = Arb.Acb.get_imag_mid_fmpz c in
+                  let er, ei = 
+                    match (ZZ.to_int (Arb_zarith.Fmpzz.fmpz_to_zarith ereal)), (ZZ.to_int (Arb_zarith.Fmpzz.fmpz_to_zarith eimag)) with
+                    | None, _ | _, None -> failwith "Exponents of fmpz is larger than maxint"
+                    | Some er, Some ei -> er, ei
+                  in
+                  let temp = min er ei in
+                  if temp < (-1) * mx_t then (-1) * temp,(uimag, ei) :: (ureal, er) :: acc
+                  else mx_t, (uimag, ei) :: (ureal, er) :: acc
+              ) (max_t, []) row in
+              t_row, (List.rev r) :: ac
+          ) (t_req, []) mat
+          in
+          let int_mat = List.rev rev_mat in
+          for i = 0 to s - 1 do
+            for j = 0 to (n+s) - 1 do
+              if i = j then 
+                Arb.Fmpz_mat.set_entry fmpz_mat (Arb.Fmpz.init_set_str "1" 10) i j
+              else if (i >= List.length units && j >= s && (j-s) / 2 = (i - List.length units) && (j-s) mod 2 = 1) then 
+                let entry = Arb.Fmpz.mul_2exp (Arb.Fmpz.init_set_str "1" 10) used_t in
+                Arb.Fmpz_mat.set_entry fmpz_mat entry i j
+              else if i < List.length units && j >= s then
+                let uij, eij = (List.nth (List.nth int_mat i) (j-s)) in
+                Arb.Fmpz_mat.set_entry fmpz_mat (Arb.Fmpz.mul_2exp uij (used_t+eij)) i j
+              else 
+                Arb.Fmpz_mat.set_entry fmpz_mat (Arb.Fmpz.init_set_str "0" 10) i j
+            done;
+          done;
+          used_t
+        else
+          (Log.logf ~level:`info "Trying to build matrix with %d bits of precision" (2*prec);
+          aux (build_cross_matrix (2 * prec)) (2*prec))
+      in
+      aux u_r_cross_matrix t_guess
+    in
+    Log.logf ~level:`info "Using t = %d, reducing matrix" t;
+    Log.log_pp ~level:`trace (pp_fmpz_mat s (s+n)) fmpz_mat;
+    Arb.Fmpz_mat.lll_storjohann fmpz_mat (3, 4) (51, 100);
+    Log.log ~level:`info "Reduced matrix";
+    Log.log_pp ~level:`trace (pp_fmpz_mat s (s+n)) fmpz_mat;
+    let rec find_relations i basis =
+      if i >= s then basis
+      else
+        let row_zz = List.map (
+          fun j ->
+            Arb_zarith.Fmpzz.fmpz_to_zarith (Arb.Fmpz_mat.get_entry fmpz_mat i j)
+        ) (List.init (n+s) (fun x -> x)) in
+        let norm_squared = List.fold_left (fun acc x -> ZZ.add acc (ZZ.mul x x)) ZZ.zero row_zz in
+        if ZZ.compare norm_squared (ZZ.mul (Z.pow (ZZ.of_int 2) (s-1)) m) <= 0 then
+          let int_i = 
+            List.mapi (
+              fun ind z ->
+                if ind >= List.length units then ind, 0
+                else
+                  match ZZ.to_int z with
+                  | None -> failwith "Unit relation basis requires bigger than max int"
+                  | Some x -> ind, x
+          ) row_zz in
+          let relation = List.filter_map (
+            fun (ind, x) -> if ind >= List.length units then None
+                            else Some x
+          ) int_i in
+          find_relations (i+1) (relation :: basis)
+        else find_relations (i+1) basis
+    in
+    find_relations 0 []
+
+
+  let find_relations elems = 
+    let unit_basis = find_unit_basis elems in
+    let (ones, units_but_not_one) = List.partition_map (
+      fun expl ->
+        let unit = List.fold_left2 (
+            fun acc elem e ->
+              mul acc (exp elem e)
+          ) one elems expl
+          in
+        if equal unit one then
+          Left expl
+        else
+          Right (unit, expl)
+    ) unit_basis in
+    let res = 
+      if List.length units_but_not_one = 0 then ones
+      else
+        let unit_relations = find_relations_of_units (fst (List.split units_but_not_one)) in
+        let relations = List.map (
+          fun unit_relation ->
+            List.fold_left2 (
+              fun acc m relation_to_give_unit ->
+                let x = List.map (( * ) m) relation_to_give_unit in
+                List.map2 (+) acc x
+            ) (List.init (List.length elems) (fun _ -> 0)) unit_relation (snd (List.split units_but_not_one))
+        ) unit_relations in
+        ones @ relations in
+    let res_a = Array.of_list (List.map (fun r -> Array.of_list (List.map ZZ.of_int r)) res) in
+    let (h, _) = hermite_normal_form (zzmify res_a) in
+    let h_a = unzzmify h in
+    let z_to_int z = 
+      match ZZ.to_int z with
+      | None -> failwith "Multiplicative relation is requiring more than max int"
+      | Some x -> x
+    in
+    Array.to_list (Array.map (fun r -> Array.to_list (Array.map z_to_int r)) h_a)
+
+
+
+
 
 end
 
