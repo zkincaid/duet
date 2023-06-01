@@ -173,7 +173,7 @@ module SqrtNeg5F = NumberField.MakeNF(struct
     v * v + int(5)
 end)
 
-(*module SqrtNeg5 = SqrtNeg5F.O
+module SqrtNeg5 = SqrtNeg5F.O
 
 
 let assert_equal_ideal p q =
@@ -319,7 +319,7 @@ let test_factor1 () =
   List.iteri check_factor [six; one_plus_sqrt_m5; one_minus_sqrt_m5]
 
 
-let test_unit_find1 () = 
+(*let test_unit_find1 () = 
   let open QQXInfix in
   let six = SqrtNeg5F.make_elem (int(6)) in
   let one_plus_sqrt_m5 = SqrtNeg5F.make_elem (int(1)+v) in
@@ -353,7 +353,6 @@ end)
 
 module Sqrt5 = Sqrt5F.O
 
-(*
 let assert_equal_ideal p q =
   assert_equal ~cmp:Sqrt5.equal_i ~printer:(SrkUtil.mk_show Sqrt5.pp_i) p q
   
@@ -431,7 +430,7 @@ let test_factor2 () =
   in
   List.iteri check_factor [two_i; minus_one_i; one_plus_sqrt_5_i; one_minus_sqrt_5_i] 
 
-let test_unit_find3 () = 
+(*let test_unit_find3 () = 
   let open QQXInfix in
   let minus_one = Sqrt5F.make_elem (int(-1)) in
   let one_plus_sqrt_5_over_2 = Sqrt5F.make_elem ((rat 1 2) + (rat 1 2) * v) in
@@ -488,6 +487,50 @@ let test_find_relations1 () =
   in
   assert_equal ~cmp:Sqrt5F.equal ~printer:(SrkUtil.mk_show Sqrt5F.pp) Sqrt5F.one res
 
+let test_find_relations2 () = 
+  let open QQXInfix in
+  let six = SqrtNeg5F.make_elem (int(6)) in
+  let one_plus_sqrt_m5 = SqrtNeg5F.make_elem (int(1)+v) in
+  let one_minus_sqrt_m5 = SqrtNeg5F.make_elem (int(1)-v) in
+  let exp_list = SqrtNeg5F.find_relations [six; one_plus_sqrt_m5; one_minus_sqrt_m5] in
+  assert_equal ~printer:(string_of_int) 1 (List.length exp_list);
+  let unit_exp = List.hd exp_list in
+  let exp = List.map2 SqrtNeg5F.exp [six; one_plus_sqrt_m5; one_minus_sqrt_m5] unit_exp in
+  let prod = List.fold_left SqrtNeg5F.mul SqrtNeg5F.one exp in
+  assert_equal ~cmp:SqrtNeg5F.equal ~printer:(SrkUtil.mk_show SqrtNeg5F.pp) SqrtNeg5F.one prod
+
+
+let test_find_relations3 () = 
+  let open QQXInfix in
+  let module NF = NumberField.MakeNF(struct let min_poly = QQX.zero end) in
+  let two = NF.make_elem (int(2)) in
+  let three_fourths = NF.make_elem (rat 3 4) in
+  let nine_eighths = NF.make_elem (rat 9 8) in
+  let exp_list = NF.find_relations [two; three_fourths; nine_eighths] in
+  assert_equal ~printer:(string_of_int) 1 (List.length exp_list);
+  let unit_exp = List.hd exp_list in
+  let exp = List.map2 NF.exp [two; three_fourths; nine_eighths] unit_exp in
+  let prod = List.fold_left NF.mul NF.one exp in
+  assert_equal ~cmp:NF.equal ~printer:(SrkUtil.mk_show NF.pp) NF.one prod
+
+let find_root_relations1 () =
+  let open QQXInfix in
+  let p = v * v * v - int(2) in
+  let root_field, roots = NumberField.splitting_field p in
+  let module NF = NumberField.MakeNF(struct let min_poly = root_field end) in
+  (*let print_roots f rs = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_string fo "; ") NF.pp f (List.map fst rs) in
+  Log.log ~level:`always "Field polynomial";
+  Log.log_pp ~level:`always QQX.pp root_field;
+  Log.log ~level:`always "Roots";
+  Log.log_pp ~level:`always print_roots roots;*)
+  let roots_e = List.map NF.make_elem (fst (List.split roots)) in
+  let relations = NF.find_relations roots_e in
+  let check_relation rel = 
+    let prod = List.fold_left NF.mul NF.one (List.map2 NF.exp roots_e rel) in
+    assert_equal ~cmp:NF.equal ~printer:(SrkUtil.mk_show NF.pp) NF.one prod
+  in
+  List.iter check_relation relations
+
 let suite = "NumberField" >:::
   [
     "int_poly_test1" >:: int_poly_test1;
@@ -499,7 +542,7 @@ let suite = "NumberField" >:::
     "factor_test2" >:: factor_test2;
     "factor_test3" >:: factor_test3;
     "splitting_test1" >:: splitting_test1;
-    (*"test_sum1" >:: test_sum1;
+    "test_sum1" >:: test_sum1;
     "test_mul1" >:: test_mul1;
     "test_intersect1" >:: test_intersect1;
     "test_intersect2" >:: test_intersect2;
@@ -514,12 +557,11 @@ let suite = "NumberField" >:::
     "test_overorder2" >:: test_overorder2;
     "test_factor_refinement1" >:: test_factor_refinement1;
     "test_factor1" >:: test_factor1;
-    "test_unit_find1" >:: test_unit_find1;
-    "test_unit_find2" >:: test_unit_find2;
     "test_factor_refinement2" >:: test_factor_refinement2;
     "test_factor2" >:: test_factor2;
-    "test_unit_find3" >:: test_unit_find3;
     "test_make_order" >:: test_make_order;
-    "test_unit_relations1" >:: test_unit_relations1;*)
     "test_find_relations1" >:: test_find_relations1;
+    "test_find_relations2" >:: test_find_relations2;
+    "test_find_relations3" >:: test_find_relations3;
+    "find_root_relations1" >:: find_root_relations1;
   ]
