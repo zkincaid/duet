@@ -516,7 +516,7 @@ let implies polyhedron (p, v) =
   | `Pos -> invalid_arg "Polyhedron.implies does not currently support strict \
                          inequalities"
 
-module NormalizCone = struct
+module IntegerHull = struct
 
   open Normalizffi
 
@@ -585,7 +585,7 @@ module NormalizCone = struct
     BatList.enum (List.append equalities inequalities)
     |> of_constraints
 
-  let integer_hull polyhedron =
+  let hull_by_normaliz polyhedron =
     let (cone, bijection) = normaliz_cone_by_constraints polyhedron in
 
     logf ~level:`trace "polyhedron: integer_hull: computed Normaliz cone for polyhedron:@[%a@]@;"
@@ -640,7 +640,7 @@ module NormalizCone = struct
             |> BatList.enum
            )
 
-  let elementary_gc polyhedron ambient_dim =
+  let elementary_gc ambient_dim polyhedron =
     logf ~level:`trace "elementary_gc: Computing minimal faces...@;";
     let faces = DD.minimal_faces polyhedron in
     logf ~level:`trace "elementary_gc: Computed minimal faces: found %d@;"
@@ -693,27 +693,31 @@ module NormalizCone = struct
       in
       if !changed then `Changed polyhedron else `Fixed polyhedron
 
-  let gomory_chvatal polyhedron =
-    let dim = 1 + max_constrained_dim polyhedron in
-    let man = Polka.manager_alloc_loose () in
+  let hull_dd_by_gomory_chvatal ambient_dim polyhedron =
     let rec iter polyhedron i =
-      let elem_closure =  elementary_gc polyhedron dim in
+      let elem_closure =  elementary_gc ambient_dim polyhedron in
       match elem_closure with
       | `Fixed poly ->
-        logf ~level:`info "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
-        poly
+         logf ~level:`info "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
+         poly
       | `Changed poly ->
-        logf ~level:`trace "elementary_gc: entering round %d@;" (i + 1);
-        iter poly (i + 1)
+         logf ~level:`trace "elementary_gc: entering round %d@;" (i + 1);
+         iter poly (i + 1)
     in
-    iter (dd_of ~man dim polyhedron) 0
-    |> of_dd
+    iter polyhedron 0
+
+  let hull_by_gomory_chvatal polyhedron =
+    let dim = 1 + max_constrained_dim polyhedron in
+    let man = Polka.manager_alloc_loose () in
+    of_dd (hull_dd_by_gomory_chvatal dim (dd_of ~man dim polyhedron))
 
 end
 
 let integer_hull = function
-  | `GomoryChvatal -> NormalizCone.gomory_chvatal
-  | `Normaliz -> NormalizCone.integer_hull
+  | `GomoryChvatal -> IntegerHull.hull_by_gomory_chvatal
+  | `Normaliz -> IntegerHull.hull_by_normaliz
+
+let integer_hull_dd = IntegerHull.hull_dd_by_gomory_chvatal
 
 module IntDS = DisjointSet.Make(struct
     include Int
