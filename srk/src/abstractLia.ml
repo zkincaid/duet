@@ -476,14 +476,7 @@ end = struct
         , 0)
         basis
     in
-    logf ~level:`trace "Transform computed so far is %a@."
-      (fun fmt map ->
-        BatEnum.iter (fun (s, t) ->
-            Format.fprintf fmt "%a --> %a" V.pp s V.pp t
-          )
-          (T.enum map)
-      )
-      forward_l;
+    logf ~level:`trace "Transform computed so far is %a@." pp_linear_map forward_l;
     logf ~level:`trace
       "Forcing transform on polyhedron %a@." (Polyhedron.pp pp_dim) p;
     let (_forward, inverse, _num_dimensions, q) =
