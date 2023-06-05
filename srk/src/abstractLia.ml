@@ -186,7 +186,7 @@ module IntHullProjection (Target : Target)
       | None -> failwith "No implicant found" in
     let (inequalities, _lattice_constraints) = constraints_of_implicant implicant in
     let p = DD.of_constraints_closed ambient_dimension (BatList.enum inequalities) in
-    let hull = P.integer_hull_dd ambient_dimension p in
+    let hull = DD.integer_hull p in
     DD.project dimensions_to_eliminate hull
 
   let pp fmt p =

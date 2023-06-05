@@ -101,11 +101,6 @@ val conical_hull : t -> t
 *)
 val integer_hull : ?decompose:bool -> [`GomoryChvatal | `Normaliz] -> t -> t
 
-(** [integer_hull_dd dim p] computes the integer hull of the double-description
-    polyhedron [p] in ambient dimension [dim].
- *)
-val integer_hull_dd : int -> DD.closed DD.t -> DD.closed DD.t
-
 (** Test whether two polyhedra are equal (as sets of points in
     QQ^omega). *)
 val equal : t -> t -> bool
