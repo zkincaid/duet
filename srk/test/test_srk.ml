@@ -12,24 +12,22 @@ let suite = "Main" >::: [
     Test_sequence.suite;
     Test_linear.suite;
     Test_cone.suite;
-    Test_polyhedron.suite;*)
-    (*Test_polynomial.suite;*)
-    (*Test_polynomialCone.suite;
+    Test_polyhedron.suite;
+    Test_polynomial.suite;
+    Test_polynomialCone.suite;
     Test_exppolynomial.suite;
     Test_apron.suite;
     Test_simplify.suite;
     Test_quantifier.suite;
-    Test_wedge.suite;
-    Test_abstract.suite;
-    Test_lts.suite;
-    Test_iteration.suite;
-    Test_termination.suite;
-    Test_transition.suite;
-    Test_WeightedGraph.suite;
-    Test_chc.suite;*)
-    Test_numberField.suite;
-    (*Test_order.suite;*)
-    (*Test_fgb.suite*)
+    Test_wedge.suite;*)
+    Test_abstract.suite;      (* <- I get an error when running these 5 together*)
+    (*Test_lts.suite;*)
+    Test_iteration.suite;     (* <- *)
+    Test_termination.suite;   (* <- *)
+    Test_transition.suite;    (* <- *)
+    Test_WeightedGraph.suite; (* <- *)
+    (*Test_chc.suite;*)
+    (*Test_numberField.suite;*)
 ]
 
 let _ =
