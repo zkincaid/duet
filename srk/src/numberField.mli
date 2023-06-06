@@ -9,12 +9,12 @@ val make_multivariate : Monomial.dim -> QQX.t -> QQXs.t
     @raise Failure if input is not a univariate polynomial.*)
 val make_univariate : QQXs.t -> QQX.t
 
-(** Let K1 = Q[v0,v1]/p and K2=Q[v0,v1]/q be number fields. 
-    [prim, v0_in_prim, v1_in_prim] = [primitive_elem p q v0 v1] 
-    is such that the number field K3 = Q[x]/prim such that K3 is the smallest
-    field that contains K1 and K2. [v0_in_prim] and [v1_in_prim] give the 
-    representations of v0 and v1 in K3 respectively.*)
-val primitive_elem : QQXs.t -> QQXs.t -> Monomial.dim -> Monomial.dim -> QQX.t * QQX.t * QQX.t
+(** Let K1 = Q[v0,v1]/p and K2=Q[v0,v1]/q be number fields. Let K1 have degree d1 and K2 have degree d2.
+    [prim, v0_in_prim, v1_in_prim] = [primitive_elem (d1*d2) p q v0 v1] 
+    is such that the number field K3 = Q[x]/prim of degree d1*d2 such that K3 contains K1 and K2. 
+    [v0_in_prim] and [v1_in_prim] give the representations of v0 and v1 in K3 respectively. For
+    the method to work p needs to be irreducible in K2 and q needs to be irreducible in K1.*)
+val primitive_elem : int -> QQXs.t -> QQXs.t -> Monomial.dim -> Monomial.dim -> QQX.t * QQX.t * QQX.t
 
 (** Given a minimal polynomial, construct a number field. Giving a
     polynomial that is not irreducible in Q[x] gives undefined behavior.*)
@@ -101,11 +101,14 @@ module MakeNF (A : sig val min_poly : QQX.t end) : sig
 
     val pp_o : Format.formatter -> o -> unit
 
+    (** Every element of the number field a can be uniquely written as a = 1/d * o, where
+       d is an integer and o is an element of O. [make_o_el a = (d, o)]*)
     val make_o_el : elem -> ZZ.t * o
 
+    (** [order_el_to_f_elem (d, o) = a], where a = 1/d * o. *)
     val order_el_to_f_elem : ZZ.t * o -> elem
 
-    (** Convenient translation from integer matrix to an ideal.*)
+    (** This is really just used for testing. An arbitrary integer matrix may not be an ideal.*)
     val idealify : ZZ.t array array -> ideal
 
     (** Pretty printer for ideals*)
@@ -184,10 +187,12 @@ module MakeNF (A : sig val min_poly : QQX.t end) : sig
     val find_unit_basis : o list -> int list list
   end
 
-  (*val find_unit_basis : elem list -> int list list
-
-  val find_relations_of_units : elem list -> int list list *)
-
+  (** Given elements gamma_1, ..., gamma_k of the number field, computes a basis
+                                                            \[\[f_11; ...; f_1k\];
+                                                            \[f_21; ...; f_2k\];
+                                                            \[...\]
+                                                            \[f_l1; ...; f_lk\]\]
+        for the set {n_1, ..., n_k : gamma_1^n_1...gamma_k^n_k = 1.} *)
   val find_relations : elem list -> int list list
 
 end

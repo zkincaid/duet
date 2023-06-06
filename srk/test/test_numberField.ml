@@ -50,7 +50,7 @@ let primitive_test1 () =
   let p2 = v * v - int(3) in
   let p1x = NumberField.make_multivariate (Char.code 'x') p1 in
   let p2y = NumberField.make_multivariate (Char.code 'y') p2 in
-  let (prim, x_in_prim, y_in_prim) = NumberField.primitive_elem p1x p2y (Char.code 'x') (Char.code 'y') in
+  let (prim, x_in_prim, y_in_prim) = NumberField.primitive_elem 4 p1x p2y (Char.code 'x') (Char.code 'y') in
   let module NF = NumberField.MakeNF(struct let min_poly = prim end) in
   let p1r_in_NF = NF.make_elem x_in_prim in
   let p2r_in_NF = NF.make_elem y_in_prim in
@@ -74,7 +74,7 @@ let primitive_test2 () =
   let p2 = v * v * v * v * v * v + int(108) in
   let p1x = NumberField.make_multivariate (Char.code 'x') p1 in
   let p2y = NumberField.make_multivariate (Char.code 'y') p2 in
-  let (prim, x_in_prim, y_in_prim) = NumberField.primitive_elem p1x p2y (Char.code 'x') (Char.code 'y') in
+  let (prim, x_in_prim, y_in_prim) = NumberField.primitive_elem 18 p1x p2y (Char.code 'x') (Char.code 'y') in
   let module NF = NumberField.MakeNF(struct let min_poly = prim end) in
   let p1r_in_NF = NF.make_elem x_in_prim in
   let p2r_in_NF = NF.make_elem y_in_prim in
@@ -531,6 +531,29 @@ let find_root_relations1 () =
   in
   List.iter check_relation relations
 
+let find_root_relations2 () =
+  (*Log.set_verbosity_level "srk.numberField" `trace;*)
+  let open QQXInfix in
+  (* p = (x-2)(x^2+1)(x^3-2)*)
+  let p = v * v * v * v * v * v - int(2) * v* v*v *v *v + v*v*v*v - int(4)*v*v*v +int(4)*v*v-int(2)*v + int(4) in
+  let root_field, roots = NumberField.splitting_field p in
+  let module NF = NumberField.MakeNF(struct let min_poly = root_field end) in
+  let roots_e = List.map NF.make_elem (fst (List.split roots)) in
+  (*Log.log ~level:`always "Root_field";
+  Log.log_pp ~level:`always QQX.pp NF.int_poly;
+  let print_roots = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_newline fo ()) NF.pp in
+  Log.log ~level:`always "Roots";
+  Log.log_pp ~level:`always print_roots roots_e;*)
+  let relations = NF.find_relations roots_e in
+  Log.print_stats ();
+  let check_relation rel = 
+    let prod = List.fold_left NF.mul NF.one (List.map2 NF.exp roots_e rel) in
+    assert_equal ~cmp:NF.equal ~printer:(SrkUtil.mk_show NF.pp) NF.one prod
+  in
+  List.iter check_relation relations(*;
+  Log.log ~level:`always "Root relations";
+  Log.log_pp ~level:`always (ZZM.pp ZZ.pp) (ZZM.of_dense (zzify (Array.of_list (List.map (Array.of_list) relations))))*)
+
 let suite = "NumberField" >:::
   [
     "int_poly_test1" >:: int_poly_test1;
@@ -564,4 +587,5 @@ let suite = "NumberField" >:::
     "test_find_relations2" >:: test_find_relations2;
     "test_find_relations3" >:: test_find_relations3;
     "find_root_relations1" >:: find_root_relations1;
+    (*"find_root_relations2" >:: find_root_relations2;*) (*This one's a bit expensive ~ 5 min.*)
   ]

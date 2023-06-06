@@ -18,14 +18,11 @@ let make_univariate p =
       ) (QQXs.enum p))
 
 
-let primitive_elem mp0 mp1 v0 v1 = 
-  (*let v0, v1 = 0, 1 in
-  let mp0, mp1 = make_multivariate v0 mp0x, make_multivariate v1 mp1x in*)
+let primitive_elem needed_deg mp0 mp1 v0 v1 = 
   let mp0d, mp1d = QQXs.degree mp0, QQXs.degree mp1 in
   if mp0d = 0 then make_univariate mp1, QQX.zero, QQX.identity
   else if mp1d = 0 then make_univariate mp0, QQX.identity, QQX.zero
   else
-    let needed_deg = (QQXs.degree mp0) * (QQXs.degree mp1) in
     let v2 = (max v0 v1) + 1 in
     let rec aux i = 
       (* v0 + iv1 - v2*)
@@ -47,19 +44,14 @@ let primitive_elem mp0 mp1 v0 v1 =
 
 module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
-
-
-
-
-  type elem = QQX.t
+  type elem = QQX.t (* elements of the field are polynomials of degree < the degree of the field*)
 
   let compute_min_poly_p el p = 
     let open Linear in
     let p_deg = QQX.order p in
     if p_deg = 0 then el
     else
-      let m = Array.make_matrix p_deg (p_deg+1) QQ.zero in (*m is a matrix to hold onto the powers of el*)
-      (*m.(0).(0) <- QQ.one; (* The zero'th power of el is 1; 0; ...*)*)
+      let m = Array.make_matrix p_deg (p_deg+1) QQ.zero in (*m is a matrix whose columns consist of the powers of el*)
       for i = 0 to p_deg do
         let r = snd (QQX.qr (QQX.exp el i) p) in
         BatEnum.iter (
@@ -68,7 +60,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         ) (QQX.enum r)
       done;
       (*In general I don't think null is guarenteed to be reduced with respect to powers of el. However,
-         I think it is do to how nullspace is implemented.*)
+         I think it is do to how nullspace is implemented. *)
       let null = nullspace (QQMatrix.of_dense m) (List.init (p_deg + 1) (fun i -> i)) in
       let min = snd (List.fold_left (
         fun (min_deg, min_p) vec ->
@@ -80,12 +72,18 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       QQX.map (fun _ c -> QQ.div c lc) min
 
 
+  (* The lcm of the denominators of min_poly*)
   let min_poly_den_lcm = 
     QQX.fold (
       fun _ c l ->
         ZZ.lcm (QQ.denominator c) l
     ) A.min_poly (QQ.numerator (QQX.coeff (QQX.order A.min_poly) A.min_poly))
 
+  (* Let min_poly = p(x), and let d be the smallest integer such that dp(x) has integer coefficients.
+     Then the element dx in Q[x]/p(x) is an algebraic integer. Let q(x) be the minimal polynomial
+     of dx. Then Q[x]/p(x) iso Q[x]/q(x) with q(x) an integer polynomial. For constructing
+     an order later we need such an integer polynomial. Therefore, rather than using Q[x]/p(x) as
+     a representation of the field we use Q[x]/q(x). The isomorphism is recognized by x --> 1/d x.*)
   let int_poly = 
     if QQX.is_zero A.min_poly then QQX.identity
     else compute_min_poly_p (QQX.scalar_mul (QQ.of_zz min_poly_den_lcm) QQX.identity) A.min_poly
@@ -99,9 +97,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     if QQX.is_zero int_poly then a
     else snd (QQX.qr a int_poly)
 
-  (*let r = 
-    Rewrite.mk_rewrite (Monomial.degrevlex) [make_multivariate 0 A.min_poly]*)
-
+  (*The isomorphism is recognized by x --> 1/d x.*)
   let make_elem p = reduce (QQX.map (fun d c -> QQ.div c (QQ.exp (QQ.of_zz min_poly_den_lcm) d)) p)
 
   let mul a b = 
@@ -141,6 +137,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
   module E = struct let one = one let mul = mul let negate = negate let exp = exp end
 
+  (*Polynonials in the number field.*)
   module X = struct 
     include MakeEuclidean(
       struct 
@@ -155,6 +152,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         let inverse = inverse
         let int_mul i x = QQX.scalar_mul (QQ.of_int i) x
       end)
+
     let pp formatter p = 
       let pp_monomial formatter (coeff, order) = 
         if order = 0 then
@@ -181,6 +179,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
           QQXs.add (QQXs.mul_monomial (Monomial.singleton 1 m) (make_multivariate 0 coef)) acc
       ) p QQXs.zero
 
+    (* Factoring polynomials via Trager's method*)
     let factor_square_free_poly p =
       if QQX.is_zero int_poly then
         let p_uni = make_univariate (de_lift p) in
@@ -189,22 +188,18 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       else
         let lc = coeff (order p) p in
         let pmonic = scalar_mul (inverse lc) p in
+        let pmonic_deg = order pmonic in
         let pmonicxs = de_lift pmonic in (* p is a multivariate polynomial in 0, the variable of the field, and 1 the variable of the polynomial.*)
-        let prim, v0_in_prim, v1_in_prim = primitive_elem (make_multivariate 0 int_poly) pmonicxs 0 1 in
+        let prim, v0_in_prim, v1_in_prim = primitive_elem (pmonic_deg * deg) (make_multivariate 0 int_poly) pmonicxs 0 1 in
         let primxs = make_multivariate 0 prim in
         let v1_term = QQXs.sub (make_multivariate 1 (QQX.identity)) (make_multivariate 0 v0_in_prim) in 
         let v2_term = QQXs.sub (make_multivariate 2 (QQX.identity)) (make_multivariate 0 v1_in_prim) in
-        (*let gb = FGb.grobner_basis [0] [1;2] [primxs; v1_term; v2_term] in*)
         let mon_order = FGb.get_mon_order [0;2] [1] in
-        (*let r = Rewrite.grobner_basis (Rewrite.mk_rewrite mon_order gb) in*)
         let (_, factors) = QQX.factor prim in
         let find_factor (fact, deg) = 
           if deg > 1 then failwith "Primitive element contains square factor?";
           let factxs = make_multivariate 0 fact in
           let ps = FGb.grobner_basis [0;2] [1] [primxs; v1_term; v2_term; factxs] in
-          (*let pv fo v = if v = 0 then Format.pp_print_string fo "z" else if v = 1 then Format.pp_print_string fo "y" else Format.pp_print_string fo "x" in
-          Log.log ~level:`always "Searching for factor in";
-          Log.log_pp ~level:`always (Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_newline fo ()) (QQXs.pp pv)) ps;*)
           let v2ps = 
             List.filter (
               fun p -> 
@@ -276,51 +271,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     done;
     res
 
-  (*let dense_hermite_normal_form matrix =
-    logf ~level:`trace "HNF of %d x %d matrix" (List.length matrix) (List.length (List.hd matrix));
-    let timer () = 
-      let mat = Normalizffi.Flint.new_matrix matrix in
-      Normalizffi.Flint.hermitize mat;
-      let rank = Normalizffi.Flint.rank mat in
-      let basis =
-        Normalizffi.Flint.denom_matrix_of_rational_matrix mat
-        |> snd
-        |> BatList.take rank (* The rows after rank should be all zeros *)
-      in
-      basis
-    in
-    Log.time "Dense HNF" timer ()
-
-  let counter = ref 1
-
-  let hermite_normal_form mat = 
-    let timer () = 
-      logf ~level:`trace "Number of HNF calls: %d" !counter;
-      counter := !counter + 1;
-      let matrix = Array.to_list (Array.map (fun r -> Array.to_list (Array.map ZZ.mpz_of r)) (unzzmify mat)) in
-      let m = ZZM.nb_rows mat in
-      let n = ZZM.nb_columns mat in
-      let mapper i row = 
-        let pad = List.init m (fun j -> if i = j then Mpzf.of_int 1 else Mpzf.of_int 0) in
-        row @ pad
-      in
-      let hu = dense_hermite_normal_form (List.mapi mapper matrix) in
-      let splitter hurow = 
-        let rec aux i prev rest = 
-          if i >= n then
-            Array.of_list (List.rev prev), Array.of_list (List.map ZZ.of_mpz rest)
-          else
-            match rest with
-            | [] -> failwith "Didn't find u matrix?"
-            | x :: xs -> aux (i+1) (ZZ.of_mpz x :: prev) xs
-        in
-        aux 0 [] hurow
-      in
-      let h, u = Array.split (Array.of_list (List.map splitter hu)) in
-      zzmify h, zzmify u
-    in
-    Log.time "HNF" timer ()*)
-
+  (*The number field is Q[x]/q(x) for an integer polynomial q(x). The order O is Z[x]/q(x).*)
   module O = struct
 
     let rank = deg
@@ -358,8 +309,11 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
     type pre_ideal = Red of Fmpz_mat.t | UnRed of Fmpz_mat.t
 
+    (*ideals are flint matrices of rank x rank. Internally to this module they are mutable and can be reduced or
+       unreduced. Reduced ideals are in HNF and unreduced matrices are not necessarily in HNF.*)
     type ideal = pre_ideal ref
 
+    (*An element of the order is an integer vector of size rank.*)
     type o = ZZ.t array
 
     let pp_o f o = 
@@ -369,7 +323,16 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         ) o in
       let str = String.concat " + " (List.rev (Array.to_list strs)) in
       Format.fprintf f "@[%s@]  where x is a root of @[%a@]" str QQX.pp int_poly
-      
+    
+    (*hermite a = h*)
+    let hermite a = 
+      logf "HNF on %d by %d matrix" (Fmpz_mat.nb_rows a) (Fmpz_mat.nb_cols a);
+      Log.time "HNF" Fmpz_mat.hnf a
+
+    (*hermite a = (h, u) where u*a = h and hermite a = h.*)
+    let hermite_transform a = 
+      logf "HNF on %d by %d matrix" (Fmpz_mat.nb_rows a) (Fmpz_mat.nb_cols a);
+      Log.time "HNF" Fmpz_mat.hnf_transform a
 
     let make_o_el e = 
       let lcm = QQX.fold (
@@ -389,38 +352,21 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
           (QQ.div (QQ.of_zz coef) (QQ.of_zz den)), (deg - 1 - i)
       ) o_el))
 
+    (* Get the matrix representation of the ideal reduced or unreduced.*)
     let get_mat i = match !i with Red m | UnRed m -> m
+
 
     let idealify aa = 
       ref (UnRed (zzmify aa))
 
-
+    (* Get the reduced matrix representation of the ideal*)
     let get_reduced i = 
       match !i with 
       | Red m -> m 
       | UnRed m -> 
-        let red = Fmpz_mat.window (Fmpz_mat.hnf m) 0 0 rank rank in (* I think this should work... *)
+        let red = Fmpz_mat.window (hermite m) 0 0 rank rank in (* I think this should work... *)
         i := Red red;
         red
-
-    (*let stack a b =
-      let am = ZZM.nb_rows a in
-      let brs = ZZM.rowsi b in
-      BatEnum.fold (fun acc (i, brow) -> ZZM.add_row (i+am) brow acc) a brs
-
-    let kronecker a b = 
-      let am, an = ZZM.nb_rows a, ZZM.nb_columns a in
-      let bm, bn = ZZM.nb_rows b, ZZM.nb_columns b in
-      let aa, ba = unzzmify a, unzzmify b in
-      let m = Array.make_matrix (am * bm) (an * bn) ZZ.zero in
-      for i = 0 to am * bm - 1 do
-        for j = 0 to an * bn - 1 do
-          m.(i).(j) <- ZZ.mul aa.(i / bm).(j / bn) ba.(i mod bm).(j mod bn)
-        done
-      done;
-      zzmify m*)
-
-
 
     let get_smallest_int_internal i = 
       (Fmpz_mat.get_entry (get_reduced i) (rank - 1) (rank - 1))
@@ -441,6 +387,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     let mul_i a b = 
       ref (UnRed (Fmpz_mat.mul (Fmpz_mat.kronecker (get_reduced a) (get_reduced b)) (mult_table_m ())))
 
+    (* Given an element o, comptues o * e_i, where e_i is the i'th basis vector of the order. *)
     let mul_v_by_basis_v v basis_i = 
       fst (Array.fold_left (
         fun (acc, j) vj ->
@@ -465,7 +412,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
     let intersect_i a b = 
       let a_red, b_red = get_reduced a, get_reduced b in
-      let (_, u) = Fmpz_mat.hnf_transform (Fmpz_mat.concat_vertical a_red b_red) in
+      let (_, u) = hermite_transform (Fmpz_mat.concat_vertical a_red b_red) in
       let u_sub = get_lower_left_corner u in
       ref (UnRed (Fmpz_mat.mul u_sub a_red))
 
@@ -480,7 +427,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
           ))
       )) in
       let bot_part = Fmpz_mat.kronecker (Fmpz_mat.ident rank rank) (Fmpz_mat.neg (get_reduced a)) in
-      let (_, u) = Fmpz_mat.hnf_transform (Fmpz_mat.concat_vertical (zzmify top_part) bot_part) in
+      let (_, u) = hermite_transform (Fmpz_mat.concat_vertical (zzmify top_part) bot_part) in
       ref (UnRed (get_lower_left_corner u))
 
 
@@ -498,6 +445,9 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
     type pre_frac_ideal = Norm of Fmpz.t * ideal | UnNorm of Fmpz.t * ideal
 
+    (*fractional ideals consist of an integer and an ideal. Internally to this module they are mutable and can be normalized or
+       unnormalized. Normalized fractional ideals (d, i) are such that gcd(d, get_reduced i) = 1. That is, d does not share a common
+       factor with the matrix representation of i.*)
     type frac_ideal = pre_frac_ideal ref
 
 
@@ -533,27 +483,36 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       let new_d = Fmpz.lcm d1 d2 in
       ref (UnNorm (new_d, intersect_i (scalar_mul_i (Fmpz.divexact new_d d1) a) (scalar_mul_i (Fmpz.divexact new_d d2) b)))
 
-    let mul ai bi =  
-      let (d1, a) = get_den_and_ideal ai in
-      let (d2, b) = get_den_and_ideal bi in
-      ref (UnNorm (Fmpz.mul d1 d2, mul_i a b))
+    let mul ai bi = 
+      let timer () = 
+        let (d1, a) = get_den_and_ideal ai in
+        let (d2, b) = get_den_and_ideal bi in
+        ref (UnNorm (Fmpz.mul d1 d2, mul_i a b))
+      in
+      (*Log.time "Ideal mul"*) timer ()
 
     let exp ai i = 
-      let rec aux acc j = 
-        if j = 0 then acc
-        else
-          aux (mul ai acc) (j-1)
-        in
-      aux one i
+      let timer () = 
+        let rec aux acc j = 
+          if j = 0 then acc
+          else
+            aux (mul ai acc) (j-1)
+          in
+        aux one i
+      in
+      (*Log.time "Ideal Exp"*) timer ()
 
 
     let quotient ai bi = 
-      let (d1, a) = get_den_and_ideal ai in
-      let (d2, b) = get_den_and_ideal bi in
-      let smallest_int = get_smallest_int_internal b in
-      let new_d = Fmpz.mul d1 smallest_int in
-      let new_m = quotient_i (scalar_mul_i (Fmpz.mul d2 smallest_int) a) b in
-      ref (UnNorm (new_d, new_m))
+      let timer () = 
+        let (d1, a) = get_den_and_ideal ai in
+        let (d2, b) = get_den_and_ideal bi in
+        let smallest_int = get_smallest_int_internal b in
+        let new_d = Fmpz.mul d1 smallest_int in
+        let new_m = quotient_i (scalar_mul_i (Fmpz.mul d2 smallest_int) a) b in
+        ref (UnNorm (new_d, new_m))
+      in
+      (*Log.time "Ideal Quotient"*) timer ()
 
 
     let pp f i = 
@@ -562,20 +521,23 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       pp_i f a
     
     let equal ai bi = 
-      let (d1, a) = get_normalized ai in
-      let (d2, b) = get_normalized bi in
-      Fmpz.equal d1 d2 && equal_i a b
+      let timer () = 
+        let (d1, a) = get_normalized ai in
+        let (d2, b) = get_normalized bi in
+        Fmpz.equal d1 d2 && equal_i a b
+      in
+      (*Log.time "Ideal equal"*) timer ()
 
     let subset a b = 
       equal b (sum a b)
 
-    let make_frac_ideal_interal d i = 
+    let make_frac_ideal_internal d i = 
       ref (UnNorm (d, i))
 
     let make_frac_ideal d i = 
-      make_frac_ideal_interal (Arb_zarith.Fmpzz.zarith_to_fmpz d) i
+      make_frac_ideal_internal (Arb_zarith.Fmpzz.zarith_to_fmpz d) i
 
-
+    (*Algorithm 3.17 of Ge*)
     let compute_overorder o i = 
       let rec aux c j =
         let c_div_j = quotient c j in
@@ -587,6 +549,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
     module IM = SrkUtil.Int.Map
 
+    (*Worklist implementation of Algorithm 3.19 of Ge*)
     let factor_refinement is = 
       let is = List.filter (fun i -> not (equal i one)) is in
       let init_c = List.fold_left (fun acc i -> fst (compute_overorder acc i)) one is in
@@ -596,19 +559,19 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         | [] -> c, l
         | (m, n) :: rest ->
           let (jm, jme), (jn, jne) = IM.find m l, IM.find n l in
-          let h = sum jm jn in
-          if equal c h then aux next_index rest c l
-          else
-            let new_c, h = compute_overorder c h in
-            let new_worklist = List.filter (fun (a, b) -> a <> m && a <> n && b <> m && b <> n) worklist in
+          let h = sum jm jn in (*Check if jm jn are coprime*)
+          if equal c h then aux next_index rest c l (*If coprime*)
+          else (*If they share a common factor h*)
+            let new_c, h = compute_overorder c h in (*Enlarge the overorder so h is invertible*)
+            let new_worklist = List.filter (fun (a, b) -> a <> m && a <> n && b <> m && b <> n) worklist in (*Remove jm jn from the worklist*)
             let new_l = IM.remove m (IM.remove n l) in
-            let new_l = IM.map (fun (j, e) -> mul j new_c, e) new_l in
+            let new_l = IM.map (fun (j, e) -> mul j new_c, e) new_l in (*The ideals need to now be w.r.t. the new overorder*)
             let jm, jn = (mul new_c jm, mul new_c jn) in
             let jmp = quotient jm h in
             let jnp = quotient jn h in
             let active_indices = IM.keys new_l in
             let new_worklist, new_l, next_index, active_indices = 
-              if not (equal jmp new_c) then
+              if not (equal jmp new_c) then (*If the new jm is not trivial. I.e. 1*)
                 let new_l = IM.add next_index (jmp, jme) new_l in
                 let new_pairs = BatEnum.map (fun i -> (i, next_index)) active_indices in
                 (new_worklist @ (BatList.of_enum new_pairs), new_l, next_index + 1, BatEnum.icons next_index active_indices)
@@ -655,14 +618,13 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       ) is, fst (List.split gcd_basis), over
 
     let find_unit_basis_f l = 
-      (*Log.log ~level:`always "Making ideals";*)
       let dens, nums = List.split l in 
-      let is = List.map (fun a -> make_frac_ideal_interal (Fmpz.one ()) (ideal_generated_by a)) nums in
+      let is = List.map (fun a -> make_frac_ideal_internal (Fmpz.one ()) (ideal_generated_by a)) nums in
       let dens_i = List.map (
         fun a -> 
           let a_el = Array.make rank ZZ.zero in
           a_el.(rank-1) <- a;
-          make_frac_ideal_interal (Fmpz.one ()) (ideal_generated_by a_el)
+          make_frac_ideal_internal (Fmpz.one ()) (ideal_generated_by a_el)
         ) dens in
   
       let exps, _, _ = compute_factorization (is @ dens_i) in
@@ -682,7 +644,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
               Array.of_list (List.map ZZ.of_int r)
           ) (List.map2 (@) exps num_den_equal_constr)       
         )) in
-      let (h, u) = Fmpz_mat.hnf_transform exps_m in
+      let (h, u) = hermite_transform exps_m in
       let h_nb_non_zero_rows = 
         let rec outer i nb_rows = 
           if i >= (Fmpz_mat.nb_rows h) then nb_rows
@@ -754,6 +716,8 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     | None -> failwith "Requiring more than max int bits of precision"
     | Some x -> x, m
 
+  (*Given an element of the number field e = p(x), a conjugate r of the integer polynomial, computes 1/2pi ln(p(r)) using
+     the given precision.*)
   let get_conj_div_2pi e r prec = 
     let conj = QQX.fold (
       fun d coef acc ->
@@ -766,16 +730,6 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     let log_conj = Arb.Acb.log conj prec in
     Arb.Acb.trim (Arb.Acb.div_si (Arb.Acb.div log_conj (Arb.Acb.pi prec) prec) 2 prec)
 
-  let pp_fmpz_mat m n f mat = 
-    let zz_mat = Array.map (
-      fun i ->
-        Array.map (
-          fun j ->
-            Arb_zarith.Fmpzz.fmpz_to_zarith (Arb.Fmpz_mat.get_entry mat i j)
-        ) (Array.init n (fun x -> x))
-    ) (Array.init m (fun x -> x )) in
-    ZZM.pp (ZZ.pp) f (ZZM.of_dense zz_mat)
-
 
   let find_relations_of_units (units : elem list) = 
     let arb_poly = Arb.Fmpz_poly.init () in
@@ -786,7 +740,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     let s = (List.length units) + deg in
     let b_guess = ZZ.of_int 5 in
     let t_guess, _ = calc_needed_prec n s b_guess 1 (QQ.of_frac 1 16) in
-    logf ~level:`info "Initial guess for required bits of precision: %d" t_guess;
+    logf ~level:`trace "Initial guess for required bits of precision: %d" t_guess;
     let build_cross_matrix prec = 
       let prec = prec + 5 in (* Guess plus a few extra bits. *)
       let roots = Arb.Fmpz_poly.get_complex_roots arb_poly prec in 
@@ -852,16 +806,13 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
           done;
           used_t
         else
-          (logf ~level:`info "Trying to build matrix with %d bits of precision" (2*prec);
+          (logf ~level:`trace "Trying to build matrix with %d bits of precision" (2*prec);
           aux (build_cross_matrix (2 * prec)) (2*prec))
       in
       aux u_r_cross_matrix t_guess
     in
-    logf ~level:`info "Using t = %d, reducing matrix" t;
-    log_pp ~level:`trace (pp_fmpz_mat s (s+n)) fmpz_mat;
+    logf ~level:`trace "Using t = %d, reducing matrix" t;
     Arb.Fmpz_mat.lll_original fmpz_mat (3, 4) (51, 100); (* Using lll_storjohann here seemed to crash sometimes.*)
-    log ~level:`trace "Reduced matrix";
-    log_pp ~level:`trace (pp_fmpz_mat s (s+n)) fmpz_mat;
     let rec find_relations i basis =
       if i >= s then basis
       else
@@ -891,7 +842,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
 
   let find_relations elems = 
-    let unit_basis = find_unit_basis elems in
+    let unit_basis = (*Log.time "Finding Unit basis"*) find_unit_basis elems in
     let (ones, units_but_not_one) = List.partition_map (
       fun expl ->
         let unit = List.fold_left2 (
@@ -907,7 +858,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     let res = 
       if List.length units_but_not_one = 0 then ones
       else
-        let unit_relations = find_relations_of_units (fst (List.split units_but_not_one)) in
+        let unit_relations = (*Log.time "Finding relations of Units"*) find_relations_of_units (fst (List.split units_but_not_one)) in
         let relations = List.map (
           fun unit_relation ->
             List.fold_left2 (
@@ -933,18 +884,19 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
 end
 
+(*See the wikipedia entry on splitting field for more information on this method.*)
 let splitting_field p_with_squares = 
   let square_free_facts = QQX.square_free_factor p_with_squares in
-  let p = List.fold_left (fun acc (f, _) -> QQX.mul acc f) QQX.one square_free_facts in 
+  let p = List.fold_left (fun acc (f, _) -> QQX.mul acc f) QQX.one square_free_facts in
   let rec aux min_poly = 
     let module NF = MakeNF(struct let min_poly = min_poly end) in
     let (_, facts) = NF.X.factor (NF.X.lift p) in (*Can probably be made more efficient.*)
     let (lin_facts, non_lin_facts) = List.partition (fun (x, _) -> NF.X.order x = 1) facts in
     if List.length non_lin_facts = 0 then
-      min_poly, (List.map (fun (x, d) -> NF.X.extract_root_from_linear x, d) lin_facts)
+      NF.int_poly, (List.map (fun (x, d) -> NF.X.extract_root_from_linear x, d) lin_facts)
     else
       let non_lin_fact, _ = List.hd non_lin_facts in
-      let new_min_poly, _, _ = primitive_elem (make_multivariate 0 min_poly) (NF.X.de_lift non_lin_fact) 0 1 in
+      let new_min_poly, _, _ = primitive_elem (NF.deg * NF.X.order non_lin_fact) (make_multivariate 0 NF.int_poly) (NF.X.de_lift non_lin_fact) 0 1 in
       aux new_min_poly
   in
   aux QQX.zero

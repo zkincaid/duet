@@ -10,7 +10,7 @@
 
 (library
   (public_name srk)
-  (modules (:standard \ bigtop))
+  (modules (:standard \ bigtop mytest))
   (modes native)
   (libraries
     batteries
@@ -45,3 +45,10 @@
 
 (menhir
   (modules srkParse srkSmtlib2Parse))
+
+
+(executable
+  (name mytest)
+  (promote (until-clean) (into ..))
+  (modules mytest)
+  (libraries srk))

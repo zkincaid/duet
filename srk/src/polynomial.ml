@@ -1316,19 +1316,21 @@ module FGb = struct
 
   let () = Faugere_zarith.Fgb_int_zarith.set_number_of_threads 2
 
+  
+  let mon_to_fmon vs m = 
+    List.map (
+      fun v -> 
+        match Monomial.IntMap.find_opt v m with
+          | None -> 0
+          | Some d -> d)
+      vs
+
   let convert_to_faugere (vs : Monomial.dim list) (p : QQXs.t) : fpoly = 
     let (clearing_denom, rat_fmon) = 
       BatEnum.fold (
         fun (cd, ml) (c, m)  -> 
           let new_cd = Z.lcm (Q.den c) cd in 
-          let fmon = 
-            List.map (
-              fun v -> 
-                match Monomial.IntMap.find_opt v m with
-                  | None -> 0
-                  | Some d -> d)
-              vs in
-          (new_cd, (c, fmon) :: ml)
+          (new_cd, (c, mon_to_fmon vs m) :: ml)
        ) (Z.one, []) (QQXs.enum p)        
       in
     List.map (
@@ -1349,8 +1351,30 @@ module FGb = struct
       List.map (convert_from_faugere (blk1 @ blk2)) gb
 
   (* Is this right? *)
-  let get_mon_order (blk1 : Monomial.dim list) (_ : Monomial.dim list) = 
-    Monomial.block [fun v -> if (List.mem v blk1) then true else false] Monomial.degrevlex
+  let get_mon_order (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) a b = 
+    let ablk1, ablk2 = Monomial.split_block (fun v -> if (List.mem v blk1) then true else false) a in
+    let bblk1, bblk2 = Monomial.split_block (fun v -> if (List.mem v blk1) then true else false) b in
+    let compare_by_block fmon1 fmon2 = 
+      let diff_rev = List.rev (List.map2 (-) fmon1 fmon2) in
+      match List.find_opt ((<>) 0) diff_rev with
+      | None -> `Eq
+      | Some x -> 
+        if x < 0 then `Gt
+        else `Lt
+    in
+    let ablk1_total, bblk1_total = Monomial.total_degree ablk1, Monomial.total_degree bblk1 in
+    if ablk1_total > bblk1_total then `Gt
+    else if ablk1_total < bblk1_total then `Lt
+    else
+      let blk_comp = compare_by_block (mon_to_fmon blk1 ablk1) (mon_to_fmon blk1 bblk1) in
+      match blk_comp with
+      | `Gt | `Lt -> blk_comp
+      | `Eq ->
+        let ablk2_total, bblk2_total = Monomial.total_degree ablk2, Monomial.total_degree bblk2 in
+        if ablk2_total > bblk2_total then `Gt
+        else if ablk2_total < bblk2_total then `Lt
+        else
+          compare_by_block (mon_to_fmon blk2 ablk2) (mon_to_fmon blk2 bblk2)
 
 end
 

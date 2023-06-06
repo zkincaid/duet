@@ -381,9 +381,7 @@ module FGb : sig
   well formed the variables in [polys] need to be in the set [block1 @ block2]. *)
   val grobner_basis : Monomial.dim list -> Monomial.dim list -> QQXs.t list -> QQXs.t list
 
-  (**[get_mon_order block1 block2] should return the monomial ordering used in the Grobner basis computation [grobner_basis block1 block2 polys]. 
-      TODO: Actually, this isn't quite right. The degrevlex of fgb uses the order of the variables in the block, whereas the monomial degrevlex uses the 
-      lex ordering of the variables regardless of the order they appear in the list.*)
+  (**[get_mon_order block1 block2] should return the monomial ordering used in the Grobner basis computation [grobner_basis block1 block2 polys].*)
   val get_mon_order : Monomial.dim list -> Monomial.dim list -> Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt]
 
 end
