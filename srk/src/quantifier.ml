@@ -835,16 +835,21 @@ let select_int_term srk interp x atoms =
               else
                 V.negate t
             in
-
             let rhs_val = (* [[floor(numerator / a)]] *)
               match QQ.to_zz (eval numerator) with
               | Some num -> ZZ.fdiv num a
               | None -> assert false
             in
+            let offset =
+              let diff = ZZ.sub rhs_val x_val in
+              ZZ.sub
+                (ZZ.mul delta (ZZ.fdiv diff delta))
+                diff
+            in
             let vt =
               { term = numerator;
                 divisor = a;
-                offset = ZZ.crem (ZZ.add x_val rhs_val) delta }
+                offset = offset }
             in
             let vt_val = evaluate_vt vt in
 
@@ -882,11 +887,16 @@ let select_int_term srk interp x atoms =
               | Some num -> ZZ.fdiv num a
               | None -> assert false
             in
-
+            let offset =
+              let diff = ZZ.sub x_val rhs_val in
+              ZZ.sub
+                diff
+                (ZZ.mul delta (ZZ.fdiv diff delta))
+            in
             let vt =
               { term = numerator;
                 divisor = a;
-                offset = ZZ.frem (ZZ.sub x_val rhs_val) delta }
+                offset = offset }
             in
             let vt_val = evaluate_vt vt in
             assert (ZZ.equal (ZZ.modulo (ZZ.sub vt_val x_val) delta) ZZ.zero);
