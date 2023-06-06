@@ -203,10 +203,6 @@ module IntegerMbp : sig
 
 end = struct
 
-  let evaluate_linear a m =
-    let (_, v) = V.pivot Linear.const_dim a in
-    Linear.evaluate_affine m v
-
   let normalize a dim =
     let c = V.coeff dim a in
     if QQ.equal c QQ.zero then a
@@ -230,172 +226,94 @@ end = struct
 
   (* A classified system of constraints with respect to a chosen dimension x and
    a model m contains:
-   - The row a^T Y - cx + b >= 0 (or = 0) that gives the lub, if one exists,
+   - The row a^T Y + cx + b >= 0 (or = 0) that gives the glb, if one exists,
      where c is positive
-   - The row a^T Y + cx + b >= 0 (or = 0) that gives the lub, if one exists,
-     where c is positive
-   - The other constraints that involve x
-   - The independent constraints that don't involve x
+   - All rows that involve x
+   - All rows that don't involve x
    *)
   type classified =
     {
-      lub_row : (QQ.t * P.constraint_kind * V.t) option
-    ; glb_row : (QQ.t * P.constraint_kind * V.t) option
-    ; others : (P.constraint_kind * V.t) BatEnum.t
-    ; independent : (P.constraint_kind * V.t) BatEnum.t
+      glb_row : (QQ.t * P.constraint_kind * V.t) option
+    ; relevant : (P.constraint_kind * V.t) BatEnum.t
+    ; irrelevant : (P.constraint_kind * V.t) BatEnum.t
     }
 
-  let pp_bounding_row fmt = function
-    | Some (q, kind, v) ->
-       Format.fprintf fmt "(%a, %a %s)"
-         QQ.pp q V.pp v
-         (match kind with | `Zero -> " = 0"
-                          | `Nonneg -> " >= 0"
-                          | `Pos -> " > 0")
-    | None -> Format.fprintf fmt ""
-
-  let pp_pconstraint fmt (kind, v) =
-    Format.fprintf fmt "%a %s"
-      V.pp v
-      (match kind with | `Zero -> " = 0"
-                       | `Nonneg -> " >= 0"
-                       | `Pos -> " > 0")
-
-  let _pp_classified fmt classified =
-    let others = BatEnum.clone classified.others in
-    let independent = BatEnum.clone classified.independent in
-    Format.fprintf fmt
-      "@[<v 0>{ lub_row : %a ;@. glb_row : %a ;@. others : %a ;@. independent : %a }@]"
-      pp_bounding_row classified.lub_row
-      pp_bounding_row classified.glb_row
-      (Format.pp_print_list ~pp_sep:Format.pp_print_cut pp_pconstraint)
-      (BatList.of_enum others)
-      (Format.pp_print_list ~pp_sep:Format.pp_print_cut pp_pconstraint)
-      (BatList.of_enum independent)
-
-  let lub_row classified = classified.lub_row
-  let glb_row classified = classified.glb_row
-  let update_lub value classified = { classified with lub_row = Some value }
-  let update_glb value classified = { classified with glb_row = Some value }
-
-  let update_row_if getter updater pred value kind row classified =
-    match getter classified with
-    | Some (value_bound, kind_bound, row_bound) ->
-       if pred value value_bound then
-         begin
-           BatEnum.push classified.others (kind_bound, row_bound);
-           updater (value, kind, row) classified
-         end
-       else
-         begin
-           BatEnum.push classified.others (kind, row);
-           classified
-         end
-    | None ->
-       updater (value, kind, row) classified
-
-  let update_lub_if = update_row_if lub_row update_lub
-  let update_glb_if = update_row_if glb_row update_glb
-
   let classify_constraints m dim constraints =
-    BatEnum.fold (fun classified (kind, v) ->
+    BatEnum.fold (fun (classified, upper_bound_seen) (kind, v) ->
         if QQ.equal (V.coeff dim v) QQ.zero then
           begin
-            BatEnum.push classified.independent (kind, v);
-            classified
+            BatEnum.push classified.irrelevant (kind, v);
+            (classified, upper_bound_seen)
+          end
+        else if QQ.lt (V.coeff dim v) QQ.zero then
+          begin
+            BatEnum.push classified.relevant (kind, v);
+            (classified, true)
           end
         else
-          let value = evaluate_bound dim v m in
-          match kind with
-          | `Pos ->
-             let tt = fun _ _ -> true in
-             update_lub_if tt value kind v classified
-             |> update_glb_if tt value `Zero v
-          | `Zero ->
-             let tt = fun _ _ -> true in
-             update_lub_if tt value kind v classified
-             |> update_glb_if tt value kind v
-          | `Nonneg ->
-             if QQ.lt (V.coeff dim v) QQ.zero then
-               update_lub_if QQ.lt value kind v classified
-             else if QQ.lt QQ.zero (V.coeff dim v) then
-               update_glb_if (fun v1 v2 -> QQ.lt v2 v1) value kind v classified
-             else failwith "Impossible"
+          begin
+            BatEnum.push classified.relevant (kind, v);
+            let value = evaluate_bound dim v m in
+            match classified.glb_row with
+            | None ->
+               ({ classified with glb_row = Some (value, kind, v) }, upper_bound_seen)
+            | Some (curr_best, curr_kind, _) ->
+               if QQ.lt curr_best value ||
+                    (QQ.equal curr_best value && curr_kind = `Nonneg && kind = `Pos) then
+                 ({ classified with glb_row = Some (value, kind, v) }, upper_bound_seen)
+               else
+                 (classified, upper_bound_seen)
+          end
       )
-      {
-        lub_row = None
-      ; glb_row = None
-      ; others = BatEnum.empty ()
-      ; independent = BatEnum.empty ()
-      }
+      ({
+          glb_row = None
+        ; relevant = BatEnum.empty ()
+        ; irrelevant = BatEnum.empty ()
+        }, false)
       constraints
-
-  let _recession_cone_at m p =
-    P.enum_constraints p
-    /@ (fun (kind, a) ->
-      match kind with
-      | `Zero -> (kind, a)
-      | `Pos
-        | `Nonneg ->
-         let (_, normal) = V.pivot Linear.const_dim a in
-         let recession = V.add_term (QQ.negate (evaluate_linear normal m))
-                           Linear.const_dim normal
-         in (`Nonneg, recession))
-    |> P.of_constraints
-
-  let get_solution dim classified =
-    match classified.lub_row, classified.glb_row with
-    | None, _
-      | _, None ->
-       `Infinite
-    | Some (_, _, _), Some (_, _, glb_row) ->
-       let glb_term = get_bound dim glb_row in
-       `Finite glb_term
 
   let pp_dim = fun fmt d -> Format.fprintf fmt "%d" d
 
   let local_project_cooper m ~eliminate (p, l) =
     BatList.fold_left (fun (p, l) dim ->
-        let classified = classify_constraints m dim
-                           (P.enum_constraints p) in
-        match get_solution dim classified with
-        | `Infinite ->
-           ( P.of_constraints classified.independent
-           , IntLattice.project (fun dim -> not (BatList.mem dim eliminate)) l )
-        | `Finite glb_term ->
-           let divisor =
-             BatList.fold_left
-               (fun m v ->
-                 let coeff = Linear.QQVector.coeff dim v in
-                 if QQ.equal coeff QQ.zero then m
-                 else ZZ.lcm m (QQ.denominator coeff))
-               ZZ.one
-               (L.basis l)
-           in
-           let difference = QQ.sub (m dim) (Linear.evaluate_affine m glb_term) in
-           let residue = QQ.modulo difference (QQ.of_zz divisor) in
-           let solution = V.add_term residue Linear.const_dim glb_term in
-           logf ~level:`trace "glb value %a <= point %a, difference %a, divisor %a, residue %a@."
-             QQ.pp (Linear.evaluate_affine m glb_term) QQ.pp (m dim)
-             QQ.pp difference QQ.pp (QQ.of_zz divisor) QQ.pp residue;
-           logf ~level:`trace "glb term %a@." V.pp glb_term;
-           logf ~level:`trace "selected term %a, <= %a:1@." V.pp solution pp_dim dim;
-           let () = match classified.lub_row with
-             | None -> ()
-             | Some (_, kind, row) -> BatEnum.push classified.others (kind, row)
-           in
-           let new_p =
-             classified.others
-             /@ (fun (kind, a) ->
-               (kind, substitute_term solution dim a))
-             |> BatEnum.append classified.independent
-             |> P.of_constraints in
-           let new_l =
-             List.map (substitute_term solution dim) (IntLattice.basis l)
-             |> List.cons solution
-             |> IntLattice.hermitize
-           in
-           (new_p, new_l)
+        let (classified, has_upper_bound) =
+          classify_constraints m dim (P.enum_constraints p) in
+        if not (has_upper_bound) || classified.glb_row = None then
+          ( P.of_constraints classified.irrelevant
+          , IntLattice.project (fun dim -> not (BatList.mem dim eliminate)) l )
+        else
+          let glb_term =
+            let (_, _, glb_row) = Option.get classified.glb_row in
+            get_bound dim glb_row
+          in
+          let divisor =
+            BatList.fold_left
+              (fun m v ->
+                let coeff = Linear.QQVector.coeff dim v in
+                if QQ.equal coeff QQ.zero then m
+                else ZZ.lcm m (QQ.denominator coeff))
+              ZZ.one
+              (L.basis l)
+          in
+          let difference = QQ.sub (m dim) (Linear.evaluate_affine m glb_term) in
+          let residue = QQ.modulo difference (QQ.of_zz divisor) in
+          let solution = V.add_term residue Linear.const_dim glb_term in
+          logf ~level:`trace "glb value %a <= point %a, difference %a, divisor %a, residue %a@."
+            QQ.pp (Linear.evaluate_affine m glb_term) QQ.pp (m dim)
+            QQ.pp difference QQ.pp (QQ.of_zz divisor) QQ.pp residue;
+          logf ~level:`trace "glb term %a@." V.pp glb_term;
+          logf ~level:`trace "selected term %a, <= %a:1@." V.pp solution pp_dim dim;
+          let new_p =
+            classified.relevant
+            /@ (fun (kind, a) ->
+              (kind, substitute_term solution dim a))
+            |> BatEnum.append classified.irrelevant
+            |> P.of_constraints in
+          let new_l =
+            List.map (substitute_term solution dim) (IntLattice.basis l)
+            |> IntLattice.hermitize
+          in
+          (new_p, new_l)
       ) (p, l) eliminate
 
 end
@@ -565,45 +483,34 @@ module Abstract (A : AbstractDomain) : sig
 
 end = struct
 
-  type t =
-    {
-      solver : A.context Smt.Solver.t
-    ; value : A.t
-    }
-
   let init formula =
     let solver = Smt.mk_solver A.context in
     Smt.Solver.add solver [formula];
-    { solver ; value = A.bottom }
+    (solver, A.bottom)
 
   let abstract formula =
-    let state = init formula in
-    let rec go bound n state =
+    let (solver, initial_value) = init formula in
+    let rec go n value =
       logf "Iteration %d@." n;
-      match Smt.Solver.get_model state.solver with
+      match Smt.Solver.get_model solver with
       | `Sat interp ->
          let rho = A.abstract formula interp in
          logf "abstract: abstracted, now joining";
-         let joined = A.join state.value rho in
+         let joined = A.join value rho in
          logf "abstract: joining rho %a with %a to get %a@."
            A.pp rho
-           A.pp state.value
+           A.pp value
            A.pp joined;
          let formula = A.concretize joined in
          logf "abstract: new constraint to negate: %a@."
            (Syntax.pp_smtlib2 A.context) formula;
-         Smt.Solver.add state.solver
+         Smt.Solver.add solver
            [Syntax.mk_not A.context formula];
-         let next = { state with value = joined } in
-         begin match bound with
-         | Some b -> if n <= b then go (Some b) (n + 1) next
-                     else state
-         | None -> go bound (n + 1) next
-         end
+         go (n + 1) joined
       | `Unsat ->
-         state
+         value
       | `Unknown -> failwith "Can't get model"
-    in (go None 1 state).value
+    in go 1 initial_value
 
 end
 
