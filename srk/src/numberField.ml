@@ -326,13 +326,11 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     
     (*hermite a = h*)
     let hermite a = 
-      logf "HNF on %d by %d matrix" (Fmpz_mat.nb_rows a) (Fmpz_mat.nb_cols a);
-      Log.time "HNF" Fmpz_mat.hnf a
+      (*Log.time "HNF"*) Fmpz_mat.hnf a
 
     (*hermite a = (h, u) where u*a = h and hermite a = h.*)
     let hermite_transform a = 
-      logf "HNF on %d by %d matrix" (Fmpz_mat.nb_rows a) (Fmpz_mat.nb_cols a);
-      Log.time "HNF" Fmpz_mat.hnf_transform a
+      (*Log.time "HNF"*) Fmpz_mat.hnf_transform a
 
     let make_o_el e = 
       let lcm = QQX.fold (

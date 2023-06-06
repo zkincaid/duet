@@ -545,7 +545,6 @@ let find_root_relations2 () =
   Log.log ~level:`always "Roots";
   Log.log_pp ~level:`always print_roots roots_e;*)
   let relations = NF.find_relations roots_e in
-  Log.print_stats ();
   let check_relation rel = 
     let prod = List.fold_left NF.mul NF.one (List.map2 NF.exp roots_e rel) in
     assert_equal ~cmp:NF.equal ~printer:(SrkUtil.mk_show NF.pp) NF.one prod
@@ -587,5 +586,5 @@ let suite = "NumberField" >:::
     "test_find_relations2" >:: test_find_relations2;
     "test_find_relations3" >:: test_find_relations3;
     "find_root_relations1" >:: find_root_relations1;
-    (*"find_root_relations2" >:: find_root_relations2;*) (*This one's a bit expensive ~ 5 min.*)
+    (*"find_root_relations2" >:: find_root_relations2;*) (*This one's a bit expensive ~ 3 min.*)
   ]
