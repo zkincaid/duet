@@ -19,10 +19,12 @@ Duet depends on several software packages.  The following dependencies need to b
  + Pkg-config
  + Autoconf
  + Libtool
+ + Flint
+ + Arb
 
 On Ubuntu, you can install these packages with:
 ```
- sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre python python3-distutils python3-lib2to3 libffi-dev pkg-config autoconf libtool
+ sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre python python3-distutils python3-lib2to3 libffi-dev pkg-config autoconf libtool libflint-dev libflint-arb-dev
 ```
 
 On MacOS, you can install these packages (except Java) with:
@@ -34,7 +36,7 @@ Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, an
 ```
  opam remote add sv https://github.com/zkincaid/sv-opam.git#modern
  opam install ocamlbuild ocamlfind zarith ocamlgraph batteries ppx_deriving ounit menhir ctypes-foreign
- opam install cil apron ocrs ntl normalizffi z3
+ opam install cil apron ocrs ntl normalizffi z3 faugere arb
 ```
 
 ### Building Duet
