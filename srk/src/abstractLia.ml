@@ -185,10 +185,12 @@ module IntHullProjection (Target : Target)
       match Interpretation.select_implicant interp formula with
       | Some implicant -> implicant
       | None -> failwith "No implicant found" in
-    let (inequalities, _lattice_constraints) = constraints_of_implicant implicant in
-    let p = DD.of_constraints_closed ambient_dimension (BatList.enum inequalities) in
-    let hull = DD.integer_hull p in
-    DD.project dimensions_to_eliminate hull
+    let (inequalities, lattice_constraints) = constraints_of_implicant implicant in
+    let p = P.of_constraints (BatList.enum inequalities) in
+    let l = IntLattice.hermitize lattice_constraints in
+    let hull = LatticePolyhedron.lattice_polyhedron_of p l in
+    let hull_dd = Polyhedron.dd_of ambient_dimension hull in
+    DD.project dimensions_to_eliminate hull_dd
 
   let pp fmt p =
     Format.fprintf fmt "{ polyhedron : %a }"
