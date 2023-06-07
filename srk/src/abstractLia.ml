@@ -41,8 +41,6 @@ end
     and valuations of vectors in the vector space.
     [Target.terms] are mapped to the lowest dimensions in this vector space,
     and other symbols of the implicant are mapped to higher dimensions.
-
-    - [valuation(interp)(i) = interp(Target.terms[i])]
  *)
 module ImplicantConstraintConversion (Target : Target) : sig
 
@@ -50,6 +48,7 @@ module ImplicantConstraintConversion (Target : Target) : sig
 
   val ambient_dimension : int
 
+  (** [valuation(interp)(i) = interp(Target.terms[i])] *)
   val valuation : Target.context Interpretation.interpretation -> int -> Q.t
 
   val constraints_of_implicant :
