@@ -128,7 +128,7 @@ end = struct
           classify_constraints m dim (P.enum_constraints p) in
         if not (has_upper_bound) || classified.glb_row = None then
           ( P.of_constraints classified.irrelevant
-          , IntLattice.project (fun dim -> not (BatList.mem dim eliminate)) l )
+          , IntLattice.project (fun dim' -> dim <> dim') l )
         else
           let glb_term =
             let (_, _, glb_row) = Option.get classified.glb_row in
