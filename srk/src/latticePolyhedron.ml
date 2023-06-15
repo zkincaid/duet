@@ -25,14 +25,12 @@ let make_map l =
   let map_one =
     let one = V.of_term QQ.one Linear.const_dim in
     T.may_add one one T.empty in
-  let fresh_dim = ref 0 in
-  let adjoin (f, b) v =
-    let f' = T.may_add v (V.of_term QQ.one !fresh_dim) f in
-    let b' = T.may_add (V.of_term QQ.one !fresh_dim) v b in
-    fresh_dim := !fresh_dim + 1;
+  let adjoin (f, b) fresh_dim v =
+    let f' = T.may_add v (V.of_term QQ.one fresh_dim) f in
+    let b' = T.may_add (V.of_term QQ.one fresh_dim) v b in
     (f', b')
   in
-  let (forward, inverse) = List.fold_left adjoin (map_one, map_one) basis in
+  let (forward, inverse) = BatList.fold_lefti adjoin (map_one, map_one) basis in
   (forward, inverse)
 
 let lattice_polyhedron_of p l =
