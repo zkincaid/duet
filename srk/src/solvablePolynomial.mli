@@ -53,3 +53,5 @@ module DLTSPeriodicRational : sig
      periodic rational) spectrum *)
   val abstract_rational : 'a context -> 'a TransitionFormula.t -> 'a t
 end
+
+module SolvablePolynomialLIRR : PreDomain
