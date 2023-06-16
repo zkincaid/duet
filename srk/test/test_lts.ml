@@ -110,5 +110,27 @@ let suite = "LTS" >::: [
         let id = QQMatrix.identity [0;1;2] in
         assert_equal_lts
           (Lts.dlts_inverse_image id dlts_expected)
+          (Lts.dlts_inverse_image sim dlts));
+      "determinize4" >:: (fun () ->
+        let a = mk_matrix [[0; 0; 0];
+                           [1; 0; 0];
+                           [0; 1; 0]]
+        in
+        let b = mk_matrix [[0; 0; 1];
+                           [1; 0; 0];
+                           [0; 0; 0]]
+        in
+        let (dlts, sim) = Lts.determinize (a, b) in
+        let dlts_expected =
+          PLM.make
+            (mk_matrix [[1; 0];
+                        [0; 0]])
+            []
+        in
+        let sim_expected = mk_matrix [[1; 0; 0];
+                                      [0; 1; 0]]
+        in
+        assert_equal_lts
+          (Lts.dlts_inverse_image sim_expected dlts_expected)
           (Lts.dlts_inverse_image sim dlts))
     ]

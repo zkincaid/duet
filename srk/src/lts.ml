@@ -7,6 +7,8 @@ module QQVectorSpace = Linear.QQVectorSpace
 module IntMap = SrkUtil.Int.Map
 module TF = TransitionFormula
 
+(* Constraint representation of a linear transition system: a pair of matrices
+   (A, B) representing { (x,x') : Ax' = Bx } *)
 type lts = QQMatrix.t * QQMatrix.t
 
 let pp pp_dim formatter (mA, mB) =
@@ -227,13 +229,13 @@ let determinize (mA, mB) =
     let mT' =
       SrkUtil.Int.Set.fold
         (fun i (mT', nb_rows) ->
-          if V.is_zero (M.row i mB) then
-            let mT' =
-              M.add_row nb_rows (V.of_term QQ.one i) mT'
-            in
-            (mT', nb_rows + 1)
-          else
-            (mT', nb_rows))
+           if V.is_zero (M.row i mB) then
+             let mT' =
+               M.add_row nb_rows (V.of_term QQ.one i) mT'
+             in
+             (mT', nb_rows + 1)
+           else
+             (mT', nb_rows))
         (M.row_set mA)
         (mS, M.nb_rows mB)
       |> fst
@@ -271,8 +273,8 @@ let determinize (mA, mB) =
   let guard =
     match Linear.divide_right (M.mul mN mB) mS with
     | Some mG ->
-       (* 0 = NAx' = NBx = GSx *)
-       VS.of_matrix mG
+      (* 0 = NAx' = NBx = GSx *)
+      VS.of_matrix mG
     | None -> assert false
   in
   (PartialLinearMap.make mT guard, mS)
