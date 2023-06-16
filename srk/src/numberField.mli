@@ -16,10 +16,8 @@ val make_univariate : QQXs.t -> QQX.t
     the method to work p needs to be irreducible in K2 and q needs to be irreducible in K1.*)
 val primitive_elem : int -> QQXs.t -> QQXs.t -> Monomial.dim -> Monomial.dim -> QQX.t * QQX.t * QQX.t
 
-(** Given a minimal polynomial, construct a number field. Giving a
-    polynomial that is not irreducible in Q[x] gives undefined behavior.*)
-module MakeNF (A : sig val min_poly : QQX.t end) : sig
-  
+
+module type NF = sig  
 
   (** The degree of the extension.*)
   val deg : int
@@ -203,11 +201,11 @@ module MakeNF (A : sig val min_poly : QQX.t end) : sig
 
 end
 
+(** Given a minimal polynomial, construct a number field. Giving a
+    polynomial that is not irreducible in Q[x] gives undefined behavior.*)
+module MakeNF (A : sig val min_poly : QQX.t end) : NF
+
 (** [min_poly, roots] = [splitting_field p] is such that Q[x]/min_poly is the
     splitting field of [p]. [roots] give the representation of the roots along with
     their multiplicity of [p] in the splitting field.*)
 val splitting_field : QQX.t -> QQX.t * ((QQX.t * int) list)
-
-  
-
-

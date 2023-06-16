@@ -42,6 +42,77 @@ let primitive_elem needed_deg mp0 mp1 v0 v1 =
     let v1_in_prim = make_univariate (Rewrite.reduce r (QQXs.of_dim v1)) in
     make_univariate prim, v0_in_prim, v1_in_prim
 
+
+module type NF = sig  
+  val deg : int
+  val int_poly : QQX.t
+  type elem
+  val make_elem : QQX.t -> elem
+  val of_rat : QQ.t -> elem
+  val compute_min_poly : elem -> QQX.t
+  val mul : elem -> elem -> elem
+  val int_mul : int -> elem -> elem
+  val add : elem -> elem -> elem
+  val sub : elem -> elem -> elem
+  val inverse : elem -> elem
+  val exp : elem -> int -> elem
+  val equal : elem -> elem -> bool
+  val compare : elem -> elem -> int
+  val is_zero : elem -> bool
+  val one : elem
+  val zero : elem
+  val negate : elem -> elem
+  val pp : Format.formatter -> elem -> unit
+  module X : 
+    sig
+      include Euclidean with type scalar = elem
+      val pp : Format.formatter -> t -> unit
+      val lift : QQX.t -> t
+      val de_lift : t -> QQXs.t
+      val factor_square_free_poly : t -> (scalar * ((t * int) list))
+      val factor : t -> (scalar * ((t * int) list))
+      val extract_root_from_linear : t -> elem
+    end
+  module O : sig
+    type ideal
+    type o
+    val pp_o : Format.formatter -> o -> unit
+    val make_o_el : elem -> ZZ.t * o
+    val order_el_to_f_elem : ZZ.t * o -> elem
+    val idealify : ZZ.t array array -> ideal
+    val pp_i : Format.formatter -> ideal -> unit
+    val equal_i : ideal -> ideal -> bool
+    val sum_i : ideal -> ideal -> ideal
+    val mul_i : ideal -> ideal -> ideal
+    val ideal_generated_by : o -> ideal
+    val one_i : ideal
+    val intersect_i : ideal -> ideal -> ideal
+    val quotient_i : ideal -> ideal -> ideal
+    val get_smallest_int : ideal -> ZZ.t
+    type frac_ideal
+    val one : frac_ideal
+    val sum : frac_ideal -> frac_ideal -> frac_ideal
+    val intersect : frac_ideal -> frac_ideal -> frac_ideal
+    val mul : frac_ideal -> frac_ideal -> frac_ideal
+    val exp : frac_ideal -> int -> frac_ideal
+    val quotient : frac_ideal -> frac_ideal -> frac_ideal
+    val pp : Format.formatter -> frac_ideal -> unit
+    val equal : frac_ideal -> frac_ideal -> bool
+    val subset : frac_ideal -> frac_ideal -> bool
+    val make_frac_ideal : ZZ.t -> ideal -> frac_ideal
+    val compute_overorder : frac_ideal -> frac_ideal -> frac_ideal * frac_ideal
+    val factor_refinement : frac_ideal list -> frac_ideal * (frac_ideal * int) list
+    val compute_factorization : frac_ideal list -> int list list * frac_ideal list * frac_ideal
+    val find_unit_basis : o list -> int list list
+  end
+  val find_relations : elem list -> int list list
+end
+
+
+
+
+
+
 module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
   type elem = QQX.t (* elements of the field are polynomials of degree < the degree of the field*)
