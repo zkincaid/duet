@@ -147,6 +147,8 @@ module type Multivariate = sig
   val zero : t
   val one : t
 
+  val is_zero : t -> bool
+
   val sub : t -> t -> t
 
   val pp : (Format.formatter -> scalar -> unit) ->
