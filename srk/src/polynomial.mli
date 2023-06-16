@@ -21,6 +21,9 @@ module type Univariate = sig
 
   (** [mul_monomial k d p] multiplies the polynomial p by k * x^d *)
   val mul_monomial : scalar -> int -> t -> t
+
+  val pp : (Format.formatter -> scalar -> unit) -> Format.formatter -> t -> unit
+  
 end
 
 (** Univariate polynomials over a given ring *)
@@ -40,6 +43,12 @@ module type Euclidean = sig
   (** Given a polynomial p, computes (a1, i1), ..., (ak, ik) such that a1^i1...ak^ik = p
       and each ai is square free.*)
   val square_free_factor : t -> (t * int) list
+
+  (** Compute the derivative of the input polynomial*)
+  val derivative : t -> t
+
+  val int_mul : int -> t -> t
+
 end
 
 (** Univariate polynomials over a field give a Euclidean domain. *)
@@ -197,6 +206,8 @@ module type Multivariate = sig
   val degree : t -> int
 
   val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
+
+  val compare : (scalar -> scalar -> int) -> t -> t -> int
 end
                     
 (** Multi-variate polynomials over a ring *)

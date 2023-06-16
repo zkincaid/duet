@@ -100,6 +100,8 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
   (*The isomorphism is recognized by x --> 1/d x.*)
   let make_elem p = reduce (QQX.map (fun d c -> QQ.div c (QQ.exp (QQ.of_zz min_poly_den_lcm) d)) p)
 
+  let of_rat = QQX.scalar
+
   let mul a b = 
     reduce (QQX.mul a b)
 
@@ -122,6 +124,9 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
   let equal a b = 
     QQX.equal (reduce a) (reduce b)
 
+  let compare a b =
+    QQX.compare QQ.compare (reduce a) (reduce b)
+
   let is_zero a = 
     QQX.equal (QQX.zero) (reduce a)
 
@@ -134,6 +139,8 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
   let pp f e = 
     QQX.pp f e
+
+  let int_mul i x = QQX.scalar_mul (QQ.of_int i) x
 
   module E = struct let one = one let mul = mul let negate = negate let exp = exp end
 
@@ -183,19 +190,19 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     let factor_square_free_poly p =
       if QQX.is_zero int_poly then
         let p_uni = make_univariate (de_lift p) in
-        let lc, facts = QQX.factor p_uni in
-        make_elem (QQX.scalar lc), List.map (fun (f, d) -> lift f, d) facts
+        let content, facts = QQX.factor p_uni in
+        make_elem (QQX.scalar content), List.map (fun (f, d) -> lift f, d) facts
       else
-        let lc = coeff (order p) p in
+        (*let lc = coeff (order p) p in
         let pmonic = scalar_mul (inverse lc) p in
         let pmonic_deg = order pmonic in
-        let pmonicxs = de_lift pmonic in (* p is a multivariate polynomial in 0, the variable of the field, and 1 the variable of the polynomial.*)
-        let prim, v0_in_prim, v1_in_prim = primitive_elem (pmonic_deg * deg) (make_multivariate 0 int_poly) pmonicxs 0 1 in
+        let pmonicxs = de_lift pmonic in (* p is a multivariate polynomial in 0, the variable of the field, and 1 the variable of the polynomial.*)*)
+        let prim, v0_in_prim, v1_in_prim = primitive_elem ((order p) * deg) (make_multivariate 0 int_poly) (de_lift p) 0 1 in
         let primxs = make_multivariate 0 prim in
         let v1_term = QQXs.sub (make_multivariate 1 (QQX.identity)) (make_multivariate 0 v0_in_prim) in 
         let v2_term = QQXs.sub (make_multivariate 2 (QQX.identity)) (make_multivariate 0 v1_in_prim) in
         let mon_order = FGb.get_mon_order [0;2] [1] in
-        let (_, factors) = QQX.factor prim in
+        let (_, factors) = QQX.factor prim in (*Is the content needed somewhere?*)
         let find_factor (fact, deg) = 
           if deg > 1 then failwith "Primitive element contains square factor?";
           let factxs = make_multivariate 0 fact in
@@ -223,7 +230,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
               add (scalar_mul coe var_part) acc
           ) poly zero, deg
         in
-        (lc, List.map find_factor factors)
+        (E.one, List.map find_factor factors)
 
 
     let factor (p : t) = 
@@ -889,7 +896,7 @@ let splitting_field p_with_squares =
   let rec aux min_poly = 
     let module NF = MakeNF(struct let min_poly = min_poly end) in
     let (_, facts) = NF.X.factor (NF.X.lift p) in (*Can probably be made more efficient.*)
-    let (lin_facts, non_lin_facts) = List.partition (fun (x, _) -> NF.X.order x = 1) facts in
+    let (lin_facts, non_lin_facts) = List.partition (fun (x, _) -> NF.X.order x <= 1) facts in
     if List.length non_lin_facts = 0 then
       NF.int_poly, (List.map (fun (x, d) -> NF.X.extract_root_from_linear x, d) lin_facts)
     else

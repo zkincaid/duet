@@ -32,11 +32,15 @@ module MakeNF (A : sig val min_poly : QQX.t end) : sig
 
   (** Converts a univariate polynomial to an element of the number field.*)
   val make_elem : QQX.t -> elem
+  
+  val of_rat : QQ.t -> elem
 
   (** Computes the monic minimal polynomial of a given element. *)
   val compute_min_poly : elem -> QQX.t
 
   val mul : elem -> elem -> elem
+
+  val int_mul : int -> elem -> elem
 
   val add : elem -> elem -> elem
 
@@ -47,6 +51,8 @@ module MakeNF (A : sig val min_poly : QQX.t end) : sig
   val exp : elem -> int -> elem
 
   val equal : elem -> elem -> bool
+
+  val compare : elem -> elem -> int
 
   val is_zero : elem -> bool
 

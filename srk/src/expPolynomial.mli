@@ -3,6 +3,50 @@
    where [lambda] is a rational *)
 open Syntax
 
+module MakeEP
+  (B : sig 
+    include Algebra.Ring 
+    val compare : t -> t -> int 
+    val exp : t -> int -> t 
+    val pp : Format.formatter -> t -> unit
+  end)
+  (C : sig
+    include Algebra.Ring
+    val lift : B.t -> t
+    val int_mul : int -> t -> t
+    val pp : Format.formatter -> t -> unit
+  end)
+  (CX : sig
+    include Polynomial.Univariate with type scalar = C.t
+    val pp : Format.formatter -> t -> unit
+  end) : sig
+  type t
+
+  val pp : Format.formatter -> t -> unit
+  val show : t -> string
+
+  val equal : t -> t -> bool
+
+  val add : t -> t -> t
+  val mul : t -> t -> t
+
+  val negate : t -> t
+
+  val zero : t
+  val one : t
+
+  val of_polynomial : CX.t -> t
+
+  val of_exponential : B.t -> t
+
+  val scalar : C.t -> t
+
+  val scalar_mul : C.t -> t -> t
+
+  val eval : t -> int -> C.t
+
+end
+
 type t
 
 val pp : Format.formatter -> t -> unit
@@ -26,6 +70,8 @@ val scalar : QQ.t -> t
 
 val scalar_mul : QQ.t -> t -> t
 
+val eval : t -> int -> QQ.t
+
 (** [compose_left_affine f a b] computes the function [lambda x. f (ax + b)] *)
 val compose_left_affine : t -> int -> int -> t
 
@@ -42,7 +88,7 @@ val solve_rec : ?initial:QQ.t -> QQ.t -> t -> t
 (** [term_of srk t f] computes a term representing [f(t)]. *)
 val term_of : ('a context) -> 'a arith_term -> t -> 'a arith_term
 
-val eval : t -> int -> QQ.t
+
 
 val enum : t -> (Polynomial.QQX.t * QQ.t) BatEnum.t
 val add_term : Polynomial.QQX.t -> QQ.t -> t -> t

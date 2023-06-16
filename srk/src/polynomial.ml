@@ -25,6 +25,7 @@ module type Univariate = sig
   val eval : t -> scalar -> scalar
   val exp : t -> int -> t
   val mul_monomial : scalar -> int -> t -> t
+  val pp : (Format.formatter -> scalar -> unit) -> Format.formatter -> t -> unit
 end
 
 module MakeUnivariate(R : Algebra.Ring) = struct
@@ -66,6 +67,24 @@ module MakeUnivariate(R : Algebra.Ring) = struct
   let scalar k = add_term k 0 zero
 
   let eval p k = fst (pivot 0 (compose p (scalar k)))
+
+  let pp scalar_pp formatter p =
+    let pp_monomial formatter (coeff, order) =
+      if order = 0 then
+        scalar_pp formatter coeff
+      else if R.equal coeff R.one then
+        Format.fprintf formatter "@[x^%d@]" order
+      else if R.equal coeff (R.negate R.one) then
+        Format.fprintf formatter "@[-x^%d@]" order
+      else
+        Format.fprintf formatter "@[%a*x^%d@]" scalar_pp coeff order
+    in
+    SrkUtil.pp_print_enum
+      ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
+      pp_monomial
+      formatter
+      (enum p)
+
 end
 
 module type Euclidean = sig
@@ -76,13 +95,13 @@ module type Euclidean = sig
   val ex_euc : t -> t -> t * t * t
 
   val square_free_factor : t -> (t * int) list
+
+  val derivative : t -> t
+
+  val int_mul : int -> t -> t
 end
 
-module MakeEuclidean (
-  F : sig
-    include Algebra.Field
-    val int_mul : int -> t -> t (*Mathematically this isn't needed ix = x + x + ... + x. But there could be faster implementations.*)
-  end) = struct
+module MakeEuclidean (F : Algebra.Field) = struct
   include MakeUnivariate(F)
 
   let qr a b = 
@@ -140,28 +159,16 @@ module MakeEuclidean (
     let c_1 = fst (qr p_p a_0) in
     let d_1 = sub c_1 (derivative b_1) in
     aux b_1 d_1 1 []
+
+  let int_mul i a = map (fun _ s -> F.int_mul i s) a
+
 end
 
 
 module QQX = struct
   include MakeEuclidean(struct include QQ let int_mul i x = QQ.mul (QQ.of_int i) x end)
 
-  let pp formatter p =
-    let pp_monomial formatter (coeff, order) =
-      if order = 0 then
-        QQ.pp formatter coeff
-      else if QQ.equal coeff QQ.one then
-        Format.fprintf formatter "@[x^%d@]" order
-      else if QQ.equal coeff (QQ.negate QQ.one) then
-        Format.fprintf formatter "@[-x^%d@]" order
-      else
-        Format.fprintf formatter "@[%a*x^%d@]" QQ.pp coeff order
-    in
-    SrkUtil.pp_print_enum
-      ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
-      pp_monomial
-      formatter
-      (enum p)
+  let pp = (pp QQ.pp)
 
   let show = SrkUtil.mk_show pp
 
@@ -480,6 +487,7 @@ module type Multivariate = sig
   val dimensions : t -> SrkUtil.Int.Set.t
   val degree : t -> int
   val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
+  val compare : (scalar -> scalar -> int) -> t -> t -> int
 end
 
 module MakeMultivariate(R : Algebra.Ring) = struct
