@@ -25,7 +25,7 @@ module MakeEP
 
   module E = Ring.RingMap(B)(CX)
 
-  type t = E.t (*TODO include IIF*)
+  type t = E.t
 
   let equal = E.equal
 
@@ -74,6 +74,9 @@ module MakeEP
     /@ (fun (p, lambda) ->
         (C.mul (CX.eval p qq_x) (C.lift (B.exp lambda x))))
     |> BatEnum.fold C.add C.zero
+
+
+  let enum = E.enum
 
 end
 

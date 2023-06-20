@@ -14,7 +14,6 @@ module MakeEP
     include Algebra.Ring
     val lift : B.t -> t
     val int_mul : int -> t -> t
-    val pp : Format.formatter -> t -> unit
   end)
   (CX : sig
     include Polynomial.Univariate with type scalar = C.t
@@ -44,6 +43,8 @@ module MakeEP
   val scalar_mul : C.t -> t -> t
 
   val eval : t -> int -> C.t
+
+  val enum : t -> (CX.t * B.t) BatEnum.t
 
 end
 

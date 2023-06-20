@@ -203,6 +203,189 @@ end) = struct
 
 end
 
+module IM = SrkUtil.Int.Map
+
+module MakeEPWithHeavy(B : sig 
+  include Algebra.Ring 
+  val compare : t -> t -> int 
+  val exp : t -> int -> t 
+  val pp : Format.formatter -> t -> unit
+end)
+(C : sig
+  include Algebra.Ring
+  val lift : B.t -> t
+  val int_mul : int -> t -> t
+
+  val pp : Format.formatter -> t -> unit
+end)
+(CX : sig
+  include Polynomial.Univariate with type scalar = C.t
+  val pp : Format.formatter -> t -> unit
+end) = struct
+  module E = ExpPolynomial.MakeEP(B)(C)(CX)
+
+  type t = {
+    ep : E.t;
+    heaviside : C.t IM.t
+  }
+
+  let zero = {ep = E.zero; heaviside = IM.empty}
+
+  let one = {ep = E.one; heaviside = IM.empty}
+
+  let scalar a = {ep = E.scalar a; heaviside = IM.empty}
+
+  let of_polynomial p = {ep = E.of_polynomial p; heaviside = IM.empty}
+
+  let of_exponential e = {ep = E.of_exponential e; heaviside = IM.empty}
+
+  let of_exponential_poly e p = {ep = E.mul (E.of_exponential e) (E.of_polynomial p); heaviside = IM.empty}
+
+  let of_heavy shift c = {ep = E.zero; heaviside = IM.add shift c IM.empty}
+
+  let scalar_mul c term = 
+    let ep = E.scalar_mul c term.ep in
+    let heaviside = IM.map (C.mul c) term.heaviside in
+    {ep; heaviside}
+
+
+  let add a b =
+    let ep = E.add a.ep b.ep in
+    let unioner _ x y = 
+      let coef_add = C.add x y in
+      if C.equal coef_add C.zero then None
+      else Some coef_add
+    in
+    let heaviside = IM.union unioner a.heaviside b.heaviside in
+    {ep; heaviside}
+
+  let negate a = 
+    let ep = E.negate a.ep in
+    let heaviside = IM.map (C.negate) a.heaviside in
+    {ep; heaviside}
+
+
+  let equal a b = 
+    if E.equal a.ep b.ep = true then
+      IM.equal C.equal a.heaviside b.heaviside
+    else
+      false
+
+  (*TODO mul*)
+
+  let enum_ep e = E.enum e.ep
+
+  let enum_heavy e = IM.enum e.heaviside
+
+  let pp f a = 
+    let pp_heaviside formatter (offset, coef) =
+      if C.equal coef C.one then
+        Format.fprintf formatter "[x >= %d]" offset
+      else
+        Format.fprintf formatter "(%a)[x >= %d]" C.pp coef offset
+    in
+    let pp_sep formatter () =
+      Format.fprintf formatter "@ + "
+    in
+    let is_ep_zero = E.equal a.ep E.zero in
+    let is_heaviside_zero = IM.is_empty a.heaviside in
+    if is_ep_zero && is_heaviside_zero then Format.pp_print_string f "0"
+    else
+      if not is_ep_zero && is_heaviside_zero then E.pp f a.ep
+      else 
+        if not is_ep_zero then (E.pp f a.ep; pp_sep f ());
+        SrkUtil.pp_print_enum_nobox ~pp_sep pp_heaviside f (IM.enum a.heaviside)
+
+end
+
+module type ExpPolyNF = sig
+  module NF : NumberField.NF
+
+  module ConstRing : Polynomial.Multivariate with type scalar = NF.elem
+
+  module ConstRingX : Polynomial.Univariate with type scalar = ConstRing.t
+
+  type t 
+  val zero : t
+
+  val one : t
+
+  val scalar : ConstRing.t -> t
+
+  val of_polynomial : ConstRingX.t -> t
+
+  val of_exponential : NF.elem -> t
+
+  val of_exponential_poly : NF.elem -> ConstRingX.t -> t
+
+  val of_heavy : int -> ConstRing.t -> t
+  
+  val scalar_mul : ConstRing.t -> t -> t
+
+  val add : t -> t -> t
+
+  val negate : t -> t
+  
+  val equal : t -> t -> bool
+
+  val enum_ep : t -> (ConstRingX.t * NF.elem) BatEnum.t
+
+  val enum_heavy : t -> (int * ConstRing.t) BatEnum.t
+
+  val pp : Format.formatter -> t -> unit
+
+  val get_rec_sols : unit -> t array
+
+  val base_relations : unit -> Polynomial.QQXs.t list * (NF.elem * int) BatEnum.t
+
+  (*TODO mul*)
+end
+
+module MakeConstRing (
+  R : sig 
+    include Algebra.Ring 
+    val lift : QQ.t -> t
+  end) = struct
+  include Polynomial.MakeMultivariate(R)
+  
+  let int_mul i = scalar_mul (R.lift (QQ.of_int i))
+
+end
+
+module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struct
+  module NF = NF
+
+  module ConstRing = MakeConstRing(struct include NF type t = elem let lift = NF.of_rat end)
+
+  
+  module ConstRingX = struct
+      include Polynomial.MakeUnivariate(ConstRing)
+      let int_mul i a = scalar_mul (ConstRing.int_mul i ConstRing.one) a
+    end
+
+    
+  let lift_nfx_to_constnfx d =   
+    let e = BatEnum.map (
+      fun (c, deg) ->
+        ConstRing.scalar c, deg
+      ) (NF.X.enum d) in
+    ConstRingX.of_enum e
+  
+
+  include MakeEPWithHeavy
+    (struct include NF type t = elem end)
+    (struct include ConstRing let lift = ConstRing.scalar let pp = ConstRing.pp NF.pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d))) end)
+    (struct include ConstRingX let pp = ConstRingX.pp (ConstRing.pp NF.pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d)))) end)
+
+
+  let rec_sols = ref (Array.make 0 zero)
+
+  let get_rec_sols () = !rec_sols
+
+  let base_relations () = 
+    [], BatEnum.empty ()
+
+end 
 
 
 open Polynomial
@@ -378,24 +561,13 @@ module MakeRatDiff
 
 end
 
-module MakeConstRing (
-  R : sig 
-    include Algebra.Ring 
-    val lift : QQ.t -> t 
-    val pp : Format.formatter -> t -> unit 
-    val compare : t -> t -> int
-  end) = struct
-  include MakeMultivariate(R)
-  
-  let int_mul i = scalar_mul (R.lift (QQ.of_int i))
 
-  let pp = pp R.pp (fun f i -> Format.pp_print_string f ("x_" ^ (string_of_int i)))
+module ConstRing = struct 
+  include MakeConstRing(struct include QQ let lift x = x end)
 
-  let compare = compare R.compare
+  let pp = pp QQ.pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d)))
 
-end
-
-module ConstRing = MakeConstRing(struct include QQ let lift x = x end)
+  end
 
 module ConstRingX = struct
   include Polynomial.MakeUnivariate(ConstRing)
@@ -543,14 +715,329 @@ module RatSeq = struct
     exp_by_squaring one rs e
 
   
-  type block =
-  { blk_transform : QQ.t array array;
-    blk_add : QQXs.t array }
+  type block = TransitionIdeal.block
+
+
+
+
+  module RS = struct type nonrec t = t let add = add let zero = zero end
+
+  module RatEP = struct
+
+    module RE = MakeEPWithHeavy(QQ)(struct include ConstRing let lift = ConstRing.scalar end)(N)
+
+    type iif = QQX.t
+
+    module IIFS = BatMap.Make(
+      struct 
+        type t = iif * int 
+        let compare (a, offa) (b, offb)= 
+          let q_c = QQX.compare QQ.compare a b in 
+          if q_c <> 0 then q_c
+          else
+            Int.compare offa offb
+      end)
+
+    type t = {
+      e : RE.t;
+      iifs : ConstRing.t IIFS.t
+    }
+
+    let equal a b = 
+      if RE.equal a.e b.e = true then
+        IIFS.equal (ConstRing.equal) a.iifs b.iifs
+      else false
+
+    let pp f a = 
+      let pp_iif formatter ((den, shift), coef) =
+        if ConstRing.equal coef ConstRing.one then
+          if shift = 0 then
+            Format.fprintf formatter "IIF(%a)[x]" QQX.pp den
+          else
+            Format.fprintf formatter "IIF(%a)[x + %d]" QQX.pp den shift
+        else
+          if shift = 0 then
+            Format.fprintf formatter "(%a)IIF(%a)[x]" ConstRing.pp coef QQX.pp den
+          else
+            Format.fprintf formatter "(%a)IIF(%a)[x + %d]" ConstRing.pp coef QQX.pp den shift
+      in
+      let pp_sep formatter () =
+        Format.fprintf formatter "@ + "
+      in
+      let is_ep_zero = RE.equal a.e RE.zero in
+      let is_iifs_zero = IIFS.is_empty a.iifs in
+      if is_ep_zero && is_iifs_zero then Format.pp_print_string f "0"
+      else
+        if not is_ep_zero && is_iifs_zero then RE.pp f a.e
+        else 
+          if not is_ep_zero then (RE.pp f a.e; pp_sep f ());
+          SrkUtil.pp_print_enum_nobox ~pp_sep pp_iif f (IIFS.enum a.iifs)
+
+    let zero = {e = RE.zero; iifs = IIFS.empty}
+
+    let one = {e = RE.one; iifs = IIFS.empty}
+
+    let scalar a = {e = RE.scalar a; iifs = IIFS.empty}
+
+    let of_polynomial p = {e = RE.of_polynomial p; iifs = IIFS.empty}
+
+    let of_exponential e = {e = RE.of_exponential e; iifs = IIFS.empty}
+    
+
+    let scalar_mul c term = 
+      let e = RE.scalar_mul c term.e in
+      let iifs = IIFS.map (ConstRing.mul c) term.iifs in
+      {e; iifs}
+
+    let add a b =
+      let e = RE.add a.e b.e in
+      let unioner _ x y = 
+        let coef_add = ConstRing.add x y in
+        if ConstRing.is_zero coef_add then None
+        else Some coef_add
+      in
+      let iifs = IIFS.union unioner a.iifs b.iifs in
+      {e; iifs}
+
+    let negate a = 
+      let e = RE.negate a.e in
+      let iifs = IIFS.map (ConstRing.negate) a.iifs in
+      {e; iifs}
+
+
+    let translate_term (n, (den, power)) = 
+      if QQX.order den > 1 then(
+        (*let size = BatList.length (BatList.of_enum (QQX.enum den)) in
+        if size = 1 then(
+          let heaviside = ConstRingX.fold (
+            fun deg coef heavies -> 
+              IM.add (power - deg) coef heavies
+          ) n IM.empty in
+          {ep = RE.zero; iifs = IIFS.empty; heaviside})
+        else*)
+          let iif_den = QQX.exp den power in
+          let iifs = ConstRingX.fold (
+            fun deg coef iif ->
+              IIFS.add (iif_den, deg) coef iif
+          ) n IIFS.empty in
+          {zero with iifs})
+      else( 
+        if N.order n > 0 then failwith "Numerator should be constant unless IIF";
+        let num = N.coeff 0 n in
+        if QQX.order den = 0 then
+          let coe = QQ.exp (QQX.coeff 0 den) (-power) in
+          scalar (ConstRing.scalar_mul coe num)
+        else(
+          let den_root = QQ.negate (QQ.div (QQX.coeff 0 den) (QQX.coeff 1 den)) in
+          if QQ.equal den_root QQ.zero then
+            let heaviside = ConstRingX.fold (
+              fun deg coef heavies -> 
+                IM.add (power - deg) coef heavies
+              ) n IM.empty in
+              {e = {RE.zero with heaviside }; iifs = IIFS.empty}
+          else if QQ.equal den_root QQ.one then
+            let p = QQX.choose power in
+            scalar_mul num (of_polynomial (lift_qqx_to_constfofx p))
+          else
+            let rec aux c = 
+              if c = 1 then 
+                let ep_den = ConstRing.scalar (QQ.inverse (QQ.sub den_root QQ.one)) in
+                let ep = RE.E.add (RE.E.of_exponential den_root) (RE.E.negate RE.E.one) in
+                RE.E.scalar_mul ep_den ep (*(k^n - 1)/(k-1)*)
+              else
+                let ep_den = ConstRing.scalar (QQ.inverse (QQ.sub den_root QQ.one)) in
+                let expo = RE.E.of_exponential den_root in
+                let poly = QQX.scalar_mul (QQ.exp den_root (-c + 1)) (QQX.choose (c-1)) in (*(n choose c-1) a^{-c+1}*)
+                let term = RE.E.mul expo (RE.E.of_polynomial (lift_qqx_to_constfofx poly)) in
+                let rhs = aux (c-1) in
+                RE.E.scalar_mul ep_den (RE.E.add term (RE.E.negate rhs)) (*1/(a-1) ((n choose c-1) a^{-c+1}a^n - aux (c-1))*)
+            in
+            {e = {RE.zero with ep = RE.E.scalar_mul num (aux power)}; iifs = IIFS.empty}))
+
+  let translate_rs (n, d) = 
+    let content, den_facts = QQX.factor d in
+    let n = ConstRingX.scalar_mul (ConstRing.scalar (QQ.inverse content)) n in
+    let decomp = partial_fraction n den_facts in
+    List.fold_left (
+      fun acc rat_t -> add acc (translate_term rat_t)
+    ) zero decomp
+
+
+  let translate_ep_term (xc, xb) = 
+    let choose_int n k = 
+      if k < 0 || k > n then QQ.zero
+      else if k = 0 || k = n then QQ.one
+      else
+        let k = min k (n-k) in
+        let rec aux acc i = 
+          if i > k then acc
+          else
+            aux (QQ.mul acc (QQ.of_frac (n+1-i) (i))) (i + 1)
+        in
+        aux (QQ.of_int 1) 1
+    in
+    let binomial_trans p = 
+      let d = ConstRingX.order p in
+      let kth_coef k = 
+        let l = List.map (
+          fun i ->
+            let rat_piece = QQ.mul (QQ.exp (QQ.of_int (-1)) (k-i)) (choose_int k i) in
+            ConstRing.scalar_mul rat_piece (ConstRingX.eval p (ConstRing.scalar (QQ.of_int i)))
+        ) (List.init (k+1) (fun i -> i)) in
+        List.fold_left ConstRing.add ConstRing.zero l in
+      List.init (d + 1) kth_coef
+    in
+    let xc_binom = binomial_trans xc in
+    if QQ.equal xb QQ.one then
+      let add_l = List.mapi (fun i coef -> (ConstRingX.scalar coef), QQX.exp (QQX.sub QQX.identity QQX.one) i) xc_binom in
+      List.fold_left RS.add RS.zero add_l
+    else
+      let add_l = List.mapi (
+        fun i coef -> 
+          let num = ConstRingX.scalar_mul (ConstRing.scalar_mul (QQ.exp xb i) coef) (ConstRingX.sub ConstRingX.identity ConstRingX.one) in
+          num, QQX.exp (QQX.sub QQX.identity (QQX.scalar xb)) (i + 1)) xc_binom in
+      List.fold_left RS.add RS.zero add_l
+
+        
+  let translate_iif ((iifa, shift), coef) : RS.t = 
+    ConstRingX.scalar_mul coef (ConstRingX.of_term ConstRing.one shift), iifa          
+
+  let translate_heaviside (shift, coef) : RS.t = 
+    ConstRingX.scalar coef, QQX.of_term QQ.one shift
+
+  let mul a b = 
+    if IIFS.is_empty a.iifs && IIFS.is_empty b.iifs && IM.is_empty a.e.heaviside && IM.is_empty b.e.heaviside then {zero with e = {RE.zero with ep = RE.E.mul a.e.ep b.e.ep}}
+    else (*probably a much more efficient way to due this*)
+      let a_ep_rs, b_ep_rs = BatEnum.map translate_ep_term (RE.enum_ep a.e), BatEnum.map translate_ep_term (RE.enum_ep b.e) in
+      let a_iifs_rs, b_iifs_rs = BatEnum.map translate_iif (IIFS.enum a.iifs), BatEnum.map translate_iif (IIFS.enum b.iifs) in
+      let a_heavy_rs, b_heavy_rs = BatEnum.map translate_heaviside (RE.enum_heavy a.e), BatEnum.map translate_heaviside (RE.enum_heavy b.e) in
+      let a_rs = BatEnum.fold RS.add RS.zero (BatEnum.append (BatEnum.append a_ep_rs a_iifs_rs) a_heavy_rs) in
+      let b_rs = BatEnum.fold RS.add RS.zero (BatEnum.append (BatEnum.append b_ep_rs b_iifs_rs) b_heavy_rs) in
+      translate_rs (had_mult a_rs b_rs)
+
+
+  let to_nf eps = 
+    let all_iifs = Array.fold_left (fun acc ep -> BatEnum.append acc (IIFS.keys ep.iifs)) (BatEnum.empty ()) eps in
+    let sf, roots = 
+      if BatEnum.is_empty all_iifs then QQX.zero, []
+      else
+        let irreds = BatEnum.uniq_by (fun (den1, _) (den2, _) -> QQX.equal den1 den2) all_iifs in
+        let root_poly = BatEnum.fold (fun rp (irred, _) -> QQX.mul rp irred) QQX.one irreds in
+        NumberField.splitting_field root_poly
+    in
+    let module NF = NumberField.MakeNF(struct let min_poly = sf end) in
+    let roots_e = List.map (fun (r, _) -> NF.make_elem r) roots in
+    let module EP = MakeEPNF(NF) in
+    let lift_nfx_to_constnfx d =   
+      let e = BatEnum.map (
+        fun (c, deg) ->
+          EP.ConstRing.scalar c, deg
+        ) (EP.NF.X.enum d) in
+      EP.ConstRingX.of_enum e
+    in
+    let module RatNF = 
+      MakeRatDiff(
+        struct 
+          include EP.ConstRingX
+          let pp = pp (EP.ConstRing.pp EP.NF.pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d))))
+          let int_mul i e = scalar_mul (EP.ConstRing.scalar (EP.NF.of_rat (QQ.of_int i))) e
+        end)
+        (EP.NF.X)(
+        struct
+          let lift = lift_nfx_to_constnfx
+          let qr a b = 
+            if EP.NF.X.is_zero b then failwith "Divide by 0";
+            let d = EP.NF.X.order b in
+            let c = EP.NF.X.coeff d b in
+            if d = 0 then 
+              (EP.ConstRingX.scalar_mul (EP.ConstRing.scalar (EP.NF.inverse c)) a, EP.ConstRingX.zero)
+            else
+              let rec aux q r =
+                let rd = EP.ConstRingX.order r in
+                if rd = 0 || rd < d then (q, r)
+                else
+                  let s = (EP.ConstRingX.of_term (EP.ConstRing.scalar_mul (EP.NF.inverse c) (EP.ConstRingX.coeff rd r)) (rd - d)) in
+                  aux (EP.ConstRingX.add q s) (EP.ConstRingX.sub r (EP.ConstRingX.mul s (lift b)))
+                in
+              aux EP.ConstRingX.zero a
+        end) in
+    let lift_const_to_constnf c = 
+      EP.ConstRing.of_enum (BatEnum.map (fun (c, m) -> EP.NF.of_rat c, m) (ConstRing.enum c))
+    in
+    let lift_constx_to_constnfx p = 
+      EP.ConstRingX.of_enum (BatEnum.map (fun (c, d) -> lift_const_to_constnf c, d) (ConstRingX.enum p))
+    in
+    let translate_ep ep = 
+      let ep_with_e_and_heavy = BatEnum.fold (
+        fun e (coef, b) ->
+          EP.add e (EP.of_exponential_poly (EP.NF.of_rat b) (lift_constx_to_constnfx coef))
+        ) (BatEnum.fold (fun e (heavy, coef) -> EP.add e (EP.of_heavy heavy (lift_const_to_constnf coef))) EP.zero (RE.enum_heavy ep.e)) (RE.enum_ep ep.e)
+      in
+      let iif_to_rat_pow ((iif, shift), coef) = 
+        let square_free_iif = QQX.square_free_factor iif in
+        let process_square_free (new_c, den_facts) (den_fact, multi) = 
+          let den_e = EP.NF.X.lift den_fact in
+          let roos = List.filter (fun r -> EP.NF.is_zero (EP.NF.X.eval den_e r)) roots_e in
+          if EP.NF.X.order den_e <> List.length roos then failwith "Missing root";
+          let roos_facts = List.map (fun r -> EP.NF.X.sub EP.NF.X.identity (EP.NF.X.scalar r)) roos in
+          let (const_p, rem) = EP.NF.X.qr den_e (List.fold_left EP.NF.X.mul EP.NF.X.one roos_facts) in
+          if NF.X.order const_p > 0 || not (NF.X.is_zero rem) then failwith "The root poly should be a constant factor of den_e";
+          let const_mult = NF.X.coeff 0 const_p in
+          (EP.ConstRingX.scalar_mul (EP.ConstRing.scalar (EP.NF.inverse const_mult)) new_c, den_facts @ (List.map (fun rp -> rp, multi) roos_facts))
+        in
+        List.fold_left process_square_free (EP.ConstRingX.scalar_mul (lift_const_to_constnf coef) (EP.ConstRingX.of_term (EP.ConstRing.one) shift), []) square_free_iif
+      in
+      let iifs_rat_pow = BatEnum.map iif_to_rat_pow (IIFS.enum ep.iifs) in
+      let translate_and_add sum (numerator, den_fact_list) = 
+        let terms = RatNF.partial_fraction numerator den_fact_list in
+        let translate_term (num, (den, power)) = 
+          if NF.X.order den > 1 then failwith "Everything should be factored to linear polys";
+          if EP.ConstRingX.order num > 0 then failwith "Numerator should be a constant with linear denominator";
+          let n = EP.ConstRingX.coeff 0 num in
+          if NF.X.order den = 0 then
+            let coe = NF.inverse (NF.exp (NF.X.coeff 0 den) power) in
+            EP.scalar (EP.ConstRing.scalar_mul coe n)
+          else
+            let den_root = NF.negate (NF.mul (NF.X.coeff 0 den) (NF.inverse (NF.X.coeff 1 den))) in
+            if NF.equal den_root NF.zero then
+              EP.ConstRingX.fold (
+                fun deg coef heavies ->
+                  EP.add (EP.of_heavy (power - deg) coef) heavies
+              ) num EP.zero
+            else if NF.equal den_root NF.one then (*This should have already been handled*)
+              let p = NF.X.lift (QQX.choose power) in
+              EP.scalar_mul n (EP.of_polynomial (lift_nfx_to_constnfx p))
+            else
+              let rec aux c = 
+                if c = 1 then 
+                  let ep_den = EP.ConstRing.scalar (NF.inverse (NF.sub den_root NF.one)) in
+                  let ep = EP.add (EP.of_exponential den_root) (EP.negate EP.one) in
+                  EP.scalar_mul ep_den ep (*(k^n - 1)/(k-1)*)
+                else
+                  let ep_den = EP.ConstRing.scalar (NF.inverse (NF.sub den_root NF.one)) in
+                  let poly = NF.X.scalar_mul (NF.exp den_root (-c + 1)) (NF.X.lift (QQX.choose (c-1))) in (*(n choose c-1) a^{-c+1}*)
+                  let term = EP.of_exponential_poly den_root (lift_nfx_to_constnfx poly) in
+                  let rhs = aux (c-1) in
+                  EP.scalar_mul ep_den (EP.add term (EP.negate rhs)) (*1/(a-1) ((n choose c-1) a^{-c+1}a^n - aux (c-1))*)
+              in
+              EP.scalar_mul n (aux power)
+        in
+        List.fold_left (fun acc t -> EP.add acc (translate_term t)) sum terms
+      in
+      BatEnum.fold translate_and_add ep_with_e_and_heavy iifs_rat_pow
+    in
+    let eps_nf = Array.map translate_ep eps in
+    EP.rec_sols := eps_nf;
+    let ep = (module EP : ExpPolyNF) in
+    ep
+    
+  end
+
 
   let solve_rec_rs sp : t array = 
-    let size = List.fold_left (+) 0 (List.map (fun blk -> Array.length blk.blk_transform) sp) in
+    let size = List.fold_left (+) 0 (List.map (fun (blk : block) -> Array.length blk.blk_transform) sp) in
     let cf = Array.make size zero in
-    let translate_blk_add p = 
+    let translate_blk_add p = (*Might be better to work with ep's and use that mult rather than had mult.*)
       QQXs.fold (
         fun m coef rs ->
           let mon_rs = BatEnum.fold (
@@ -563,7 +1050,7 @@ module RatSeq = struct
     let rec aux blocks offset = 
       match blocks with
       | [] -> ()
-      | blk :: blks ->
+      | (blk : block) :: blks ->
         let blk_size = Array.length (blk.blk_add) in
         let blk_add = Array.map translate_blk_add blk.blk_add in
         let init = Array.mapi (fun i _ -> ConstRing.of_dim (i + offset)) blk.blk_add in
@@ -576,132 +1063,10 @@ module RatSeq = struct
     aux sp 0;
     cf
 
+  let solve_rec recs = 
+    Array.map RatEP.translate_rs (solve_rec_rs recs)
+
 end
 
-module RatEP = ExpPolynomial.MakeEP(QQ)(struct include ConstRing let lift = ConstRing.scalar end)(struct include ConstRingX let pp = ConstRingX.pp ConstRing.pp end)
 
-
-(*let pp_rat_pow f (n, (d, e)) = 
-  if QQX.equal d QQX.one then
-    Format.fprintf f "@[%a@]" (ConstRingX.pp ConstRing.pp) n
-  else
-    Format.fprintf f "@[(%a)/(%a)^%d@]" (ConstRingX.pp ConstRing.pp) n QQX.pp d e*)
-
-
-let translate_rs (sols : RatSeq.t array) = 
-  let sols_fact = Array.map (
-    fun (n, d) ->
-      let content, den_facts = QQX.factor d in
-      let n = ConstRingX.scalar_mul (ConstRing.scalar (QQ.inverse content)) n in
-      RatSeq.partial_fraction n den_facts
-  ) sols in
-  (*let pl = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_string fo " +"; Format.pp_print_space fo ()) pp_rat_pow in
-  Array.iteri (
-    fun i rs ->
-      logf ~level:`always "Dim %d : %a" i pl rs
-  ) sols_fact;*)
-  let translate_term (n, (den, power)) = 
-    if QQX.order den > 1 then failwith "TODO handle IIFs"
-    else 
-      if ConstRingX.order n > 0 then failwith "Numerator should be constant unless IIF";
-      let num = ConstRingX.coeff 0 n in
-      if QQX.order den = 0 then
-        let coe = QQ.exp (QQX.coeff 0 den) (-power) in
-        RatEP.scalar (ConstRing.scalar_mul coe num)
-      else
-        let den_root = QQ.negate (QQ.div (QQX.coeff 0 den) (QQX.coeff 1 den)) in
-        if QQ.equal den_root QQ.one then
-          let p = QQX.choose power in
-          RatEP.scalar_mul num (RatEP.of_polynomial (lift_qqx_to_constfofx p))
-        else
-          let rec aux c = 
-            if c = 1 then 
-              let ep_den = ConstRing.scalar (QQ.inverse (QQ.sub den_root QQ.one)) in
-              let ep = RatEP.add (RatEP.of_exponential den_root) (RatEP.negate RatEP.one) in
-              RatEP.scalar_mul ep_den ep (*(k^n - 1)/(k-1)*)
-            else
-              let ep_den = ConstRing.scalar (QQ.inverse (QQ.sub den_root QQ.one)) in
-              let expo = RatEP.of_exponential den_root in
-              let poly = QQX.scalar_mul (QQ.exp den_root (-c + 1)) (QQX.choose (c-1)) in (*(n choose c-1) a^{-c+1}*)
-              let term = RatEP.mul expo (RatEP.of_polynomial (lift_qqx_to_constfofx poly)) in
-              let rhs = aux (c-1) in
-              RatEP.scalar_mul ep_den (RatEP.add term (RatEP.negate rhs)) (*1/(a-1) ((n choose c-1) a^{-c+1}a^n - aux (c-1))*)
-          in
-          RatEP.scalar_mul num (aux power)
-  in
-  Array.map (
-    List.fold_left (
-      fun acc rat_t -> RatEP.add acc (translate_term rat_t)
-    ) RatEP.zero) sols_fact
-  
-
-
-
-
-        
-
-
-
-
-
-
-
-  (*let (irreducible_den_factors_prod, rational_roots) = 
-    Array.fold_left (
-      fun (irred, roots) (_, factors) ->
-        let irred_facts, lin_facts = List.partition (fun (f, _) -> QQX.order f > 1) factors in
-        let irred_facts, lin_facts = fst (List.split irred_facts), fst (List.split lin_facts) in
-        let extract_root_from_linear p = QQ.div (QQX.coeff 0 p) (QQ.negate (QQX.coeff 1 p)) in
-        List.fold_left QQX.mul irred irred_facts, (List.map extract_root_from_linear lin_facts) @ roots
-    ) (QQX.one, []) sols_fact in
-  let splitting_field, rational_roots, irrational_roots = 
-    if QQX.order irreducible_den_factors_prod <= 1 then QQX.zero, BatList.of_enum (BatEnum.uniq_by (QQ.equal) (BatList.enum rational_roots)), []
-    else 
-      let sp, irred_roots = NumberField.splitting_field irreducible_den_factors_prod in
-      sp, BatList.of_enum (BatEnum.uniq_by (QQ.equal) (BatList.enum rational_roots)), (fst (List.split irred_roots))
-  in
-  let module NF = NumberField.MakeNF(struct let min_poly = splitting_field end) in
-  let module RootMap = BatMap.Make(struct type t = NF.elem let compare = NF.compare end) in (*Maybe not the most efficient*)
-  let module NFXs = MakeMultivariate(struct include NF type t = elem end) in
-  let module ConstFoFNF = MakeFoF(
-    struct 
-      include NFXs 
-      let int_mul i a = NFXs.scalar_mul (NF.int_mul i NF.one) a 
-      let pp = NFXs.pp NF.pp (fun f dim -> Format.pp_print_string f ("x_" ^ (string_of_int dim)))
-    end) in
-  let module ConstFoFNFX = MakeEuclidean(ConstFoFNF) in
-  let module Rat = MakeRat(struct include ConstFoFNFX let pp = ConstFoFNFX.pp ConstFoFNF.pp end) in
-  let roots_e = (List.map (fun e -> NF.make_elem e) irrational_roots) @ (List.map (fun q -> NF.of_rat q) rational_roots) in
-  let offset = Array.length sols in
-  let rm = List.fold_left (fun (i, m) e -> i+1, RootMap.add e i m) (offset, RootMap.empty) roots_e in
-  let lift_constfof_to_constfofnf ((n, d) : ConstFoF.t) : ConstFoFNF.t = 
-    let qqxs_to_nfxs a = 
-      NFXs.of_enum (BatEnum.map (fun (c, m) -> NF.of_rat c, m) (QQXs.enum a))
-    in
-    (qqxs_to_nfxs n, qqxs_to_nfxs d)
-  in
-  let translate_rat_seq ((num, den_fact_list) : (ConstFoFX.t * (QQX.t * int) list)) = 
-    let num_fofnfx = ConstFoFNFX.of_enum (BatEnum.map (fun (c, d) -> lift_constfof_to_constfofnf c, d) (ConstFoFX.enum num)) in
-    let translate_den (coef, new_den_list) (den, power) = 
-      let dennf = NF.X.lift den in
-      let roots = List.filter (fun r -> NF.is_zero (NF.X.eval dennf r)) roots_e in
-      if List.length roots <> NF.X.order dennf then failwith "A root has not been accounted for";
-      let root_polys = List.map (fun r -> NF.X.sub NF.X.identity (NF.X.scalar r)) roots in
-      let min_poly = List.fold_left NF.X.mul NF.X.one root_polys in
-      let (const_p, _) = NF.X.qr dennf min_poly in
-      if NF.X.order const_p > 0 then failwith "Dennf and min_poly are off by more than a constant";
-      let const_mult = NF.X.coeff 0 const_p in
-      let root_polys_nfxs = List.map (fun p -> ConstFoFNFX.of_enum (BatEnum.map (fun (c, d) -> ConstFoFNF.lift (NFXs.scalar c), d) (NF.X.enum p))) root_polys in
-      (NF.mul coef (NF.exp const_mult power), new_den_list @ (List.map (fun rp -> rp, power) root_polys_nfxs))
-    in
-    let coef, new_den_list = List.fold_left translate_den (NF.one, []) den_fact_list in
-    let new_num = ConstFoFNFX.scalar_mul (ConstFoFNF.lift (NFXs.scalar (NF.inverse coef))) num_fofnfx in
-    Rat.partial_fraction new_num new_den_list
-  in
-  let translated_rs = Array.map translate_rat_seq sols_fact in (*Each element should be a sum of terms of the form c/(p(x))^k where p(x) is a linear polynomial*)
-  let translate_to_exp_poly rs = 
-    let translate_term_to_exp_poly (num, (den, power)) =
-      let rec aux (d, c) = 
-        if ConstFoFNFX.order d <> 1 then failwith "Denominator is not of the form (x-a)^c";
-        let an, ad = ConstFoFNF.mul (ConstFoFNF.negate (ConstFoFNFX.coeff 0 d)) (ConstFoFNF.inverse (ConstFoFNFX.coeff 1 d)) in*)
-  
+    
