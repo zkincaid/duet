@@ -6,14 +6,6 @@ open Polynomial
 
 type block = TransitionIdeal.block
 
-module ConstRingInfix = struct
-  let ( + ) = ConstRing.add
-  let ( - ) = ConstRing.sub
-  let ( * ) = ConstRing.mul
-  let int k = ConstRing.scalar (QQ.of_int k)
-  let rat n d = ConstRing.scalar (QQ.of_frac n d)
-  let dim k = ConstRing.of_dim k
-end
 
 let mat_mul_v m v = 
   Array.map (
@@ -74,7 +66,6 @@ let qqify_v = Array.map (QQ.of_int)
 
 let qqify = Array.map qqify_v
 
-module RatEP = RatSeq.RatEP
 
 
 let assert_equal_seq =
@@ -93,7 +84,7 @@ let mat_rec_test1 () =
   let add = [|QQXs.zero; QQXs.zero|] in
   let init = [|QQXs.of_dim 0; QQXs.of_dim 1|] in
   let first_10 = enumerate transform init add 9 in
-  let eps = RatSeq.solve_rec [({blk_transform = transform; blk_add = add} : block)] in
+  let eps = RatEP.solve_rec [({blk_transform = transform; blk_add = add} : block)] in
   let dim0_10 = List.init 10 (fun i -> RatEP.eval eps.(0) i) in
   let dim1_10 = List.init 10 (fun i -> RatEP.eval eps.(1) i) in
   assert_equal_seq first_10.(0) dim0_10;
@@ -108,7 +99,7 @@ let sp_test1 () =
   let transform2 = qqify [|[|4|]|] in
   let add2 = [|Polynomial.QQXs.mul (Polynomial.QQXs.of_dim 0) (Polynomial.QQXs.of_dim 1)|] in
   let blk2 : block = {blk_transform = transform2; blk_add = add2} in
-  let eps = RatSeq.solve_rec [blk1; blk2] in
+  let eps = RatEP.solve_rec [blk1; blk2] in
   let first_10 = enumerate_sp [blk1; blk2] 9 in
   let dim0_10 = List.init 10 (fun i -> RatEP.eval eps.(0) i) in
   let dim1_10 = List.init 10 (fun i -> RatEP.eval eps.(1) i) in
@@ -122,19 +113,16 @@ let iif_test1 () =
                           [|1; 0|]|] in
   let add1 = [|Polynomial.QQXs.zero; Polynomial.QQXs.zero|] in
   let blk : block = {blk_transform = transform1; blk_add = add1} in
-  let eps = RatSeq.solve_rec [blk] in
+  let eps = RatEP.solve_rec [blk] in
   Array.iteri (fun dim ep ->
-    logf ~level:`always "Dim %d : %a" dim RatEP.pp ep) eps
-
-let pp_facts f (n, (den, pow)) = 
-  Format.fprintf f "(%a)/(%a)^%d" (ConstRingX.pp ConstRing.pp) n Polynomial.QQX.pp den pow
+    Log.logf ~level:`always "Dim %d : %a" dim RatEP.pp ep) eps
 
 let zero_eigen_test () = 
   let transform1 = qqify [|[|0; 1|];
                           [|0; 0|]|] in
   let add1 = [|Polynomial.QQXs.zero; Polynomial.QQXs.zero|] in
   let blk : block = {blk_transform = transform1; blk_add = add1} in
-  let eps = RatSeq.solve_rec [blk] in
+  let eps = RatEP.solve_rec [blk] in
   let first_10 = enumerate_sp [blk] 9 in
   let dim0_10 = List.init 10 (fun i -> RatEP.eval eps.(0) i) in
   let dim1_10 = List.init 10 (fun i -> RatEP.eval eps.(1) i) in
@@ -147,7 +135,7 @@ let nf_test1 () =
                           [|1; 0|]|] in
   let add1 = [|Polynomial.QQXs.zero; Polynomial.QQXs.zero|] in
   let blk : block = {blk_transform = transform1; blk_add = add1} in
-  let eps = RatSeq.solve_rec [blk] in
+  let eps = RatEP.solve_rec [blk] in
   let module EP = (val RatEP.to_nf eps) in
   let nf_eps = EP.get_rec_sols () in
   let first_10 = enumerate_sp [blk] 9 in
@@ -172,7 +160,7 @@ let rel_test1 () =
   let add1 = [|Polynomial.QQXs.zero; Polynomial.QQXs.zero; Polynomial.QQXs.zero|] in
   let init = [|Some (QQ.of_int 1); Some (QQ.of_int 0); Some (QQ.of_int 1)|] in
   let blk : block = {blk_transform = transform1; blk_add = add1} in
-  let eps = RatSeq.solve_rec ~initial:(Some init) [blk] in
+  let eps = RatEP.solve_rec ~initial:(Some init) [blk] in
   let module EP = (val RatEP.to_nf eps) in
   let relations = EP.algebraic_relations () in
   (*let nf_eps = EP.get_rec_sols () in

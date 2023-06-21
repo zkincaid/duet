@@ -2,57 +2,24 @@ exception Divide_by_zero
 
 include Log.Make(struct let name = "rational" end)
 
-(*The given ring should be an integral domain. There is no way to enforce this in code.*)
-module MakeFoF (D : sig 
-    include Algebra.Ring 
-    val int_mul : int -> t -> t 
-    val pp : Format.formatter -> t -> unit
-  end) = struct
-
-  type t = D.t * D.t (*Technically equivalence classes*)
-
-  (*This is equiv, not structural equal*)
-  let equal (p, q) (r, s) = D.equal (D.mul p s) (D.mul q r)
-
-  let equal_syn (p, q) (r, s) = D.equal p r && D.equal q s
-
-  let add (p, q) (r, s) =
-    if D.equal q s then
-      D.add p r, q
-    else
-      (D.add (D.mul p s) (D.mul r q), D.mul q s)
-
-      
-
-  let negate (p, q) = D.negate p, q
-  
-  let inverse (p, q) = 
-    if D.equal q D.zero then raise Divide_by_zero;
-    (q, p)
-
-  let lift (p : D.t) = (p, D.one)
-
-  let zero = D.zero, D.one
-
-  let mul (p, q) (r, s) = 
-    if D.equal p D.zero || D.equal r D.zero then zero
-    else
-      D.mul p r, D.mul q s
-
-  let int_mul i (p, q) = 
-    if D.equal D.zero p then zero
-    else
-      D.int_mul i p, q
-
-  let one = D.one, D.one
-
-  let pp f (p, q) = 
-    if D.equal q D.one then
-      Format.fprintf f "@[%a@]" D.pp p
-    else
-      Format.fprintf f "@[(%a)/(%a)@]" D.pp p D.pp q
-    
+module type RationalFunc = sig
+  type num
+  type den
+  type t
+  val zero : t
+  val one : t
+  val of_n_d : num * den -> t
+  val equal : t -> t -> bool
+  val equal_syn : t -> t -> bool
+  val add : t -> t -> t
+  val negate : t -> t
+  val lift : num -> t
+  val mul : t -> t -> t
+  val int_mul : int -> t -> t
+  val pp : Format.formatter -> t -> unit
+  val partial_fraction : num -> (den * int) list -> (num * (den * int)) list
 end
+
 
 
 (*The given ring should be an integral domain. There is no way to enforce this in code.*)
@@ -60,6 +27,10 @@ module MakeRat (D : sig
   include Polynomial.Euclidean
   val pp : Format.formatter -> t -> unit
 end) = struct
+
+  type num = D.t
+
+  type den = D.t
 
   let gcd a b = 
     let g, _, _ = D.ex_euc a b in
@@ -373,19 +344,7 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
   module ConstRing = MakeConstRing(struct include NF type t = elem let lift = NF.of_rat end)
 
   
-  module ConstRingX = struct
-      include MakeUnivariate(ConstRing)
-      let int_mul i a = scalar_mul (ConstRing.int_mul i ConstRing.one) a
-    end
-
-    
-  let lift_nfx_to_constnfx d =   
-    let e = BatEnum.map (
-      fun (c, deg) ->
-        ConstRing.scalar c, deg
-      ) (NF.X.enum d) in
-    ConstRingX.of_enum e
-  
+  module ConstRingX = MakeUnivariate(ConstRing)
 
   include MakeEPWithHeavy
     (struct include NF type t = elem end)
@@ -495,15 +454,7 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
     ) gb
 
 
-
-
-    
-
-
 end 
-
-
-open Polynomial
 
 module RX = MakeRat(struct
   include QQX
@@ -582,9 +533,20 @@ module MakeRatDiff
 
   module D = D
 
+  type num = N.t
+
+  type den = D.t
 
   type t = N.t * D.t
 
+  let equal (p, q) (r, s) = 
+    N.equal (N.mul p (I.lift s)) (N.mul r (I.lift q))
+
+  let equal_syn (p, q) (r, s) = 
+    N.equal p r && D.equal q s
+
+  let of_n_d (p, q) = (p, q)
+  
   let zero = N.zero, D.one
 
   let one = N.one, D.one
@@ -702,280 +664,286 @@ let lift_qqx_to_constfofx d =
 
 (*For most of the computation we need to keep the numerator and the denominator separate, because
    we eventually will want to factor the denominator. We can factor QQX but not ConstFoFX.*)
-module RatSeq = struct
 
-  include MakeRatDiff(struct include ConstRingX let pp = ConstRingX.pp ConstRing.pp end)(QQX)(
+include MakeRatDiff(struct include ConstRingX let pp = ConstRingX.pp ConstRing.pp end)(QQX)(
+  struct 
+    let lift = lift_qqx_to_constfofx
+
+    let qr (a : ConstRingX.t) (b : QQX.t) : ConstRingX.t * ConstRingX.t = 
+      if QQX.is_zero b then failwith "Divide by 0";
+      let d = QQX.order b in
+      let c = QQX.coeff d b in
+      if d = 0 then 
+        (ConstRingX.scalar_mul (ConstRing.scalar (QQ.inverse c)) a, ConstRingX.zero)
+      else
+        let rec aux q r =
+          let rd = ConstRingX.order r in
+          if rd = 0 || rd < d then (q, r)
+          else
+            let s = (ConstRingX.of_term (ConstRing.scalar_mul (QQ.inverse c) (ConstRingX.coeff rd r)) (rd - d)) in
+            aux (ConstRingX.add q s) (ConstRingX.sub r (ConstRingX.mul s (lift b)))
+          in
+        aux ConstRingX.zero a
+  end)
+
+let lift_rx_to_rat_sequence (a : RX.t) : t = 
+  let rxn, rxd = RX.get_normalized a in
+  (lift_qqx_to_constfofx rxn, rxd)
+
+let mat_mul_v rxm (rsv : t array) = 
+  let nrows = RXMatrix.nb_rows rxm in
+  let rxma = RXMatrix.dense_of rxm nrows (RXMatrix.nb_columns rxm) in
+  Array.map (
+    fun row ->
+      let dot_prod = Array.map2 (
+        fun rx rs ->  mul (lift_rx_to_rat_sequence rx) rs
+      ) row rsv in
+      Array.fold_left add zero dot_prod
+  ) rxma
+
+let solve_mat_rec_rs (transform : QQ.t array array) (init : ConstRing.t array) (b : t array) =
+  let n = Array.length transform in
+  let qI = RXMatrix.scalar_mul (RX.lift (QQX.identity)) (RXMatrix.identity (List.init n (fun i -> i))) in (*qI*)
+  let neg_transform_rx = RXMatrix.of_dense (Array.map (Array.map (fun i -> RX.lift (QQX.scalar (QQ.negate i)))) transform) in (*-transform*)
+  let qI_minus_transform = RXMatrix.add qI neg_transform_rx in
+  let qI_minus_transform_inv = inverse qI_minus_transform in
+  let init_q_minus_1 = Array.map (fun const -> N.scalar_mul const (N.sub N.identity N.one), QQX.one) init in (*(q-1)init*)
+  let init_q_minus_1_plus_b = Array.map2 add init_q_minus_1 b in
+  mat_mul_v qI_minus_transform_inv init_q_minus_1_plus_b
+
+
+let build_comp_matrix (q : QQX.t) = 
+  let rank = (D.order q) + 1 in
+  let m = Array.make_matrix rank rank QQ.zero in
+  m.(0).(rank-1) <- QQ.one;
+  for i = 0 to rank - 2 do
+    m.(0).(i) <- QQ.negate (D.coeff (rank - 2 - i) q)
+  done;
+  for i = 1 to rank - 2 do
+    for j = 0 to rank - 2 do
+      if i - 1 = j then m.(i).(j) <- QQ.one
+    done
+  done;
+  m.(rank-1).(rank-1) <- QQ.one;
+  m
+
+let get_init_vector first_row shift = 
+  let rank = Array.length first_row in
+  let temp = Array.make rank QQ.zero in
+  temp.(rank - 1) <- QQ.one;
+  let res = Array.make rank QQ.zero in
+  res.(rank - 1) <- QQ.one;
+  for _ = 1 to shift do
+    for j = 0 to (rank - 3) do
+      res.(rank - 2 - j) <- res.(rank - 3 - j)
+    done;
+    res.(0) <- Array.fold_left QQ.add QQ.zero (Array.map2 QQ.mul temp first_row);
+    for j = 0 to rank - 1 do
+      temp.(j) <- res.(j)
+    done
+  done;
+  res
+
+let kronecker mul a b =
+  let m = Array.length a in
+  let n = Array.length (Array.get a 0) in
+  let p = Array.length b in
+  let q = Array.length (Array.get b 0) in
+  let res = Array.make_matrix (m*p) (n*q) 0 in
+  Array.mapi (
+    fun i row ->
+      Array.mapi (
+        fun j _->
+          mul a.(i/p).(j/q) b.(i mod p).(j mod q)
+      ) row
+  ) res
+
+let had_mult ((an, ad) : t) ((bn, bd) : t) : t = 
+  if (D.order ad < 1) then (*if either sequence is constant had prod is regular prod*)
+    (if N.order an >= 1 then failwith "Ill formed rational sequence. Num deg is >= den deg.";
+    mul (an, ad) (bn, bd))
+  else if (D.order bd < 1) then
+    (if N.order bn >= 1 then failwith "Ill formed rational sequence. Num deg is >= den deg.";
+    mul (an, ad) (bn, bd))
+  else
+    let a_comp = build_comp_matrix ad in
+    let b_comp = build_comp_matrix bd in
+    let build_init first_row shift coef init_vec = 
+      let one_shift = Array.map (fun c -> ConstRing.scalar c) (get_init_vector first_row shift) in
+      Array.map2 (fun one_shift_i i -> ConstRing.add (ConstRing.mul one_shift_i coef) i) one_shift init_vec
+    in
+    let a_init = N.fold (build_init (a_comp.(0))) an (Array.make (Array.length (a_comp.(0))) ConstRing.zero) in
+    let b_init = N.fold (build_init (b_comp.(0))) bn (Array.make (Array.length (b_comp.(0))) ConstRing.zero) in
+    let transform = kronecker QQ.mul a_comp b_comp in
+    let init_m = kronecker ConstRing.mul [|a_init|] [|b_init|] in
+    let init = init_m.(0) in
+    let sol = solve_mat_rec_rs transform init (Array.make (Array.length init) zero) in
+    let n, p = Array.length a_comp, Array.length b_comp in
+    sol.(n*p - p - 2) (* Need to check this*)
+
+let had_exp rs e = 
+  if e < 0 then failwith "Exponentiating a negative exponent";
+  let rec exp_by_squaring y x n = 
+    if n = 0 then y
+    else if n mod 2 = 0 then
+      exp_by_squaring y (had_mult x x) (n/2)
+    else
+      exp_by_squaring (had_mult x y) (had_mult x x) ((n-1)/2)
+  in
+  exp_by_squaring one rs e
+
+
+type block = TransitionIdeal.block
+
+
+
+
+module RS = struct 
+  type nonrec t = t 
+  let add = add 
+  let zero = zero 
+  let one = one
+
+  let mul = mul
+end
+
+module RatEP = struct
+
+  module RE = MakeEPWithHeavy(QQ)(struct include ConstRing let lift = ConstRing.scalar end)(N)
+
+  type iif = QQX.t
+
+  module IIFS = BatMap.Make(
     struct 
-      let lift = lift_qqx_to_constfofx
-
-      let qr (a : ConstRingX.t) (b : QQX.t) : ConstRingX.t * ConstRingX.t = 
-        if QQX.is_zero b then failwith "Divide by 0";
-        let d = QQX.order b in
-        let c = QQX.coeff d b in
-        if d = 0 then 
-          (ConstRingX.scalar_mul (ConstRing.scalar (QQ.inverse c)) a, ConstRingX.zero)
+      type t = iif * int 
+      let compare (a, offa) (b, offb)= 
+        let q_c = QQX.compare QQ.compare a b in 
+        if q_c <> 0 then q_c
         else
-          let rec aux q r =
-            let rd = ConstRingX.order r in
-            if rd = 0 || rd < d then (q, r)
-            else
-              let s = (ConstRingX.of_term (ConstRing.scalar_mul (QQ.inverse c) (ConstRingX.coeff rd r)) (rd - d)) in
-              aux (ConstRingX.add q s) (ConstRingX.sub r (ConstRingX.mul s (lift b)))
-            in
-          aux ConstRingX.zero a
+          Int.compare offa offb
     end)
 
-  let lift_rx_to_rat_sequence (a : RX.t) : t = 
-    let rxn, rxd = RX.get_normalized a in
-    (lift_qqx_to_constfofx rxn, rxd)
+  type t = {
+    e : RE.t;
+    iifs : ConstRing.t IIFS.t
+  }
 
-  let mat_mul_v rxm (rsv : t array) = 
-    let nrows = RXMatrix.nb_rows rxm in
-    let rxma = RXMatrix.dense_of rxm nrows (RXMatrix.nb_columns rxm) in
-    Array.map (
-      fun row ->
-        let dot_prod = Array.map2 (
-          fun rx rs ->  mul (lift_rx_to_rat_sequence rx) rs
-        ) row rsv in
-        Array.fold_left add zero dot_prod
-    ) rxma
-  
-  let solve_mat_rec_rs (transform : QQ.t array array) (init : ConstRing.t array) (b : t array) =
-    let n = Array.length transform in
-    let qI = RXMatrix.scalar_mul (RX.lift (QQX.identity)) (RXMatrix.identity (List.init n (fun i -> i))) in (*qI*)
-    let neg_transform_rx = RXMatrix.of_dense (Array.map (Array.map (fun i -> RX.lift (QQX.scalar (QQ.negate i)))) transform) in (*-transform*)
-    let qI_minus_transform = RXMatrix.add qI neg_transform_rx in
-    let qI_minus_transform_inv = inverse qI_minus_transform in
-    let init_q_minus_1 = Array.map (fun const -> N.scalar_mul const (N.sub N.identity N.one), QQX.one) init in (*(q-1)init*)
-    let init_q_minus_1_plus_b = Array.map2 add init_q_minus_1 b in
-    mat_mul_v qI_minus_transform_inv init_q_minus_1_plus_b
+  let equal a b = 
+    if RE.equal a.e b.e = true then
+      IIFS.equal (ConstRing.equal) a.iifs b.iifs
+    else false
 
-
-  let build_comp_matrix (q : QQX.t) = 
-    let rank = (D.order q) + 1 in
-    let m = Array.make_matrix rank rank QQ.zero in
-    m.(0).(rank-1) <- QQ.one;
-    for i = 0 to rank - 2 do
-      m.(0).(i) <- QQ.negate (D.coeff (rank - 2 - i) q)
-    done;
-    for i = 1 to rank - 2 do
-      for j = 0 to rank - 2 do
-        if i - 1 = j then m.(i).(j) <- QQ.one
-      done
-    done;
-    m.(rank-1).(rank-1) <- QQ.one;
-    m
-  
-  let get_init_vector first_row shift = 
-    let rank = Array.length first_row in
-    let temp = Array.make rank QQ.zero in
-    temp.(rank - 1) <- QQ.one;
-    let res = Array.make rank QQ.zero in
-    res.(rank - 1) <- QQ.one;
-    for _ = 1 to shift do
-      for j = 0 to (rank - 3) do
-        res.(rank - 2 - j) <- res.(rank - 3 - j)
-      done;
-      res.(0) <- Array.fold_left QQ.add QQ.zero (Array.map2 QQ.mul temp first_row);
-      for j = 0 to rank - 1 do
-        temp.(j) <- res.(j)
-      done
-    done;
-    res
-  
-  let kronecker mul a b =
-    let m = Array.length a in
-    let n = Array.length (Array.get a 0) in
-    let p = Array.length b in
-    let q = Array.length (Array.get b 0) in
-    let res = Array.make_matrix (m*p) (n*q) 0 in
-    Array.mapi (
-      fun i row ->
-        Array.mapi (
-          fun j _->
-            mul a.(i/p).(j/q) b.(i mod p).(j mod q)
-        ) row
-    ) res
-  
-  let had_mult ((an, ad) : t) ((bn, bd) : t) : t = 
-    if (D.order ad < 1) then (*if either sequence is constant had prod is regular prod*)
-      (if N.order an >= 1 then failwith "Ill formed rational sequence. Num deg is >= den deg.";
-      mul (an, ad) (bn, bd))
-    else if (D.order bd < 1) then
-      (if N.order bn >= 1 then failwith "Ill formed rational sequence. Num deg is >= den deg.";
-      mul (an, ad) (bn, bd))
-    else
-      let a_comp = build_comp_matrix ad in
-      let b_comp = build_comp_matrix bd in
-      let build_init first_row shift coef init_vec = 
-        let one_shift = Array.map (fun c -> ConstRing.scalar c) (get_init_vector first_row shift) in
-        Array.map2 (fun one_shift_i i -> ConstRing.add (ConstRing.mul one_shift_i coef) i) one_shift init_vec
-      in
-      let a_init = N.fold (build_init (a_comp.(0))) an (Array.make (Array.length (a_comp.(0))) ConstRing.zero) in
-      let b_init = N.fold (build_init (b_comp.(0))) bn (Array.make (Array.length (b_comp.(0))) ConstRing.zero) in
-      let transform = kronecker QQ.mul a_comp b_comp in
-      let init_m = kronecker ConstRing.mul [|a_init|] [|b_init|] in
-      let init = init_m.(0) in
-      let sol = solve_mat_rec_rs transform init (Array.make (Array.length init) zero) in
-      let n, p = Array.length a_comp, Array.length b_comp in
-      sol.(n*p - p - 2) (* Need to check this*)
-  
-  let had_exp rs e = 
-    if e < 0 then failwith "Exponentiating a negative exponent";
-    let rec exp_by_squaring y x n = 
-      if n = 0 then y
-      else if n mod 2 = 0 then
-        exp_by_squaring y (had_mult x x) (n/2)
-      else
-        exp_by_squaring (had_mult x y) (had_mult x x) ((n-1)/2)
-    in
-    exp_by_squaring one rs e
-
-  
-  type block = TransitionIdeal.block
-
-
-
-
-  module RS = struct type nonrec t = t let add = add let zero = zero end
-
-  module RatEP = struct
-
-    module RE = MakeEPWithHeavy(QQ)(struct include ConstRing let lift = ConstRing.scalar end)(N)
-
-    type iif = QQX.t
-
-    module IIFS = BatMap.Make(
-      struct 
-        type t = iif * int 
-        let compare (a, offa) (b, offb)= 
-          let q_c = QQX.compare QQ.compare a b in 
-          if q_c <> 0 then q_c
-          else
-            Int.compare offa offb
-      end)
-
-    type t = {
-      e : RE.t;
-      iifs : ConstRing.t IIFS.t
-    }
-
-    let equal a b = 
-      if RE.equal a.e b.e = true then
-        IIFS.equal (ConstRing.equal) a.iifs b.iifs
-      else false
-
-    let pp f a = 
-      let pp_iif formatter ((den, shift), coef) =
-        if ConstRing.equal coef ConstRing.one then
-          if shift = 0 then
-            Format.fprintf formatter "IIF(%a)[x]" QQX.pp den
-          else
-            Format.fprintf formatter "IIF(%a)[x + %d]" QQX.pp den shift
+  let pp f a = 
+    let pp_iif formatter ((den, shift), coef) =
+      if ConstRing.equal coef ConstRing.one then
+        if shift = 0 then
+          Format.fprintf formatter "IIF(%a)[x]" QQX.pp den
         else
-          if shift = 0 then
-            Format.fprintf formatter "(%a)IIF(%a)[x]" ConstRing.pp coef QQX.pp den
-          else
-            Format.fprintf formatter "(%a)IIF(%a)[x + %d]" ConstRing.pp coef QQX.pp den shift
-      in
-      let pp_sep formatter () =
-        Format.fprintf formatter "@ + "
-      in
-      let is_ep_zero = RE.equal a.e RE.zero in
-      let is_iifs_zero = IIFS.is_empty a.iifs in
-      if is_ep_zero && is_iifs_zero then Format.pp_print_string f "0"
+          Format.fprintf formatter "IIF(%a)[x + %d]" QQX.pp den shift
       else
-        if not is_ep_zero && is_iifs_zero then RE.pp f a.e
-        else 
-          if not is_ep_zero then (RE.pp f a.e; pp_sep f ());
-          SrkUtil.pp_print_enum_nobox ~pp_sep pp_iif f (IIFS.enum a.iifs)
+        if shift = 0 then
+          Format.fprintf formatter "(%a)IIF(%a)[x]" ConstRing.pp coef QQX.pp den
+        else
+          Format.fprintf formatter "(%a)IIF(%a)[x + %d]" ConstRing.pp coef QQX.pp den shift
+    in
+    let pp_sep formatter () =
+      Format.fprintf formatter "@ + "
+    in
+    let is_ep_zero = RE.equal a.e RE.zero in
+    let is_iifs_zero = IIFS.is_empty a.iifs in
+    if is_ep_zero && is_iifs_zero then Format.pp_print_string f "0"
+    else
+      if not is_ep_zero && is_iifs_zero then RE.pp f a.e
+      else 
+        if not is_ep_zero then (RE.pp f a.e; pp_sep f ());
+        SrkUtil.pp_print_enum_nobox ~pp_sep pp_iif f (IIFS.enum a.iifs)
 
-    let zero = {e = RE.zero; iifs = IIFS.empty}
+  let zero = {e = RE.zero; iifs = IIFS.empty}
 
-    let one = {e = RE.one; iifs = IIFS.empty}
+  let one = {e = RE.one; iifs = IIFS.empty}
 
-    let eval a i = 
-      if not (IIFS.is_empty a.iifs) then failwith "TODO eval an IIF at a point";
-      RE.eval a.e i
+  let eval a i = 
+    if not (IIFS.is_empty a.iifs) then failwith "TODO eval an IIF at a point";
+    RE.eval a.e i
 
-    let scalar a = {e = RE.scalar a; iifs = IIFS.empty}
+  let scalar a = {e = RE.scalar a; iifs = IIFS.empty}
 
-    let of_polynomial p = {e = RE.of_polynomial p; iifs = IIFS.empty}
+  let of_polynomial p = {e = RE.of_polynomial p; iifs = IIFS.empty}
 
-    let of_exponential e = {e = RE.of_exponential e; iifs = IIFS.empty}
-    
+  let of_exponential e = {e = RE.of_exponential e; iifs = IIFS.empty}
+  
 
-    let scalar_mul c term = 
-      let e = RE.scalar_mul c term.e in
-      let iifs = IIFS.map (ConstRing.mul c) term.iifs in
-      {e; iifs}
+  let scalar_mul c term = 
+    let e = RE.scalar_mul c term.e in
+    let iifs = IIFS.map (ConstRing.mul c) term.iifs in
+    {e; iifs}
 
-    let add a b =
-      let e = RE.add a.e b.e in
-      let unioner _ x y = 
-        let coef_add = ConstRing.add x y in
-        if ConstRing.is_zero coef_add then None
-        else Some coef_add
-      in
-      let iifs = IIFS.union unioner a.iifs b.iifs in
-      {e; iifs}
+  let add a b =
+    let e = RE.add a.e b.e in
+    let unioner _ x y = 
+      let coef_add = ConstRing.add x y in
+      if ConstRing.is_zero coef_add then None
+      else Some coef_add
+    in
+    let iifs = IIFS.union unioner a.iifs b.iifs in
+    {e; iifs}
 
-    let negate a = 
-      let e = RE.negate a.e in
-      let iifs = IIFS.map (ConstRing.negate) a.iifs in
-      {e; iifs}
+  let negate a = 
+    let e = RE.negate a.e in
+    let iifs = IIFS.map (ConstRing.negate) a.iifs in
+    {e; iifs}
 
 
-    
+  
 
-    let translate_term (n, (den, power)) = 
-      if QQX.order den > 1 then(
-        (*let size = BatList.length (BatList.of_enum (QQX.enum den)) in
-        if size = 1 then(
+  let translate_term (n, (den, power)) = 
+    if QQX.order den > 1 then(
+      (*let size = BatList.length (BatList.of_enum (QQX.enum den)) in
+      if size = 1 then(
+        let heaviside = ConstRingX.fold (
+          fun deg coef heavies -> 
+            IM.add (power - deg) coef heavies
+        ) n IM.empty in
+        {ep = RE.zero; iifs = IIFS.empty; heaviside})
+      else*)
+        let iif_den = QQX.exp den power in
+        let iifs = ConstRingX.fold (
+          fun deg coef iif ->
+            IIFS.add (iif_den, deg) coef iif
+        ) n IIFS.empty in
+        {zero with iifs})
+    else( 
+      if N.order n > 0 then failwith "Numerator should be constant unless IIF";
+      let num = N.coeff 0 n in
+      if QQX.order den = 0 then
+        let coe = QQ.exp (QQX.coeff 0 den) (-power) in
+        scalar (ConstRing.scalar_mul coe num)
+      else(
+        let den_root = QQ.negate (QQ.div (QQX.coeff 0 den) (QQX.coeff 1 den)) in
+        if QQ.equal den_root QQ.zero then
           let heaviside = ConstRingX.fold (
             fun deg coef heavies -> 
               IM.add (power - deg) coef heavies
-          ) n IM.empty in
-          {ep = RE.zero; iifs = IIFS.empty; heaviside})
-        else*)
-          let iif_den = QQX.exp den power in
-          let iifs = ConstRingX.fold (
-            fun deg coef iif ->
-              IIFS.add (iif_den, deg) coef iif
-          ) n IIFS.empty in
-          {zero with iifs})
-      else( 
-        if N.order n > 0 then failwith "Numerator should be constant unless IIF";
-        let num = N.coeff 0 n in
-        if QQX.order den = 0 then
-          let coe = QQ.exp (QQX.coeff 0 den) (-power) in
-          scalar (ConstRing.scalar_mul coe num)
-        else(
-          let den_root = QQ.negate (QQ.div (QQX.coeff 0 den) (QQX.coeff 1 den)) in
-          if QQ.equal den_root QQ.zero then
-            let heaviside = ConstRingX.fold (
-              fun deg coef heavies -> 
-                IM.add (power - deg) coef heavies
-              ) n IM.empty in
-              {e = {RE.zero with heaviside }; iifs = IIFS.empty}
-          else if QQ.equal den_root QQ.one then
-            let p = QQX.choose power in
-            scalar_mul num (of_polynomial (lift_qqx_to_constfofx p))
-          else
-            let rec aux c = 
-              if c = 1 then 
-                let ep_den = ConstRing.scalar (QQ.inverse (QQ.sub den_root QQ.one)) in
-                let ep = RE.E.add (RE.E.of_exponential den_root) (RE.E.negate RE.E.one) in
-                RE.E.scalar_mul ep_den ep (*(k^n - 1)/(k-1)*)
-              else
-                let ep_den = ConstRing.scalar (QQ.inverse (QQ.sub den_root QQ.one)) in
-                let expo = RE.E.of_exponential den_root in
-                let poly = QQX.scalar_mul (QQ.exp den_root (-c + 1)) (QQX.choose (c-1)) in (*(n choose c-1) a^{-c+1}*)
-                let term = RE.E.mul expo (RE.E.of_polynomial (lift_qqx_to_constfofx poly)) in
-                let rhs = aux (c-1) in
-                RE.E.scalar_mul ep_den (RE.E.add term (RE.E.negate rhs)) (*1/(a-1) ((n choose c-1) a^{-c+1}a^n - aux (c-1))*)
-            in
-            {e = {RE.zero with ep = RE.E.scalar_mul num (aux power)}; iifs = IIFS.empty}))
+            ) n IM.empty in
+            {e = {RE.zero with heaviside }; iifs = IIFS.empty}
+        else if QQ.equal den_root QQ.one then
+          let p = QQX.choose power in
+          scalar_mul num (of_polynomial (lift_qqx_to_constfofx p))
+        else
+          let rec aux c = 
+            if c = 1 then 
+              let ep_den = ConstRing.scalar (QQ.inverse (QQ.sub den_root QQ.one)) in
+              let ep = RE.E.add (RE.E.of_exponential den_root) (RE.E.negate RE.E.one) in
+              RE.E.scalar_mul ep_den ep (*(k^n - 1)/(k-1)*)
+            else
+              let ep_den = ConstRing.scalar (QQ.inverse (QQ.sub den_root QQ.one)) in
+              let expo = RE.E.of_exponential den_root in
+              let poly = QQX.scalar_mul (QQ.exp den_root (-c + 1)) (QQX.choose (c-1)) in (*(n choose c-1) a^{-c+1}*)
+              let term = RE.E.mul expo (RE.E.of_polynomial (lift_qqx_to_constfofx poly)) in
+              let rhs = aux (c-1) in
+              RE.E.scalar_mul ep_den (RE.E.add term (RE.E.negate rhs)) (*1/(a-1) ((n choose c-1) a^{-c+1}a^n - aux (c-1))*)
+          in
+          {e = {RE.zero with ep = RE.E.scalar_mul num (aux power)}; iifs = IIFS.empty}))
 
   let translate_rs (n, d) = 
     let content, den_facts = QQX.factor d in
@@ -1153,22 +1121,21 @@ module RatSeq = struct
     EP.set_rec_sols eps_nf;
     let ep = (module EP : ExpPolyNF) in
     ep
-    
-  end
+  
 
 
-  let solve_rec_rs initial sp : t array = 
+  let solve_rec_rs initial sp : RS.t array = 
     let size = List.fold_left (+) 0 (List.map (fun (blk : block) -> Array.length blk.blk_transform) sp) in
-    let cf = Array.make size zero in
+    let cf = Array.make size RS.zero in
     let translate_blk_add p = (*Might be better to work with ep's and use that mult rather than had mult.*)
       QQXs.fold (
         fun m coef rs ->
           let mon_rs = BatEnum.fold (
             fun acc (dim, pow) ->
               had_mult acc (had_exp (cf.(dim)) pow)
-          ) one (Monomial.enum m) in
-          add (mul (lift (N.scalar (ConstRing.scalar coef))) mon_rs) rs
-      ) p zero
+          ) RS.one (Monomial.enum m) in
+          RS.add (RS.mul (lift (N.scalar (ConstRing.scalar coef))) mon_rs) rs
+      ) p RS.zero
     in
     let rec aux blocks offset = 
       match blocks with
@@ -1209,9 +1176,6 @@ module RatSeq = struct
         | None -> ConstRing.of_dim i
         | Some v -> ConstRing.scalar v
     ) init_opt in
-    Array.map RatEP.translate_rs (solve_rec_rs init recs)
+    Array.map translate_rs (solve_rec_rs init recs)
 
 end
-
-
-    
