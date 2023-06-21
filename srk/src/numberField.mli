@@ -30,6 +30,9 @@ module type NF = sig
 
   (** Converts a univariate polynomial to an element of the number field.*)
   val make_elem : QQX.t -> elem
+
+  (** Get the polynomial representation of an elem modulo int_poly*)
+  val get_poly : elem -> QQX.t
   
   val of_rat : QQ.t -> elem
 

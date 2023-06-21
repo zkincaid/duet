@@ -271,6 +271,15 @@ end) = struct
     else
       false
 
+  let eval a i = 
+    let ep_eval = E.eval a.ep i in
+    let heavy_eval shift c sum = 
+      if i>= shift then C.add sum c
+      else sum
+    in
+    IM.fold heavy_eval a.heaviside ep_eval
+
+
   (*TODO mul*)
 
   let enum_ep e = E.enum e.ep
@@ -328,6 +337,8 @@ module type ExpPolyNF = sig
   
   val equal : t -> t -> bool
 
+  val eval : t -> int -> ConstRing.t
+
   val enum_ep : t -> (ConstRingX.t * NF.elem) BatEnum.t
 
   val enum_heavy : t -> (int * ConstRing.t) BatEnum.t
@@ -337,6 +348,8 @@ module type ExpPolyNF = sig
   val get_rec_sols : unit -> t array
 
   val base_relations : unit -> Polynomial.QQXs.t list * (NF.elem * int) BatEnum.t
+
+  val algebraic_relations : unit -> Polynomial.QQXs.t list
 
   (*TODO mul*)
 end
@@ -352,6 +365,8 @@ module MakeConstRing (
 
 end
 
+open Polynomial
+
 module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struct
   module NF = NF
 
@@ -359,7 +374,7 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
 
   
   module ConstRingX = struct
-      include Polynomial.MakeUnivariate(ConstRing)
+      include MakeUnivariate(ConstRing)
       let int_mul i a = scalar_mul (ConstRing.int_mul i ConstRing.one) a
     end
 
@@ -378,12 +393,112 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
     (struct include ConstRingX let pp = ConstRingX.pp (ConstRing.pp NF.pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d)))) end)
 
 
+  module BM = BatMap.Make(struct type t = NF.elem let compare = NF.compare end)
+
   let rec_sols = ref (Array.make 0 zero)
+
+  let bases_in_rec = ref (BM.empty, IM.empty)
+
+  let set_rec_sols rs = 
+    rec_sols := rs;
+    let (bm, im, _) = 
+      Array.fold_left (
+        fun (bm, im, i) ep ->          
+          BatEnum.fold (
+            fun (basem, dimm, j) (_, b)->
+              try 
+                let  _ = BM.find b basem in
+                (basem, dimm, j)
+              with Not_found -> 
+                (BM.add b j basem, IM.add j b dimm, j+1)
+          ) (bm, im, i) (enum_ep ep)
+        ) (BM.empty, IM.empty, 0) rs in
+    bases_in_rec := bm, im
+  
+
+  let base_relations : QQXs.t list ref = ref []
 
   let get_rec_sols () = !rec_sols
 
   let base_relations () = 
-    [], BatEnum.empty ()
+    if List.length !base_relations <> 0 then !base_relations, BM.enum (fst (!bases_in_rec))
+    else
+      let roots = List.init (IM.cardinal (snd !bases_in_rec)) (fun i -> IM.find i (snd !bases_in_rec)) in
+      let relations = NF.find_relations roots in
+      let exp_rel_to_poly exp = 
+        let (poss, negs, _) = List.fold_left (
+          fun (pos, neg, i) e ->
+            if e = 0 then pos, neg, i+1
+            else if e > 0 then
+              QQXs.mul (QQXs.exp (QQXs.of_dim i) e) pos, neg, i+1
+            else
+              pos, QQXs.mul (QQXs.exp (QQXs.of_dim i) (-e)) neg, i+1
+        ) (QQXs.one, QQXs.one, 0) exp in
+        QQXs.sub poss negs
+      in
+      List.map exp_rel_to_poly relations, BM.enum (fst (!bases_in_rec))
+        
+
+  let algebraic_relations () = 
+    let root_rels = fst (base_relations ()) in
+    let post_offset = Array.length !rec_sols in
+    let iter_var = 2 * post_offset in
+    let field_var = iter_var + 1 in
+    let root_offset = field_var + 1 in
+    let translate_coeff c = 
+      let translate_m sum (nf, m) = 
+        let nf_p = NF.get_poly nf in
+        let nf_poly = NumberField.make_multivariate field_var nf_p in
+        QQXs.add sum (QQXs.mul_monomial m nf_poly)
+      in
+      BatEnum.fold translate_m QQXs.zero (ConstRing.enum c)
+    in
+    let translate_poly p = 
+      let translate_t sum (coef, deg) = 
+        QQXs.add sum (QQXs.mul (translate_coeff coef) (QQXs.exp (QQXs.of_dim iter_var) deg))
+      in
+      BatEnum.fold translate_t QQXs.zero (ConstRingX.enum p)
+    in
+    let translate_sol i ep = 
+      if not (BatEnum.is_empty (enum_heavy ep)) then failwith "Unable to get algebraic relations for recurrences with an eigenvalue of 0";
+      let translate_power_poly sum (poly, base) =
+        let base_var = QQXs.of_dim ((BM.find base (fst !bases_in_rec)) + root_offset) in
+        QQXs.add sum (QQXs.mul (translate_poly poly) base_var)
+      in
+      let rhs = BatEnum.fold translate_power_poly QQXs.zero (enum_ep ep) in
+      QQXs.sub (QQXs.of_dim (i+post_offset)) rhs
+    in
+    let cl = Array.to_list (Array.mapi translate_sol !rec_sols) in
+    let field_poly = NumberField.make_multivariate field_var NF.int_poly in
+    let offset_root_rel p = 
+      let offset_mon (c, m) = 
+        let offsetter (dim, pow) = 
+          (dim + root_offset, pow)
+        in
+        c, Monomial.of_enum (BatEnum.map offsetter (Monomial.enum m))
+      in
+      QQXs.of_enum (BatEnum.map offset_mon (QQXs.enum p))
+    in
+    let root_rels_off = List.map offset_root_rel root_rels in
+    let ideal = field_poly :: (cl @ root_rels_off) in
+    logf ~level:`trace "Algebraic Relations : Pre_vars %d - %d, Post_vars %d - %d, iter_var %d, field_var %d, root_vars >= %d" 0 (post_offset - 1) post_offset (iter_var - 1) iter_var field_var root_offset;
+    let pp_i = Format.pp_print_list ~pp_sep:(fun f () -> Format.pp_print_newline f ()) (QQXs.pp (fun f i -> Format.fprintf f "x_%d" i)) in
+    log_pp ~level:`trace pp_i ideal;
+    let biggest_root_i, _ = IM.max_binding (snd !bases_in_rec) in
+    let gb = FGb.grobner_basis (List.init ((biggest_root_i + root_offset) - field_var + 1) (fun i -> i + field_var)) (List.init (iter_var + 1) (fun i -> i)) ideal in
+    log ~level:`trace "After gb";
+    log_pp ~level:`trace pp_i gb;
+    List.filter (
+      fun p ->
+        let ds = QQXs.dimensions p in
+        SrkUtil.Int.Set.disjoint ds (SrkUtil.Int.Set.of_list (List.init ((biggest_root_i + root_offset) - field_var + 1) (fun i -> i + field_var)))
+    ) gb
+
+
+
+
+    
+
 
 end 
 
@@ -563,9 +678,11 @@ end
 
 
 module ConstRing = struct 
-  include MakeConstRing(struct include QQ let lift x = x end)
+  include QQXs
 
-  let pp = pp QQ.pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d)))
+  let pp = pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d)))
+
+  let int_mul i a = QQXs.scalar_mul (QQ.of_int i) a
 
   end
 
@@ -777,6 +894,10 @@ module RatSeq = struct
 
     let one = {e = RE.one; iifs = IIFS.empty}
 
+    let eval a i = 
+      if not (IIFS.is_empty a.iifs) then failwith "TODO eval an IIF at a point";
+      RE.eval a.e i
+
     let scalar a = {e = RE.scalar a; iifs = IIFS.empty}
 
     let of_polynomial p = {e = RE.of_polynomial p; iifs = IIFS.empty}
@@ -804,6 +925,8 @@ module RatSeq = struct
       let iifs = IIFS.map (ConstRing.negate) a.iifs in
       {e; iifs}
 
+
+    
 
     let translate_term (n, (den, power)) = 
       if QQX.order den > 1 then(
@@ -1027,14 +1150,14 @@ module RatSeq = struct
       BatEnum.fold translate_and_add ep_with_e_and_heavy iifs_rat_pow
     in
     let eps_nf = Array.map translate_ep eps in
-    EP.rec_sols := eps_nf;
+    EP.set_rec_sols eps_nf;
     let ep = (module EP : ExpPolyNF) in
     ep
     
   end
 
 
-  let solve_rec_rs sp : t array = 
+  let solve_rec_rs initial sp : t array = 
     let size = List.fold_left (+) 0 (List.map (fun (blk : block) -> Array.length blk.blk_transform) sp) in
     let cf = Array.make size zero in
     let translate_blk_add p = (*Might be better to work with ep's and use that mult rather than had mult.*)
@@ -1053,7 +1176,17 @@ module RatSeq = struct
       | (blk : block) :: blks ->
         let blk_size = Array.length (blk.blk_add) in
         let blk_add = Array.map translate_blk_add blk.blk_add in
-        let init = Array.mapi (fun i _ -> ConstRing.of_dim (i + offset)) blk.blk_add in
+        let init = Array.sub initial offset blk_size in
+          (*match initial with
+          | None -> Array.mapi (fun i _ -> ConstRing.of_dim (i + offset)) blk.blk_add
+          | Some ini ->
+            Array.mapi (
+              fun i ini_v ->
+                match ini_v with 
+                | None -> ConstRing.of_dim (i + offset)
+                | Some v -> ConstRing.scalar v
+            ) ini
+        in*)
         let sol = solve_mat_rec_rs blk.blk_transform init blk_add in
         for i = 0 to blk_size - 1 do
           cf.(i + offset) <- sol.(i)
@@ -1063,8 +1196,20 @@ module RatSeq = struct
     aux sp 0;
     cf
 
-  let solve_rec recs = 
-    Array.map RatEP.translate_rs (solve_rec_rs recs)
+  let solve_rec ?(initial = None) recs = 
+    let size = List.fold_left (+) 0 (List.map (fun (blk : block) -> Array.length blk.blk_transform) recs) in
+    let init_opt = 
+      match initial with
+      | None -> Array.make size None
+      | Some x -> x
+    in
+    let init = Array.mapi (
+      fun i ini_opt ->
+        match ini_opt with
+        | None -> ConstRing.of_dim i
+        | Some v -> ConstRing.scalar v
+    ) init_opt in
+    Array.map RatEP.translate_rs (solve_rec_rs init recs)
 
 end
 

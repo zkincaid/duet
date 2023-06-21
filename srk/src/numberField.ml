@@ -48,6 +48,7 @@ module type NF = sig
   val int_poly : QQX.t
   type elem
   val make_elem : QQX.t -> elem
+  val get_poly : elem -> QQX.t
   val of_rat : QQ.t -> elem
   val compute_min_poly : elem -> QQX.t
   val mul : elem -> elem -> elem
@@ -171,6 +172,8 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
   (*The isomorphism is recognized by x --> 1/d x.*)
   let make_elem p = reduce (QQX.map (fun d c -> QQ.div c (QQ.exp (QQ.of_zz min_poly_den_lcm) d)) p)
 
+  let get_poly e = e
+
   let of_rat = QQX.scalar
 
   let mul a b = 
@@ -208,12 +211,34 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
   let negate = QQX.negate
 
 
-  let pp f e = 
-    QQX.pp f e
+  let pp formatter p = 
+    let pp_monomial formatter (coeff, order) = 
+      if order = 0 then
+        QQ.pp formatter coeff
+      else if order = 1 && QQ.equal coeff QQ.one then
+        Format.fprintf formatter "@[z@]"
+      else if order = 1 && QQ.equal coeff (QQ.negate QQ.one) then
+        Format.fprintf formatter "@[-z@]"
+      else if order = 1 then
+        Format.fprintf formatter "@[%az@]" QQ.pp coeff
+      else if QQ.equal coeff QQ.one then
+        Format.fprintf formatter "@[z^%d@]" order
+      else if QQ.equal coeff (QQ.negate QQ.one) then
+        Format.fprintf formatter "@[-z^%d@]" order
+      else 
+        Format.fprintf formatter "@[%az^%d@]" QQ.pp coeff order
+    in
+    SrkUtil.pp_print_enum
+      ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
+      pp_monomial
+      formatter
+      (QQX.enum p)
+
+  
 
   let int_mul i x = QQX.scalar_mul (QQ.of_int i) x
 
-  module E = struct let one = one let mul = mul let negate = negate let exp = exp end
+  module E = struct let one = one let mul = mul let negate = negate let exp = exp let pp = pp end
 
   (*Polynonials in the number field.*)
   module X = struct 
@@ -231,22 +256,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
         let int_mul i x = QQX.scalar_mul (QQ.of_int i) x
       end)
 
-    let pp formatter p = 
-      let pp_monomial formatter (coeff, order) = 
-        if order = 0 then
-          QQX.pp formatter coeff
-        else if QQX.equal coeff QQX.one then
-          Format.fprintf formatter "@[z^%d@]" order
-        else if QQX.equal coeff (QQX.negate QQX.one) then
-          Format.fprintf formatter "@[-z^%d@]" order
-        else 
-          Format.fprintf formatter "@[(%a)*z^%d@]" QQX.pp coeff order
-        in
-        SrkUtil.pp_print_enum
-          ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
-          pp_monomial
-          formatter
-          (enum p)
+    let pp = pp E.pp
       
     let lift (p : QQX.t) = 
       of_enum (BatEnum.map (fun (c, d) -> QQX.scalar c, d) (QQX.enum p))

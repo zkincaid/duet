@@ -34,7 +34,7 @@ module MakeEP
       if B.equal lambda B.one then
         CX.pp formatter p
       else
-        Format.fprintf formatter "(%a)%a^x" CX.pp p B.pp lambda
+        Format.fprintf formatter "(%a)(%a)^x" CX.pp p B.pp lambda
     in
     let pp_sep formatter () =
       Format.fprintf formatter "@ + "
