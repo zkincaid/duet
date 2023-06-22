@@ -78,56 +78,6 @@ let vec_qqxsvec_dot vec1 vec2 =
     QQXs.zero
     (0 -- (Array.length vec2 - 1))
 
-(*
-let term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id =
-  let open OCRS in
-  let open Type_def in
-  let ss_pre = SSVar "k" in
-  let rec go = function
-    | Plus (x, y) -> mk_add srk [go x; go y]
-    | Minus (x, y) -> mk_sub srk (go x) (go y)
-    | Times (x, y) -> mk_mul srk [go x; go y]
-    | Divide (x, y) -> mk_div srk (go x) (go y)
-    | Product xs -> mk_mul srk (List.map go xs)
-    | Sum xs -> mk_add srk (List.map go xs)
-    | Symbolic_Constant name -> pre_term_of_id name
-    | Base_case (name, index) ->
-      assert (index = 0);
-      pre_term_of_id name
-    | Input_variable name ->
-      assert (name = "k");
-      loop_counter
-    | Output_variable (name, subscript) ->
-      assert (subscript = ss_pre);
-      post_term_of_id name
-    | Rational k -> mk_real srk (QQ.of_mpq (Mpqf.of_mpq k))
-    | Undefined -> assert false
-    | Pow (x, y) -> Nonlinear.mk_pow srk (go x) (go y)
-    | Log (base, x) ->
-      Nonlinear.mk_log srk (mk_real srk (QQ.of_mpq (Mpqf.of_mpq base))) (go x)
-    | IDivide (x, y) ->
-      mk_idiv srk (go x) (mk_real srk (QQ.of_mpq (Mpqf.of_mpq y)))
-    | Mod (x, y) ->
-      mk_mod srk (go x) (go y)
-    | Iif (func, ss) ->
-      let arg =
-        match ss with
-        | SSVar "k" -> loop_counter
-        | SAdd ("k", i) ->
-          mk_add srk [loop_counter; mk_real srk (QQ.of_int i)]
-        | _ -> assert false
-      in
-      let sym =
-        if not (is_registered_name srk func) then
-          register_named_symbol srk func (`TyFun ([`TyReal], `TyReal));
-        get_named_symbol srk func
-      in
-      mk_app srk sym [arg]
-    | Binomial (_, _) | Factorial _ | Sin _ | Cos _ | Arctan _ | Pi | Shift (_, _) ->
-      assert false
-  in
-  go
-*)
 
 open TransitionIdeal
 
@@ -263,63 +213,6 @@ let _pp_block formatter block =
   done;
   fprintf formatter "@]"
 
-(*
-  (* Compute closed-form representation of the dynamics of solvable
-   polynomial map using OCRS *)
-let closure_ocrs sp =
-  let open OCRS in
-  let open Type_def in
-
-  (* pre/post subscripts *)
-  let ss_pre = SSVar "k" in
-  let ss_post = SAdd ("k", 1) in
-
-  (* Map identifiers to their closed forms, so that they can be used
-     in the additive term of blocks at higher strata *)
-  let cf =
-    Array.make (dimension sp) (Rational (Mpq.of_int 0))
-  in
-  let close_block block offset =
-    let size = Array.length block.blk_add in
-    if size = 0 then
-      []
-    else
-      let dim_vec = Array.init size (fun i -> string_of_int (offset + i)) in
-      let ocrs_transform =
-        Array.map (Array.map (Mpqf.to_mpq % QQ.mpq_of)) block.blk_transform
-      in
-      let ocrs_add =
-        Array.init size (fun i ->
-            let cf_monomial m =
-              Monomial.enum m
-              /@ (fun (id, pow) -> Pow (cf.(id), Rational (Mpq.of_int pow)))
-              |> BatList.of_enum
-            in
-            QQXs.enum block.blk_add.(i)
-            /@ (fun (coeff, m) ->
-                Product (Rational (Mpqf.to_mpq (QQ.mpq_of coeff))::(cf_monomial m)))
-            |> (fun x -> Sum (BatList.of_enum x)))
-      in
-      let block_closed =
-        let mat_rec =
-          VEquals (Ovec (dim_vec, ss_post),
-                   ocrs_transform,
-                   Ovec (dim_vec, ss_pre),
-                   ocrs_add)
-        in
-        logf "Block:@\n%s" (Mat_helpers.matrix_rec_to_string mat_rec);
-        Log.time "OCRS" (Ocrs.solve_mat_recurrence mat_rec) false
-      in
-      block_closed
-  in
-  sp |> iter_blocks (fun offset block ->
-      close_block block offset
-      |> List.iteri (fun i ineq ->
-          match ineq with
-          | Equals (_, y) -> cf.(offset + i) <- y
-          | _ -> assert false));
-  cf
-*)
 
 (* Given a matrix in which each vector in the standard basis is a
    periodic generalized eigenvector, find a PRSD over the standard
@@ -1211,82 +1104,6 @@ let exp_rat srk tr_symbols loop_counter iter =
         mk_leq srk lhs rhs)
   |> BatList.of_enum
   |> mk_and srk
-
-
-(*let exp_ocrs srk tr_symbols loop_counter iter =
-  let open OCRS in
-  let open Type_def in
-
-  Nonlinear.ensure_symbols srk;
-
-  let post_map = (* map pre-state vars to post-state vars *)
-    TF.post_map srk tr_symbols
-  in
-
-  let postify =
-    let subst sym =
-      if Symbol.Map.mem sym post_map then
-        Symbol.Map.find sym post_map
-      else
-        mk_const srk sym
-    in
-    substitute_const srk subst
-  in
-
-  (* pre subscript *)
-  let ss_pre = SSVar "k" in
-
-  let constant_blocks =
-    let const =
-      { blk_transform = [|[|QQ.one|]|];
-        blk_add = [| QQXs.zero |] }
-    in
-    BatEnum.repeat ~times:iter.nb_constants const
-    |> BatList.of_enum
-  in
-  let sp = constant_blocks @ iter.block_eq @ iter.block_leq in
-  let cf = closure_ocrs sp in
-  let nb_equations = nb_equations iter in
-  let term_of_expr =
-    let pre_term_of_id name =
-      iter.term_of_id.(int_of_string name)
-    in
-    let post_term_of_id name =
-      let id = int_of_string name in
-      postify (iter.term_of_id.(id))
-    in
-    term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id
-  in
-  let mk_int k = mk_real srk (QQ.of_int k) in
-
-  (iter.nb_constants -- ((Array.length cf) - 1))
-  /@ (fun i ->
-      let outvar = Output_variable (string_of_int i, ss_pre) in
-      let PieceWiseIneq (ivar, pieces) =
-        Deshift.deshift_ineq (Equals (outvar, cf.(i)))
-      in
-      assert (ivar = "k");
-      let piece_to_formula (ivl, ineq) =
-        let hypothesis = match ivl with
-          | Bounded (lo, hi) ->
-            mk_and srk [mk_leq srk (mk_int lo) loop_counter;
-                        mk_leq srk loop_counter (mk_int hi)]
-          | BoundBelow lo ->
-            mk_and srk [mk_leq srk (mk_int lo) loop_counter]
-        in
-        let conclusion = match ineq with
-          | Equals (x, y) ->
-            if i < (iter.nb_constants + nb_equations) then
-              mk_eq srk (term_of_expr x) (term_of_expr y)
-            else
-              mk_leq srk (term_of_expr x) (term_of_expr y)
-          | _ -> assert false
-        in
-        mk_if srk hypothesis conclusion
-      in
-      mk_and srk (List.map piece_to_formula pieces))
-  |> BatList.of_enum
-  |> mk_and srk*)
 
 let wedge_of srk tr_symbols iter =
   let post_map =
