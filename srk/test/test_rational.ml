@@ -85,6 +85,8 @@ let mat_rec_test1 () =
   let init = [|QQXs.of_dim 0; QQXs.of_dim 1|] in
   let first_10 = enumerate transform init add 9 in
   let eps = RatEP.solve_rec [({blk_transform = transform; blk_add = add} : block)] in
+  (*Array.iteri (fun dim ep ->
+    Log.logf ~level:`always "Dim %d : %a" dim RatEP.pp ep) eps;*)
   let dim0_10 = List.init 10 (fun i -> RatEP.eval eps.(0) i) in
   let dim1_10 = List.init 10 (fun i -> RatEP.eval eps.(1) i) in
   assert_equal_seq first_10.(0) dim0_10;
@@ -100,6 +102,8 @@ let sp_test1 () =
   let add2 = [|Polynomial.QQXs.mul (Polynomial.QQXs.of_dim 0) (Polynomial.QQXs.of_dim 1)|] in
   let blk2 : block = {blk_transform = transform2; blk_add = add2} in
   let eps = RatEP.solve_rec [blk1; blk2] in
+  (*Array.iteri (fun dim ep ->
+    Log.logf ~level:`always "Dim %d : %a" dim RatEP.pp ep) eps;*)
   let first_10 = enumerate_sp [blk1; blk2] 9 in
   let dim0_10 = List.init 10 (fun i -> RatEP.eval eps.(0) i) in
   let dim1_10 = List.init 10 (fun i -> RatEP.eval eps.(1) i) in
@@ -123,6 +127,8 @@ let zero_eigen_test () =
   let add1 = [|Polynomial.QQXs.zero; Polynomial.QQXs.zero|] in
   let blk : block = {blk_transform = transform1; blk_add = add1} in
   let eps = RatEP.solve_rec [blk] in
+  (*Array.iteri (fun dim ep ->
+    Log.logf ~level:`always "Dim %d : %a" dim RatEP.pp ep) eps;*)
   let first_10 = enumerate_sp [blk] 9 in
   let dim0_10 = List.init 10 (fun i -> RatEP.eval eps.(0) i) in
   let dim1_10 = List.init 10 (fun i -> RatEP.eval eps.(1) i) in
@@ -138,6 +144,8 @@ let nf_test1 () =
   let eps = RatEP.solve_rec [blk] in
   let module EP = (val RatEP.to_nf eps) in
   let nf_eps = EP.get_rec_sols () in
+  (*Array.iteri (fun dim ep ->
+    Log.logf ~level:`always "Dim %d : %a" dim EP.pp ep) nf_eps;*)
   let first_10 = enumerate_sp [blk] 9 in
   let nf_rat_to_rat nf = 
     if QQX.order (EP.NF.get_poly nf) > 0 then failwith "NF value wasn't rational";
@@ -152,6 +160,8 @@ let nf_test1 () =
   assert_equal_seq first_10.(0) dim0_10;
   assert_equal_seq first_10.(1) dim1_10
 
+let show = SrkUtil.mk_show (QQXs.pp (fun fo d -> Format.fprintf fo "x_%d" d))
+  
 
 let rel_test1 () =
   let transform1 = qqify [|[|1; 1; 0|];
@@ -165,16 +175,16 @@ let rel_test1 () =
   let relations = EP.algebraic_relations () in
   (*let nf_eps = EP.get_rec_sols () in
   Array.iteri (fun dim ep ->
-    logf ~level:`always "Dim %d : %a" dim EP.pp ep) nf_eps;
-  logf  ~level:`always "z is a root of %a" Polynomial.QQX.pp EP.NF.int_poly;
-  log ~level:`always "Relations";
+    Log.logf ~level:`always "Dim %d : %a" dim EP.pp ep) nf_eps;
+  Log.logf  ~level:`always "z is a root of %a" Polynomial.QQX.pp EP.NF.int_poly;
+  Log.log ~level:`always "Relations";
   let v_printer fo d =
     if d < Array.length eps then Format.fprintf fo "x_%d" d
     else if d < 2 * (Array.length eps) then Format.fprintf fo "x'_%d" (d - Array.length eps)
     else Format.pp_print_string fo "K"
   in
   List.iter (fun p ->
-    logf ~level:`always "%a" (Polynomial.QQXs.pp v_printer) p
+    Log.logf ~level:`always "%a" (Polynomial.QQXs.pp v_printer) p
     ) relations;*)
   let first_10 = enumerate_sp ~initial:(Some init) [blk] 9 in
   let check_relation r = 

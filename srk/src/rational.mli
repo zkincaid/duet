@@ -154,6 +154,14 @@ module RatEP : sig
   val of_exponential : QQ.t -> t
     
   val scalar_mul : Polynomial.QQXs.t -> t -> t
+
+  (** Enumerate the exponential part.*)
+  val enum_ep : t -> (ConstRingX.t * QQ.t) BatEnum.t
+
+  (** Enumerate the heavysides*)
+  val enum_heavy : t -> (int * Polynomial.QQXs.t) BatEnum.t
+
+  val enum_iif : t -> ((Polynomial.QQX.t * int) * Polynomial.QQXs.t) BatEnum.t
       
   val add : t -> t -> t
     

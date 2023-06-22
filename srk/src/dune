@@ -20,7 +20,6 @@
     apron apron.boxMPQ apron.octMPQ apron.polkaMPQ
     zarith
     z3
-    OCRS
     ntl
     ocamlgraph
     normalizffi

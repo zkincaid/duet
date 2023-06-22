@@ -17,7 +17,6 @@
     camlidl
     apron
     z3
-    OCRS
     ntl
     ocamlgraph))
 

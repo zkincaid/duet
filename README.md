@@ -36,7 +36,7 @@ Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, an
 ```
  opam remote add sv https://github.com/zkincaid/sv-opam.git#modern
  opam install ocamlbuild ocamlfind zarith ocamlgraph batteries ppx_deriving ounit menhir ctypes-foreign
- opam install cil apron ocrs ntl normalizffi z3 faugere arb
+ opam install cil apron ntl normalizffi z3 faugere arb
 ```
 
 ### Building Duet

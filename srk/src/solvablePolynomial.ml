@@ -78,6 +78,7 @@ let vec_qqxsvec_dot vec1 vec2 =
     QQXs.zero
     (0 -- (Array.length vec2 - 1))
 
+(*
 let term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id =
   let open OCRS in
   let open Type_def in
@@ -126,6 +127,7 @@ let term_of_ocrs srk loop_counter pre_term_of_id post_term_of_id =
       assert false
   in
   go
+*)
 
 open TransitionIdeal
 
@@ -261,7 +263,8 @@ let _pp_block formatter block =
   done;
   fprintf formatter "@]"
 
-(* Compute closed-form representation of the dynamics of solvable
+(*
+  (* Compute closed-form representation of the dynamics of solvable
    polynomial map using OCRS *)
 let closure_ocrs sp =
   let open OCRS in
@@ -316,6 +319,7 @@ let closure_ocrs sp =
           | Equals (_, y) -> cf.(offset + i) <- y
           | _ -> assert false));
   cf
+*)
 
 (* Given a matrix in which each vector in the standard basis is a
    periodic generalized eigenvector, find a PRSD over the standard
@@ -1040,7 +1044,176 @@ let extract_constant_symbols srk tr_symbols wedge =
   done;
   term_of_id
 
-let exp_ocrs srk tr_symbols loop_counter iter =
+
+let term_of_ratep srk loop_counter pre_term_of_id ep =
+  let module CX = Rational.ConstRingX in
+  let open Rational.RatEP in
+  let translate_const_ring c = 
+    let translate_mon m = 
+      BatEnum.fold (
+        fun mul (dim, pow) ->
+          (Nonlinear.mk_pow srk (pre_term_of_id dim) (mk_real srk (QQ.of_int pow))) :: mul (*mk_int or mk_real?*)
+      ) [] (Monomial.enum m)
+    in
+    let add_l = QQXs.fold (
+      fun m c acc ->
+        (mk_mul srk ((mk_real srk c) :: (translate_mon m))) :: acc
+    ) c [] 
+    in
+    mk_add srk add_l
+  in
+  let translate_poly p = 
+    let add_l = CX.fold (
+      fun pow c acc ->
+        let term = mk_mul srk [(translate_const_ring c); (Nonlinear.mk_pow srk loop_counter (mk_real srk (QQ.of_int pow)))] in (*mk_int or mk_real?*)
+        term :: acc
+    ) p [] in
+    mk_add srk add_l
+  in
+  let translate_ep (p, b) = 
+    mk_mul srk [translate_poly p; Nonlinear.mk_pow srk (mk_real srk b) loop_counter]
+  in
+  let translate_iif ((den, shift), c) = 
+    let func = QQX.show den in (*Converting the iif to a string*)
+    let arg = if shift = 0 then loop_counter else mk_add srk [loop_counter; mk_real srk (QQ.of_int shift)] in (*mk_real or mk_int?*)
+    let sym =
+      if not (is_registered_name srk func) then
+        register_named_symbol srk func (`TyFun ([`TyReal], `TyReal));
+      get_named_symbol srk func
+    in
+    let iif = mk_app srk sym [arg] in
+    mk_mul srk [iif; translate_const_ring c]
+  in
+  let translate_heavy (offset, c) = 
+    mk_ite srk (mk_lt srk loop_counter (mk_real srk (QQ.of_int offset))) (mk_real srk QQ.zero) (translate_const_ring c)
+  in
+  let eps_list = 
+    BatEnum.fold (
+      fun add_l e ->
+        (translate_ep e) :: add_l
+    ) [] (enum_ep ep)
+  in
+  let eps_iifs_list =
+    BatEnum.fold (
+      fun add_l iif ->
+        (translate_iif iif) :: add_l
+    ) eps_list (enum_iif ep)
+  in
+  let eps_iifs_heavies_list = 
+    BatEnum.fold (
+      fun add_l heavy ->
+        (translate_heavy heavy) :: add_l
+    ) eps_iifs_list (enum_heavy ep)
+  in
+  mk_add srk eps_iifs_heavies_list
+
+(** Produce a formatted string representing the matrix recurrence *)
+let pp_mat_rec f (matrix, offset, add) = 
+  let primed_str = Array.init (Array.length matrix) (fun i -> "x_" ^ (string_of_int (i+offset)) ^ "'") in
+  let unprimed_str = Array.init (Array.length matrix) (fun i -> "x_" ^ (string_of_int (i+offset))) in
+  let add_str = Array.map (SrkUtil.mk_show (QQXs.pp (fun fo d -> Format.fprintf fo "x_%d" d))) add in
+  let matrix_str = Array.map (fun x -> Array.map QQ.show x) matrix in
+  let length_of_biggest_primed = Array.fold_left (fun a b -> max a (String.length b)) 0 primed_str in
+  let length_of_biggest_unprimed = Array.fold_left (fun a b -> max a (String.length b)) 0 unprimed_str in
+  let length_of_biggest_add = Array.fold_left (fun a b -> max a (String.length b)) 0 add_str in
+  let lens_with_format_list = 
+    List.init (Array.length matrix) (
+      fun i ->
+        let len = Array.fold_left (
+          fun maxi r ->
+            max maxi (String.length r.(i))
+            ) (-1) matrix_str in
+        Scanf.format_from_string ("%" ^ (string_of_int (len+1)) ^ "s") "%s"
+    ) in
+  let primed_form = Scanf.format_from_string ("| %" ^ string_of_int length_of_biggest_primed ^ "s |") "%s" in
+  let unprimed_form = Scanf.format_from_string ("| %" ^ string_of_int length_of_biggest_unprimed ^ "s |") "%s" in
+  let add_form = Scanf.format_from_string ("| %" ^ string_of_int length_of_biggest_add ^ "s |") "%s" in
+  let pp_row f i = 
+    Format.pp_open_box f 0;
+    Format.fprintf f primed_form primed_str.(i);
+    if i = ((Array.length matrix_str)/2) then
+      Format.fprintf f "%3s" " = "
+    else
+      Format.fprintf f "%3s" "";
+    let row_lis = Array.to_list (Array.get matrix_str i) in
+    Format.pp_print_string f "|";
+    List.iter2 (fun form value -> Format.fprintf f form value) lens_with_format_list row_lis;
+    Format.pp_print_string f " |";
+    if i = ((Array.length matrix_str)/2) then
+      Format.fprintf f "%3s" " * "
+    else
+      Format.fprintf f "%3s" "";
+    Format.fprintf f unprimed_form unprimed_str.(i);
+    if i = ((Array.length matrix_str)/2) then
+      Format.fprintf f "%3s" " + "
+    else
+      Format.fprintf f "%3s" "";
+    Format.fprintf f add_form add_str.(i);
+    Format.pp_close_box f ();
+    Format.pp_print_space f ()
+  in
+  Format.pp_open_vbox f 0;
+  Array.iteri (fun i _ -> pp_row f i) matrix;
+  Format.pp_print_newline f ();
+  Format.pp_close_box f ()
+
+let pp_sp f sp = 
+  let _ = List.fold_left (
+    fun (i, offset) (blk : block) ->
+      Format.fprintf f "Block %d : @[%a@]" i pp_mat_rec (blk.blk_transform, offset, blk.blk_add);
+      (i+1, offset + (Array.length blk.blk_transform))      
+      ) (1, 0) sp in
+  ()
+  
+
+let exp_rat srk tr_symbols loop_counter iter =
+  Nonlinear.ensure_symbols srk;
+
+  let post_map = (* map pre-state vars to post-state vars *)
+    TF.post_map srk tr_symbols
+  in
+
+  let postify =
+    let subst sym =
+      if Symbol.Map.mem sym post_map then
+        Symbol.Map.find sym post_map
+      else
+        mk_const srk sym
+    in
+    substitute_const srk subst
+  in
+
+  let constant_blocks = (*What is the purpose of this?*)
+    let const =
+      { blk_transform = [|[|QQ.one|]|];
+        blk_add = [| QQXs.zero |] }
+    in
+    BatEnum.repeat ~times:iter.nb_constants const
+    |> BatList.of_enum
+  in
+  let sp = constant_blocks @ iter.block_eq @ iter.block_leq in
+  log_pp pp_sp sp;
+  let cf = Log.time "Rat Exp" (Rational.RatEP.solve_rec) sp in
+  let nb_equations = nb_equations iter in
+  let term_of_expr =
+    let pre_term_of_id id =
+      iter.term_of_id.(id)
+    in
+    term_of_ratep srk loop_counter pre_term_of_id
+  in
+  (iter.nb_constants -- ((Array.length cf) - 1))
+  /@ (fun i ->
+      let lhs = postify (iter.term_of_id.(i)) in
+      let rhs = term_of_expr cf.(i) in
+      if i < (iter.nb_constants + nb_equations) then
+        mk_eq srk lhs rhs
+      else
+        mk_leq srk lhs rhs)
+  |> BatList.of_enum
+  |> mk_and srk
+
+
+(*let exp_ocrs srk tr_symbols loop_counter iter =
   let open OCRS in
   let open Type_def in
 
@@ -1113,7 +1286,7 @@ let exp_ocrs srk tr_symbols loop_counter iter =
       in
       mk_and srk (List.map piece_to_formula pieces))
   |> BatList.of_enum
-  |> mk_and srk
+  |> mk_and srk*)
 
 let wedge_of srk tr_symbols iter =
   let post_map =
@@ -1286,7 +1459,8 @@ module SolvablePolynomialOne = struct
     Wedge.widen (wedge_of srk tr_symbols iter) (wedge_of srk tr_symbols iter')
     |> abstract_wedge srk tr_symbols
 
-  let exp = exp_ocrs
+  (*let exp = exp_ocrs*)
+  let exp = exp_rat
   let equal = equal
   let pp = pp
 end
@@ -1317,7 +1491,8 @@ module SolvablePolynomial = struct
 
   let equal = equal
   let pp = pp
-  let exp = exp_ocrs
+  (*let exp = exp_ocrs*)
+  let exp = exp_rat
 end
 
 module SolvablePolynomialPeriodicRational = struct
@@ -1970,7 +2145,8 @@ module SolvablePolynomialLIRR = struct
       ; block_eq = it.witness
       ; block_leq = [] }
     in
-    exp_ocrs srk tr_symbols loop_count iter
+    (*exp_ocrs srk tr_symbols loop_count iter*)
+    exp_rat srk tr_symbols loop_count iter
 
   module PC = PolynomialCone
   let abstract srk tf =

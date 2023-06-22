@@ -19,7 +19,6 @@ the main functionality implemented in the library:
 Srk also provides an interface to several other libraries, including
  + [Z3](https://github.com/Z3Prover/z3): SMT solver
  + [Apron](http://apron.cri.ensmp.fr/library): numerical abstract domain library
- + [OCRS](https://github.com/cyphertjohn/OCRS): recurrence solver
  + [NTL](http://www.shoup.net/ntl/): number theory library
 
 References
@@ -56,7 +55,7 @@ Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, an
 ```
  opam remote add sv git://github.com/zkincaid/sv-opam.git#modern
 
- opam install ocamlgraph batteries ppx_deriving z3 apron ounit menhir OCRS ntl
+ opam install ocamlgraph batteries ppx_deriving z3 apron ounit menhir ntl
 ```
 
 ### Building srk

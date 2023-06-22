@@ -1,3 +1,5 @@
+open Polynomial
+
 exception Divide_by_zero
 
 include Log.Make(struct let name = "rational" end)
@@ -24,7 +26,7 @@ end
 
 (*The given ring should be an integral domain. There is no way to enforce this in code.*)
 module MakeRat (D : sig 
-  include Polynomial.Euclidean
+  include Euclidean
   val pp : Format.formatter -> t -> unit
 end) = struct
 
@@ -52,7 +54,9 @@ end) = struct
     match !a with
     | Norm (n, d) -> (n, d)
     | Unnorm (n, d) ->
-      if D.equal n D.zero then (D.zero, D.one)
+      if D.equal n D.zero then 
+        (a := Norm (D.zero, D.one);
+        (D.zero, D.one))
       else
         let gcd = gcd n d in
         let res = div_factor n gcd, div_factor d gcd in (* is this normal? could have const factor*)
@@ -190,7 +194,7 @@ end)
   val pp : Format.formatter -> t -> unit
 end)
 (CX : sig
-  include Polynomial.Univariate with type scalar = C.t
+  include Univariate with type scalar = C.t
   val pp : Format.formatter -> t -> unit
 end) = struct
   module E = ExpPolynomial.MakeEP(B)(C)(CX)
@@ -281,9 +285,9 @@ end
 module type ExpPolyNF = sig
   module NF : NumberField.NF
 
-  module ConstRing : Polynomial.Multivariate with type scalar = NF.elem
+  module ConstRing : Multivariate with type scalar = NF.elem
 
-  module ConstRingX : Polynomial.Univariate with type scalar = ConstRing.t
+  module ConstRingX : Univariate with type scalar = ConstRing.t
 
   type t 
   val zero : t
@@ -318,9 +322,9 @@ module type ExpPolyNF = sig
 
   val get_rec_sols : unit -> t array
 
-  val base_relations : unit -> Polynomial.QQXs.t list * (NF.elem * int) BatEnum.t
+  val base_relations : unit -> QQXs.t list * (NF.elem * int) BatEnum.t
 
-  val algebraic_relations : unit -> Polynomial.QQXs.t list
+  val algebraic_relations : unit -> QQXs.t list
 
   (*TODO mul*)
 end
@@ -330,7 +334,7 @@ module MakeConstRing (
     include Algebra.Ring 
     val lift : QQ.t -> t
   end) = struct
-  include Polynomial.MakeMultivariate(R)
+  include MakeMultivariate(R)
   
   let int_mul i = scalar_mul (R.lift (QQ.of_int i))
 
@@ -649,7 +653,7 @@ module ConstRing = struct
   end
 
 module ConstRingX = struct
-  include Polynomial.MakeUnivariate(ConstRing)
+  include MakeUnivariate(ConstRing)
 
   let int_mul i a = scalar_mul (ConstRing.int_mul i ConstRing.one) a
 end
@@ -871,6 +875,12 @@ module RatEP = struct
   let of_polynomial p = {e = RE.of_polynomial p; iifs = IIFS.empty}
 
   let of_exponential e = {e = RE.of_exponential e; iifs = IIFS.empty}
+
+  let enum_ep e = RE.enum_ep e.e
+
+  let enum_heavy e = RE.enum_heavy e.e
+
+  let enum_iif e = IIFS.enum e.iifs
   
 
   let scalar_mul c term = 
