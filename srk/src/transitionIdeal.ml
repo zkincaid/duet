@@ -18,6 +18,8 @@ type t =
 
 type polynomial_map = QQXs.t array
 
+let compose_polynomial_map f g = Array.map (QQXs.substitute (Array.get g)) f
+
 let make dim ideal = { dim; ideal }
 
 let equal ti1 ti2 =
@@ -106,6 +108,47 @@ let invariant_domain t =
   in
   let transition_ideal = I.reorder_groebner elim_ord t.ideal in
   loop (I.generators (I.restrict prestate transition_ideal)) transition_ideal
+
+let iteration_sequence t =
+  let elim_ord =
+    Monomial.block
+      [(fun x -> x >= 2 * t.dim); (fun x -> x >= t.dim)]
+      Monomial.degrevlex
+  in
+  let shift_left =
+    I.generators t.ideal
+    |> List.map (QQXs.substitute (fun x ->
+        if x < t.dim then QQXs.of_dim (x + 2*t.dim)
+        else QQXs.of_dim x))
+  in
+  let prestate m =
+    BatEnum.for_all (fun (d, _) -> d < t.dim) (Monomial.enum m)
+  in
+  let transition m =
+    BatEnum.for_all (fun (d, _) -> d < 2*t.dim) (Monomial.enum m)
+  in
+  let rec fix it =
+    let shift_right =
+      I.generators it.ideal
+      |> List.map (QQXs.substitute (fun x ->
+          if x >= t.dim then QQXs.of_dim (x + t.dim)
+          else QQXs.of_dim x))
+    in
+    let ideal' =
+      List.fold_left (fun rewrite p ->
+          I.add_saturate rewrite p)
+        (I.mk_rewrite elim_ord shift_right)
+        shift_left
+      |> I.restrict transition
+    in
+    let dom = I.restrict prestate ideal' in
+    if I.subset dom it.ideal then
+      ([it], dom)
+    else
+      let (seq, stable) = fix { dim = t.dim; ideal = ideal' } in
+      (it::seq, stable)
+  in
+  fix t
 
 (* Are most coefficients of a vector negative? *)
 let is_vector_negative vec =
@@ -381,3 +424,20 @@ let periodic_rational_solvable_witness =
 let solvable_reflection ti =
   let (witness, sim) = solvable_witness ti in
   (inverse_image ti sim, sim, witness)
+
+
+let ultimately_solvable_reflection ti =
+  let rec loop sim ti =
+    let dom = invariant_domain ti in
+    let ti_dom =
+      { ti with ideal = List.fold_left I.add_saturate ti.ideal (I.generators dom) }
+    in
+    let (witness, sim') = solvable_witness ti_dom in
+    let ti' = inverse_image ti sim' in
+    if ti.dim = ti'.dim then
+      (ti', compose_polynomial_map sim' sim, witness)
+    else
+      loop (compose_polynomial_map sim' sim) ti'
+  in
+  let id = Array.init ti.dim (fun i -> QQXs.of_dim i) in
+  loop id ti
