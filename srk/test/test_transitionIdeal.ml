@@ -69,9 +69,19 @@ let suite = "TransitionIdeal" >::: [
             ; z' - (int 3) * z
             ; y - z - (int 1) ]
         in
+        let expected_dom = make_ti [y - (int 1); z ] in
         assert_equal_ti
-          (make_ti [y - (int 1); z ])
-          (make_ti (I.generators (TransitionIdeal.invariant_domain t))))
+          expected_dom
+          (make_ti (I.generators (TransitionIdeal.invariant_domain t)));
+        let (seq, dom) = TransitionIdeal.iteration_sequence t in
+        begin match seq with
+        | [one; two] ->
+          assert_equal_ti t one;
+          assert_equal_ti (TransitionIdeal.compose t t) two;
+        | _ -> assert_failure "Incorrect length for iteration sequence"
+        end;
+        assert_equal_ti expected_dom (make_ti (I.generators dom)))
+
   ; "solvable1" >:: (fun () ->
       let open QQXsInfix in
       let t =
@@ -82,14 +92,19 @@ let suite = "TransitionIdeal" >::: [
           ; w' - w - w*z ]
       in
       let (solvable, sim, _) = TransitionIdeal.solvable_reflection t in
+      let (ult_solvable, ult_sim, _) =
+        TransitionIdeal.ultimately_solvable_reflection t
+      in
       let result = TransitionIdeal.image solvable sim 4 in
+      let ult_result = TransitionIdeal.image ult_solvable ult_sim 4 in
       let expected =
         make_ti
           [ x' - x - (int 1)
           ; y' - y - x*x
           ; z' - z - x*y ]
       in
-      assert_equal_ti expected result)
+      assert_equal_ti expected result;
+      assert_equal_ti expected ult_result)
   ; "solvable2" >:: (fun () ->
       let open QQXsInfix in
       let t =
@@ -129,6 +144,63 @@ let suite = "TransitionIdeal" >::: [
           [ w' - w - (int 1)
           ; (x' + y') - (x + y) + (int 2)*w*w'
           ; z' - (x + y)*w ]
+      in
+      assert_equal_ti expected result)
+  ; "ult_solvable1" >:: (fun () ->
+      let open QQXsInfix in
+      let t =
+        make_ti
+          [ x' - z*z*x
+          ; y' - z*y*y
+          ; w' - z*z
+          ; z' - w
+          ; w - (int 1)]
+      in
+      let (solvable, sim, _) = TransitionIdeal.ultimately_solvable_reflection t in
+      let result = TransitionIdeal.image solvable sim 4 in
+      let expected =
+        make_ti
+          [ x' - z*z*x
+          ; w' - z*z
+          ; z' - w
+          ; w - (int 1)]
+      in
+      assert_equal_ti expected result)
+  ; "ult_solvable2" >:: (fun () ->
+      let open QQXsInfix in
+      let t =
+        make_ti
+          [ w' - x
+          ; x' - y
+          ; y' - w * w
+          ; x
+          ; z' - z*z]
+      in
+      let (solvable, sim, _) = TransitionIdeal.ultimately_solvable_reflection t in
+      let result = TransitionIdeal.image solvable sim 4 in
+      let expected =
+        make_ti
+          [ w' - x
+          ; x' - y
+          ; y' - w * w
+          ; x]
+      in
+      assert_equal_ti expected result)
+  ; "ult_solvable3" >:: (fun () ->
+      let open QQXsInfix in
+      let t =
+        make_ti
+          [ x' - y*y
+          ; z'
+          ; w' - w - y*y
+          ; x - z ]
+      in
+      let (solvable, sim, _) = TransitionIdeal.ultimately_solvable_reflection t in
+      let result = TransitionIdeal.image solvable sim 4 in
+      let expected =
+        make_ti
+          [ z'
+          ; (x' - w') - (x - w) + z ]
       in
       assert_equal_ti expected result)
   ]
