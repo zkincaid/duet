@@ -945,7 +945,7 @@ let term_of_ratep srk loop_counter pre_term_of_id ep =
     let translate_mon m = 
       BatEnum.fold (
         fun mul (dim, pow) ->
-          (Nonlinear.mk_pow srk (pre_term_of_id dim) (mk_real srk (QQ.of_int pow))) :: mul (*mk_int or mk_real?*)
+          (mk_pow srk (pre_term_of_id dim) pow) :: mul (*mk_int or mk_real?*)
       ) [] (Monomial.enum m)
     in
     let add_l = QQXs.fold (
@@ -958,7 +958,7 @@ let term_of_ratep srk loop_counter pre_term_of_id ep =
   let translate_poly p = 
     let add_l = CX.fold (
       fun pow c acc ->
-        let term = mk_mul srk [(translate_const_ring c); (Nonlinear.mk_pow srk loop_counter (mk_real srk (QQ.of_int pow)))] in (*mk_int or mk_real?*)
+        let term = mk_mul srk [(translate_const_ring c); (mk_pow srk loop_counter pow)] in (*mk_int or mk_real?*)
         term :: acc
     ) p [] in
     mk_add srk add_l
@@ -1053,7 +1053,7 @@ let pp_mat_rec f (matrix, offset, add) =
 let pp_sp f sp = 
   let _ = List.fold_left (
     fun (i, offset) (blk : block) ->
-      Format.fprintf f "Block %d : @[%a@]" i pp_mat_rec (blk.blk_transform, offset, blk.blk_add);
+      Format.fprintf f "@[Block %d : %a@]" i pp_mat_rec (blk.blk_transform, offset, blk.blk_add);
       (i+1, offset + (Array.length blk.blk_transform))      
       ) (1, 0) sp in
   ()
@@ -1950,14 +1950,33 @@ module I = Polynomial.Rewrite
 module SolvablePolynomialLIRR = struct
   type 'a t =
     { ideal : TransitionIdeal.t
-    ; simulation : ('a arith_term) Array.t
+    ; tr_symbols : (symbol * symbol) list (*is this the same tr_symbols?*)
+    ; simulation : QQXs.t Array.t
     ; witness : TransitionIdeal.solvable_polynomial }
 
   let pp _ = assert false
 
   let exp srk tr_symbols loop_count it =
+    (*let inv_stab, inv_dom = TransitionIdeal.invariant_domain it.ideal in
+    logf "Invariant Dom : %a" (I.pp (fun fo d -> Format.fprintf fo "x_%d" d)) inv_dom;
+    log_pp pp_sp it.witness;
+    let cf = Log.time "Rat Exp" (Rational.RatEP.solve_rec) it.witness in
+    let module EP = (val Log.time "Splitting Field" Rational.RatEP.to_nf cf) in
+    let transient, zero_eigen_stab, rels = Log.time "Algebraic Relations" EP.long_run_algebraic_relations () in
+    if zero_eigen_stab >= inv_stab then*)
+
+    
+
+    let sim' =
+        Array.map (fun p ->
+            QQXs.term_of
+              srk
+              (fun i -> mk_const srk (fst (List.nth it.tr_symbols i)))
+              p)
+          it.simulation
+      in
     let iter =
-      { term_of_id = it.simulation
+      { term_of_id = sim'
       ; nb_constants = 0
       ; block_eq = it.witness
       ; block_leq = [] }
@@ -2008,16 +2027,17 @@ module SolvablePolynomialLIRR = struct
       let (ti, sim, witness) =
         TransitionIdeal.solvable_reflection ti
       in
-      let sim' =
+      (*let sim' =
         Array.map (fun p ->
             QQXs.term_of
               srk
               (fun i -> mk_const srk (fst (List.nth tr_symbols i)))
               p)
           sim
-      in
+      in*)
       { ideal = ti
-      ; simulation = sim'
+      ; tr_symbols
+      ; simulation = sim
       ; witness = witness }
     in
     let ideal =

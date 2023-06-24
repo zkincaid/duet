@@ -127,6 +127,11 @@ module type ExpPolyNF = sig
       first 0, ..., d-1 variable are the pre-state. The d, ..., 2d-1 variables are the post-state
       and the 2d'th variable is the iteration variable K.*)
   val algebraic_relations : unit -> Polynomial.QQXs.t list
+
+  val shift_remove_heavys : unit -> ConstRing.t array list * int * t array
+
+  val long_run_algebraic_relations : unit -> ConstRing.t array list * int * Polynomial.QQXs.t list
+
 end
 
 module ConstRingX : Polynomial.Univariate with type scalar = Polynomial.QQXs.t

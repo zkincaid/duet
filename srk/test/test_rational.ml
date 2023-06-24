@@ -134,6 +134,32 @@ let zero_eigen_test () =
   let dim1_10 = List.init 10 (fun i -> RatEP.eval eps.(1) i) in
   assert_equal_seq first_10.(0) dim0_10;
   assert_equal_seq first_10.(1) dim1_10
+  (*let module EP = (val RatEP.to_nf eps) in
+  let nf_rat_to_rat nf = 
+    if QQX.order (EP.NF.get_poly nf) > 0 then failwith "NF value wasn't rational";
+    QQX.coeff 0 (EP.NF.get_poly nf)
+  in
+  let const_ring_nf_to_qqxs p = 
+    let monomial_to_rat (nf, m) = (nf_rat_to_rat nf, m) in
+    QQXs.of_enum (BatEnum.map monomial_to_rat (EP.ConstRing.enum p))
+  in
+  let (transient, shift, relations) = EP.long_run_algebraic_relations () in
+  let transient_rat = List.map (Array.map const_ring_nf_to_qqxs) transient in
+  let v_printer fo d =
+    if d < Array.length eps then Format.fprintf fo "x_%d" d
+    else if d < 2 * (Array.length eps) then Format.fprintf fo "x'_%d" (d - Array.length eps)
+    else Format.pp_print_string fo "K"
+  in
+  List.iteri (
+    fun i pos ->
+      let pp_l = Format.pp_print_list ~pp_sep:(fun fo () -> Format.fprintf fo "; ") (QQXs.pp v_printer) in
+      Log.logf ~level:`always "Pos %d : [%a]" i pp_l (Array.to_list pos)
+  ) transient_rat;
+  Log.logf ~level:`always "Relations when x>=%d" shift;
+  List.iter (fun p ->
+    Log.logf ~level:`always "%a" (Polynomial.QQXs.pp v_printer) p
+    ) relations*)
+
 
 
 let nf_test1 () =

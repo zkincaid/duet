@@ -181,7 +181,7 @@ end
 module IM = SrkUtil.Int.Map
 
 module MakeEPWithHeavy(B : sig 
-  include Algebra.Ring 
+  include Algebra.Field 
   val compare : t -> t -> int 
   val exp : t -> int -> t 
   val pp : Format.formatter -> t -> unit
@@ -190,7 +190,6 @@ end)
   include Algebra.Ring
   val lift : B.t -> t
   val int_mul : int -> t -> t
-
   val pp : Format.formatter -> t -> unit
 end)
 (CX : sig
@@ -223,7 +222,6 @@ end) = struct
     let heaviside = IM.map (C.mul c) term.heaviside in
     {ep; heaviside}
 
-
   let add a b =
     let ep = E.add a.ep b.ep in
     let unioner _ x y = 
@@ -253,6 +251,34 @@ end) = struct
       else sum
     in
     IM.fold heavy_eval a.heaviside ep_eval
+
+  let shift n e = 
+    let shift_poly p =
+      BatEnum.fold (
+        fun acc (c, pow) ->
+          CX.add acc (CX.scalar_mul c (CX.exp (CX.add CX.identity (CX.scalar (C.int_mul n C.one))) pow)) (*Add or sub? p(k+n)*) 
+      ) CX.zero (CX.enum p)
+    in
+    let shift_ep_add acc (p, b) = 
+      let shifted_p = shift_poly p in
+      add acc (of_exponential_poly b (CX.scalar_mul (C.lift (B.exp b (-n))) shifted_p)) (*-n or n?*)
+    in
+    let shifted_ep = BatEnum.fold shift_ep_add zero (E.enum e.ep) in
+    let shift_heavy_add acc (shift, c) = 
+      if n >= shift then add acc (scalar c)
+      else add acc (of_heavy (shift-n) c)
+    in
+    BatEnum.fold shift_heavy_add shifted_ep (IM.enum e.heaviside)
+    
+
+  let shift_remove_heavys earr = 
+    let biggest_heavy e = 
+      if IM.is_empty e.heaviside then 0 
+      else fst (IM.max_binding e.heaviside)
+    in
+    let biggest = Array.fold_left (fun acc e -> max acc (biggest_heavy e)) (-1) earr in
+    let transient = List.init biggest (fun i -> Array.map (fun e -> eval e i) earr) in
+    transient, biggest, Array.map (shift biggest) earr
 
 
   (*TODO mul*)
@@ -326,6 +352,10 @@ module type ExpPolyNF = sig
 
   val algebraic_relations : unit -> QQXs.t list
 
+  val shift_remove_heavys : unit -> ConstRing.t array list * int * t array
+
+  val long_run_algebraic_relations : unit -> ConstRing.t array list * int * QQXs.t list
+
   (*TODO mul*)
 end
 
@@ -379,9 +409,12 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
     bases_in_rec := bm, im
   
 
+
   let base_relations : QQXs.t list ref = ref []
 
   let get_rec_sols () = !rec_sols
+
+  let shift_remove_heavys () = shift_remove_heavys (get_rec_sols ())
 
   let base_relations () = 
     if List.length !base_relations <> 0 then !base_relations, BM.enum (fst (!bases_in_rec))
@@ -402,9 +435,9 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
       List.map exp_rel_to_poly relations, BM.enum (fst (!bases_in_rec))
         
 
-  let algebraic_relations () = 
+  let algebraic_relations_in sols = 
     let root_rels = fst (base_relations ()) in
-    let post_offset = Array.length !rec_sols in
+    let post_offset = Array.length sols in
     let iter_var = 2 * post_offset in
     let field_var = iter_var + 1 in
     let root_offset = field_var + 1 in
@@ -431,7 +464,7 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
       let rhs = BatEnum.fold translate_power_poly QQXs.zero (enum_ep ep) in
       QQXs.sub (QQXs.of_dim (i+post_offset)) rhs
     in
-    let cl = Array.to_list (Array.mapi translate_sol !rec_sols) in
+    let cl = Array.to_list (Array.mapi translate_sol sols) in
     let field_poly = NumberField.make_multivariate field_var NF.int_poly in
     let offset_root_rel p = 
       let offset_mon (c, m) = 
@@ -456,6 +489,17 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
         let ds = QQXs.dimensions p in
         SrkUtil.Int.Set.disjoint ds (SrkUtil.Int.Set.of_list (List.init ((biggest_root_i + root_offset) - field_var + 1) (fun i -> i + field_var)))
     ) gb
+
+  let algebraic_relations () = 
+    algebraic_relations_in (get_rec_sols ())
+
+
+  let long_run_algebraic_relations () = (*Should I resubsitute for K?*)
+    let (transient, shift, shifted) = shift_remove_heavys () in
+    let rels = algebraic_relations_in shifted in
+    let loop_counter = 2 * (Array.length (get_rec_sols ())) in
+    let deshifted = List.map (QQXs.substitute (fun d -> if d = loop_counter then QQXs.sub (QQXs.of_dim loop_counter) (QQXs.scalar (QQ.of_int shift)) else QQXs.of_dim d)) rels in
+    (transient, shift, deshifted)
 
 
 end 
