@@ -229,6 +229,46 @@ let rel_test1 () =
     check_relation p
     ) relations
 
+
+let rel_test2 () =
+  let transform1 = qqify [|[|3; 0|];
+                          [|2; 0|]|] in
+  let add1 = [|Polynomial.QQXs.zero; Polynomial.QQXs.one|] in
+  let blk : block = {blk_transform = transform1; blk_add = add1} in
+  let eps = RatEP.solve_rec [blk] in
+  let module EP = (val RatEP.to_nf eps) in
+  let _, _, relations = EP.long_run_algebraic_relations () in
+  (*let nf_eps = EP.get_rec_sols () in
+  Array.iteri (fun dim ep ->
+    Log.logf ~level:`always "Dim %d : %a" dim EP.pp ep) nf_eps;
+  Log.logf  ~level:`always "z is a root of %a" Polynomial.QQX.pp EP.NF.int_poly;
+  Log.log ~level:`always "Relations";
+  let v_printer fo d =
+    if d < Array.length eps then Format.fprintf fo "x_%d" d
+    else if d < 2 * (Array.length eps) then Format.fprintf fo "x'_%d" (d - Array.length eps)
+    else Format.pp_print_string fo "K"
+  in
+  List.iter (fun p ->
+    Log.logf ~level:`always "%a" (Polynomial.QQXs.pp v_printer) p
+    ) relations;*)
+  let first_10 = enumerate_sp [blk] 9 in
+  let check_relation r = 
+    let rel = List.init 9 (
+      fun i ->
+        QQXs.substitute (
+          fun j -> 
+            if j < (Array.length eps) then QQXs.of_dim j
+            else 
+              List.nth first_10.(j-(Array.length eps)) (i + 1)
+        ) r
+    ) in
+    assert_equal_seq (List.init 9 (fun _ -> QQXs.zero)) rel
+  in
+  List.iter (fun p ->
+    check_relation p
+    ) relations
+
+
 let suite = "Rational" >:::
   [
     "mat_rec_test1" >:: mat_rec_test1;
@@ -236,5 +276,6 @@ let suite = "Rational" >:::
     (*"iif_test1" >:: iif_test1;*)
     "zero_eigen_test" >:: zero_eigen_test;
     "nf_test1" >:: nf_test1;
-    "rel_test1" >:: rel_test1
+    "rel_test1" >:: rel_test1;
+    "rel_test2" >:: rel_test2
   ]

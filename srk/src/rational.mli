@@ -128,9 +128,9 @@ module type ExpPolyNF = sig
       and the 2d'th variable is the iteration variable K.*)
   val algebraic_relations : unit -> Polynomial.QQXs.t list
 
-  val shift_remove_heavys : unit -> ConstRing.t array list * int * t array
+  val shift_remove_heavys : unit -> Polynomial.QQXs.t array list * int * t array
 
-  val long_run_algebraic_relations : unit -> ConstRing.t array list * int * Polynomial.QQXs.t list
+  val long_run_algebraic_relations : unit -> Polynomial.QQXs.t array list * int * Polynomial.QQXs.t list
 
 end
 

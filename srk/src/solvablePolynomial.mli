@@ -54,4 +54,11 @@ module DLTSPeriodicRational : sig
   val abstract_rational : 'a context -> 'a TransitionFormula.t -> 'a t
 end
 
-module SolvablePolynomialLIRR : PreDomain
+module SolvablePolynomialLIRR : 
+  sig
+    include PreDomain
+
+    val make : TransitionIdeal.t -> Polynomial.QQXs.t array -> TransitionIdeal.solvable_polynomial -> 'a t
+
+    val exp_ti : 'a t -> TransitionIdeal.t
+  end

@@ -352,9 +352,9 @@ module type ExpPolyNF = sig
 
   val algebraic_relations : unit -> QQXs.t list
 
-  val shift_remove_heavys : unit -> ConstRing.t array list * int * t array
+  val shift_remove_heavys : unit -> QQXs.t array list * int * t array
 
-  val long_run_algebraic_relations : unit -> ConstRing.t array list * int * QQXs.t list
+  val long_run_algebraic_relations : unit -> QQXs.t array list * int * QQXs.t list
 
   (*TODO mul*)
 end
@@ -414,7 +414,16 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
 
   let get_rec_sols () = !rec_sols
 
-  let shift_remove_heavys () = shift_remove_heavys (get_rec_sols ())
+  let shift_remove_heavys () = 
+    let transient, shift, sols = shift_remove_heavys (get_rec_sols ()) in
+    let const_ring_to_qqxs p = 
+      QQXs.of_enum (BatEnum.map (
+        fun (c, d) ->
+          let cp = NF.get_poly c in
+          if QQX.order cp <> 0 then failwith "Map has non-rational entries";
+          QQX.coeff 0 cp, d
+      ) (ConstRing.enum p)) in
+    List.map (Array.map const_ring_to_qqxs) transient, shift, sols
 
   let base_relations () = 
     if List.length !base_relations <> 0 then !base_relations, BM.enum (fst (!bases_in_rec))
