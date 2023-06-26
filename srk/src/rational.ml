@@ -383,7 +383,25 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
   include MakeEPWithHeavy
     (struct include NF type t = elem end)
     (struct include ConstRing let lift = ConstRing.scalar let pp = ConstRing.pp NF.pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d))) end)
-    (struct include ConstRingX let pp = ConstRingX.pp (ConstRing.pp NF.pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d)))) end)
+    (struct include ConstRingX 
+      let pp formatter p =
+        let scalar_pp = ConstRing.pp NF.pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d))) in
+        let pp_monomial formatter (coeff, order) =
+          if order = 0 then
+            scalar_pp formatter coeff
+          else if ConstRing.equal coeff ConstRing.one then
+            Format.fprintf formatter "@[x^%d@]" order
+          else if ConstRing.equal coeff (ConstRing.negate ConstRing.one) then
+            Format.fprintf formatter "@[-x^%d@]" order
+          else
+            Format.fprintf formatter "@[(%a)*x^%d@]" scalar_pp coeff order
+        in
+        SrkUtil.pp_print_enum
+          ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
+          pp_monomial
+          formatter
+          (enum p)
+    end)
 
 
   module BM = BatMap.Make(struct type t = NF.elem let compare = NF.compare end)
@@ -708,6 +726,23 @@ module ConstRing = struct
 module ConstRingX = struct
   include MakeUnivariate(ConstRing)
 
+  let pp scalar_pp formatter p =
+    let pp_monomial formatter (coeff, order) =
+      if order = 0 then
+        scalar_pp formatter coeff
+      else if ConstRing.equal coeff ConstRing.one then
+        Format.fprintf formatter "@[x^%d@]" order
+      else if ConstRing.equal coeff (ConstRing.negate ConstRing.one) then
+        Format.fprintf formatter "@[-x^%d@]" order
+      else
+        Format.fprintf formatter "@[(%a)*x^%d@]" scalar_pp coeff order
+    in
+    SrkUtil.pp_print_enum
+      ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
+      pp_monomial
+      formatter
+      (enum p)
+
   let int_mul i a = scalar_mul (ConstRing.int_mul i ConstRing.one) a
 end
 
@@ -838,16 +873,23 @@ let had_mult ((an, ad) : t) ((bn, bd) : t) : t =
     let n, p = Array.length a_comp, Array.length b_comp in
     sol.(n*p - p - 2) (* Need to check this*)
 
-let had_exp rs e = 
-  if e < 0 then failwith "Exponentiating a negative exponent";
+(*let had_exp rs e = 
   let rec exp_by_squaring y x n = 
-    if n = 0 then y
+    Log.debugf "n = %d" n;
+    Log.debugf "y = %a" pp y;
+    Log.debugf "x = %a" pp x;
+    if n < 0 then failwith "Exponentiating a negative exponent"
+    else if n = 0 then y
     else if n mod 2 = 0 then
       exp_by_squaring y (had_mult x x) (n/2)
     else
-      exp_by_squaring (had_mult x y) (had_mult x x) ((n-1)/2)
+      let new_y = had_mult x y in 
+      Log.debugf "new y = %a" pp new_y;
+      let new_x = had_mult x x in
+      Log.debugf "new x = %a" pp new_x;
+      exp_by_squaring new_y new_x ((n-1)/2)
   in
-  exp_by_squaring one rs e
+  exp_by_squaring one rs e*)
 
 
 type block = TransitionIdeal.block
@@ -859,9 +901,9 @@ module RS = struct
   type nonrec t = t 
   let add = add 
   let zero = zero 
-  let one = one
-
-  let mul = mul
+  (*let one = one
+  let pp = pp
+  let mul = mul*)
 end
 
 module RatEP = struct
@@ -1185,20 +1227,33 @@ module RatEP = struct
     let ep = (module EP : ExpPolyNF) in
     ep
   
+  let exp a i = 
+    let rec exp_by_squaring y x n = 
+      if n < 0 then failwith "Exponentiating a negative exponent"
+      else if n = 0 then y
+      else if n mod 2 = 0 then
+        exp_by_squaring y (mul x x) (n/2)
+      else
+        exp_by_squaring (mul x y) (mul x x) ((n-1)/2)
+    in
+    exp_by_squaring one a i
 
-
-  let solve_rec_rs initial sp : RS.t array = 
+  let solve_rec_rs initial sp : t array = 
     let size = List.fold_left (+) 0 (List.map (fun (blk : block) -> Array.length blk.blk_transform) sp) in
-    let cf = Array.make size RS.zero in
-    let translate_blk_add p = (*Might be better to work with ep's and use that mult rather than had mult.*)
-      QQXs.fold (
+    let cf = Array.make size zero in
+    let translate_blk_add p = (*This might get expensive if there are big iifs*)
+      let p_ep = QQXs.fold (
         fun m coef rs ->
-          let mon_rs = BatEnum.fold (
+          let mon_ep = BatEnum.fold (
             fun acc (dim, pow) ->
-              had_mult acc (had_exp (cf.(dim)) pow)
-          ) RS.one (Monomial.enum m) in
-          RS.add (RS.mul (lift (N.scalar (ConstRing.scalar coef))) mon_rs) rs
-      ) p RS.zero
+              mul acc (exp (cf.(dim)) pow)
+          ) one (Monomial.enum m) in
+          add (scalar_mul (ConstRing.scalar coef) mon_ep) rs
+        ) p zero
+      in
+      let ep_rs = BatEnum.fold (fun acc ep -> RS.add acc (translate_ep_term ep)) RS.zero (enum_ep p_ep) in
+      let ep_rs_heavy = BatEnum.fold (fun acc ep -> RS.add acc (translate_heaviside ep)) ep_rs (enum_heavy p_ep) in
+      BatEnum.fold (fun acc ep -> RS.add acc (translate_iif ep)) ep_rs_heavy (enum_iif p_ep)
     in
     let rec aux blocks offset = 
       match blocks with
@@ -1219,7 +1274,7 @@ module RatEP = struct
         in*)
         let sol = solve_mat_rec_rs blk.blk_transform init blk_add in
         for i = 0 to blk_size - 1 do
-          cf.(i + offset) <- sol.(i)
+          cf.(i + offset) <- translate_rs sol.(i)
         done;
         aux blks (offset + blk_size)
     in
@@ -1239,6 +1294,6 @@ module RatEP = struct
         | None -> ConstRing.of_dim i
         | Some v -> ConstRing.scalar v
     ) init_opt in
-    Array.map translate_rs (solve_rec_rs init recs)
+    solve_rec_rs init recs
 
 end

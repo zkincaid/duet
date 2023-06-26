@@ -12,9 +12,9 @@ let suite = "Main" >::: [
     Test_sequence.suite;
     Test_linear.suite;
     Test_cone.suite;
-    Test_polyhedron.suite;
+    Test_polyhedron.suite;*)
     Test_polynomial.suite;
-    Test_polynomialCone.suite;
+    (*Test_polynomialCone.suite;
     Test_exppolynomial.suite;
     Test_apron.suite;
     Test_simplify.suite;

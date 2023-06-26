@@ -58,7 +58,9 @@ module SolvablePolynomialLIRR :
   sig
     include PreDomain
 
-    val make : TransitionIdeal.t -> Polynomial.QQXs.t array -> TransitionIdeal.solvable_polynomial -> 'a t
+    type pre_t
 
-    val exp_ti : 'a t -> TransitionIdeal.t
+    val make_sp : TransitionIdeal.t -> TransitionIdeal.solvable_polynomial -> pre_t
+
+    val exp_ti : pre_t -> TransitionIdeal.t
   end
