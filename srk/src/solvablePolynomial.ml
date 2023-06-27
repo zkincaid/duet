@@ -2057,7 +2057,6 @@ module SolvablePolynomialLIRR = struct
           (I.generators ideal)
         |> Symbol.Set.elements
       in
-      Log.errorf "%d symbolic constants" (List.length ideal_constants);
       let ks =
         List.map (dup_symbol srk) ideal_constants
       in
