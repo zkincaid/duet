@@ -165,6 +165,26 @@ let stratified2 () =
   in
   assert_implies closure result
 
+let stratified3 () =
+  let phi =
+    TransitionFormula.make
+      Infix.(x' = x + (int 1)
+             && y' = y + x'*x')
+      [(xsym,xsym');(ysym,ysym')]
+  in
+  let closure =
+    let open Infix in
+    x = (int 0)
+    && y = (int 0)
+    && SP.star srk phi
+  in
+  let result =
+    let open Infix in
+    (int 6)*y' = x'*(x'+(int 1))*((int 2)*x' + (int 1))
+  in
+  assert_implies closure result
+
+
 let count_by_k () =
   let phi =
     TransitionFormula.make
@@ -515,6 +535,7 @@ let suite = "Iteration" >::: [
     "count_by_2" >:: count_by_2;
     "stratified1" >:: stratified1;
     "stratified2" >:: stratified2;
+    "stratified3" >:: stratified3;
     "count_by_k" >:: count_by_k;
     "ineq1" >:: ineq1;
     "ineq2" >:: ineq2;

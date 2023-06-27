@@ -407,7 +407,7 @@ let _solvable_witness abstract_dlts ti =
       (index + (QQMatrix.nb_rows x))
   in
   ignore (populate sim);
-  (witness, flat_sim)
+  (List.rev witness, flat_sim)
 
 let solvable_witness = _solvable_witness Lts.determinize
 
