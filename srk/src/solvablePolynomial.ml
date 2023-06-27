@@ -1960,7 +1960,8 @@ module SolvablePolynomialLIRR = struct
 
   type 'a t =
     { ti : pre_t
-    ; simulation : 'a arith_term array }
+    ; simulation : 'a arith_term array 
+    ; constants : (symbol * symbol) list}
 
   let pp _ = assert false
 
@@ -1977,43 +1978,57 @@ module SolvablePolynomialLIRR = struct
 
   let exp_ti it = 
     let it_offset = it.ideal.dim in
-    let inv_seq, inv_dom = TransitionIdeal.iteration_sequence it.ideal in
-    let inv_dom_id = Id.make (I.generators (I.grobner_basis inv_dom)) in
-    let k_equal_i i = QQXs.sub (QQXs.of_dim (2 * it.ideal.dim)) (QQXs.scalar (QQ.of_int i)) in
-    let zeroth = Id.make ((k_equal_i 0) :: (List.init it_offset (fun d -> QQXs.sub (QQXs.of_dim (d+it_offset)) (QQXs.of_dim d)))) in
-    let inv_seq_id = List.mapi (fun i (id : TransitionIdeal.t) -> Id.make ((k_equal_i (i+1)) :: (I.generators (I.grobner_basis id.ideal)))) inv_seq in
-    let transient_closure = List.fold_left Id.intersect zeroth inv_seq_id in
+    logf "Exponentiating dim : %d" it_offset;
+    logf "Exponentiating : %a" (TransitionIdeal.pp (pp_dim it_offset)) it.ideal;
+    if I.generators (it.ideal.ideal) = [] then
+      TransitionIdeal.make it_offset it.ideal.ideal
+    else if QQXs.is_zero (I.reduce it.ideal.ideal QQXs.one) then
+      TransitionIdeal.make it_offset it.ideal.ideal
+    else
+      let inv_seq, inv_dom = TransitionIdeal.iteration_sequence it.ideal in
+      let inv_dom_id = Id.make (I.generators (I.grobner_basis inv_dom)) in
+      let k_equal_i i = QQXs.sub (QQXs.of_dim (2 * it.ideal.dim)) (QQXs.scalar (QQ.of_int i)) in
+      let zeroth = Id.make ((k_equal_i 0) :: (List.init it_offset (fun d -> QQXs.sub (QQXs.of_dim (d+it_offset)) (QQXs.of_dim d)))) in
+      let inv_seq_id = List.mapi (fun i (id : TransitionIdeal.t) -> Id.make ((k_equal_i (i+1)) :: (I.generators (I.grobner_basis id.ideal)))) inv_seq in
+      let transient_closure = List.fold_left Id.intersect zeroth inv_seq_id in
+      logf "Invariant Dom : %a" (I.pp (pp_dim it_offset)) inv_dom;
+      if QQXs.is_zero (I.reduce inv_dom QQXs.one) then 
+        TransitionIdeal.make it_offset (I.grobner_basis (I.mk_rewrite (I.get_monomial_ordering it.ideal.ideal) (Id.generators transient_closure)))
+      else      
+        (log_pp pp_sp it.witness;
+        let cf = Log.time "Rat Exp" (Rational.RatEP.solve_rec) it.witness in
+        let sp_map_offset = Array.length cf in
+        let module EP = (val Log.time "Splitting Field" Rational.RatEP.to_nf cf) in
 
-    logf "Invariant Dom : %a" (I.pp (pp_dim it_offset)) inv_dom;
-    log_pp pp_sp (List.rev it.witness);
-    let cf = Log.time "Rat Exp" (Rational.RatEP.solve_rec) (List.rev it.witness) in
-    let sp_map_offset = Array.length cf in
-    let module EP = (val Log.time "Splitting Field" Rational.RatEP.to_nf cf) in
-
-    let zero_eig_transient, zero_eigen_stab, rels = Log.time "Algebraic Relations" EP.long_run_algebraic_relations () in
-    let cl = 
-      if (List.length inv_seq_id) + 1 >= zero_eigen_stab then
-        Id.intersect transient_closure (Id.sum inv_dom_id (Id.make rels))
-      else
-        let rec get_rels_after_inv_transient i l = 
-          if i >= (List.length inv_seq_id) + 1 then 
-            List.fold_left (
-              fun ideal state ->
-                let gens, _ = Array.fold_left (
-                  fun (gs, index) p ->
-                    (QQXs.sub (QQXs.of_dim (index + sp_map_offset)) p) :: gs, index + 1
-                ) ([k_equal_i i], 0) state in
-                Id.intersect ideal (Id.sum inv_dom_id (Id.make gens))
-            ) (Id.sum inv_dom_id (Id.make rels)) l
-          else get_rels_after_inv_transient (i+1) (List.tl l)
+        let zero_eig_transient, zero_eigen_stab, rels = Log.time "Algebraic Relations" EP.long_run_algebraic_relations () in
+        let cl = 
+          if (List.length inv_seq_id) + 1 >= zero_eigen_stab then
+            Id.intersect transient_closure (Id.sum inv_dom_id (Id.make rels))
+          else
+            let rec get_rels_after_inv_transient i l = 
+              if i >= (List.length inv_seq_id) + 1 then 
+                List.fold_left (
+                  fun ideal state ->
+                    let gens, _ = Array.fold_left (
+                      fun (gs, index) p ->
+                        (QQXs.sub (QQXs.of_dim (index + sp_map_offset)) p) :: gs, index + 1
+                    ) ([k_equal_i i], 0) state in
+                    Id.intersect ideal (Id.sum inv_dom_id (Id.make gens))
+                ) (Id.sum inv_dom_id (Id.make rels)) l
+              else get_rels_after_inv_transient (i+1) (List.tl l)
+            in
+            Id.intersect transient_closure (get_rels_after_inv_transient 0 zero_eig_transient)
         in
-        Id.intersect transient_closure (get_rels_after_inv_transient 0 zero_eig_transient)
-    in
-    TransitionIdeal.make it_offset (I.mk_rewrite (I.get_monomial_ordering it.ideal.ideal) (Id.generators cl))
+        TransitionIdeal.make it_offset (I.grobner_basis (I.mk_rewrite (I.get_monomial_ordering it.ideal.ideal) (Id.generators cl))))
     
 
 
   let exp srk tr_symbols loop_count it =
+    let pp_symbols f = List.iteri (fun i (pre, prime) -> Format.fprintf f "tr_symbols.(%d) : pre = %a, prime = %a@." i (pp_symbol srk) pre (pp_symbol srk) prime) in
+    logf "constants : %a" pp_symbols it.constants;
+    logf "tr_symbols : %a" pp_symbols tr_symbols;
+    let pp_sim f = Array.iteri (fun i s -> Format.fprintf f "simulation.(%d) : %a@." i (pp_expr_unnumbered srk) s) in
+    logf "simulation : %a" pp_sim it.simulation;
     let post_map = (* map pre-state vars to post-state vars *)
       TF.post_map srk tr_symbols
     in
@@ -2027,18 +2042,25 @@ module SolvablePolynomialLIRR = struct
       substitute_const srk subst
     in
     let it_cl = exp_ti it.ti in
-    let gens = I.generators it_cl.ideal in
-    let gens_t = List.map (
-      fun p ->
-        let p_t = QQXs.term_of srk (
-          fun d ->
-            if d = 2 * it_cl.dim then loop_count
-            else if d < it_cl.dim then it.simulation.(d)
-            else postify (it.simulation.(d-it_cl.dim))
-        ) p in
-        mk_eq srk p_t (mk_real srk (QQ.zero))
-    ) gens in
-    mk_and srk gens_t
+    let tr_form = 
+      if QQXs.is_zero (I.reduce it_cl.ideal QQXs.one) then
+        mk_eq srk loop_count (mk_real srk QQ.zero)
+      else
+        let gens = I.generators it_cl.ideal in
+        let gens_t = List.map (
+          fun p ->
+            let p_t = QQXs.term_of srk (
+              fun d ->
+                if d = 2 * it_cl.dim then loop_count
+                else if d < it_cl.dim then it.simulation.(d)
+                else postify (it.simulation.(d-it_cl.dim))
+            ) p in
+            mk_eq srk p_t (mk_real srk (QQ.zero))
+        ) gens in
+        mk_and srk gens_t
+    in
+    let symbolic_const = List.map (fun (pre, post) -> mk_eq srk (mk_const srk pre) (mk_const srk post)) it.constants in
+    mk_and srk (tr_form :: symbolic_const)
 
   module PC = PolynomialCone
   let abstract srk tf =
@@ -2091,7 +2113,8 @@ module SolvablePolynomialLIRR = struct
           sim
       in
       { ti = {ideal = ti; witness = witness }
-      ; simulation = sim'}
+      ; simulation = sim'
+      ; constants = tr_symbols}
     in
     let ideal =
       PC.get_ideal

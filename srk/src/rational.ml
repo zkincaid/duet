@@ -446,7 +446,7 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
   let base_relations () = 
     if List.length !base_relations <> 0 then !base_relations, BM.enum (fst (!bases_in_rec))
     else
-      let roots = List.init (IM.cardinal (snd !bases_in_rec)) (fun i -> IM.find i (snd !bases_in_rec)) in
+      let roots = List.init (IM.cardinal (snd !bases_in_rec)) (fun i -> IM.find i (snd !bases_in_rec)) in (*Could search for 1 explicitly.*)
       let relations = NF.find_relations roots in
       let exp_rel_to_poly exp = 
         let (poss, negs, _) = List.fold_left (
