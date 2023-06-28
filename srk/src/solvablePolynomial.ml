@@ -1978,28 +1978,34 @@ module SolvablePolynomialLIRR = struct
 
   let exp_ti it = 
     let it_offset = it.ideal.dim in
-    logf "Exponentiating : %a" (TransitionIdeal.pp (pp_dim it_offset)) it.ideal;
+    logf  "Exponentiating : %a" (TransitionIdeal.pp (pp_dim it_offset)) it.ideal;
     if I.generators (it.ideal.ideal) = [] then
       TransitionIdeal.make it_offset it.ideal.ideal
     else if QQXs.is_zero (I.reduce it.ideal.ideal QQXs.one) then
       TransitionIdeal.make it_offset it.ideal.ideal
     else
       let inv_seq, inv_dom = TransitionIdeal.iteration_sequence it.ideal in
-      let inv_dom_id = Id.make (I.generators (I.grobner_basis inv_dom)) in
+      let inv_dom_id = Id.make (I.generators inv_dom) in
       let k_equal_i i = QQXs.sub (QQXs.of_dim (2 * it.ideal.dim)) (QQXs.scalar (QQ.of_int i)) in
       let zeroth = Id.make ((k_equal_i 0) :: (List.init it_offset (fun d -> QQXs.sub (QQXs.of_dim (d+it_offset)) (QQXs.of_dim d)))) in
       let inv_seq_id = List.mapi (fun i (id : TransitionIdeal.t) -> Id.make ((k_equal_i (i+1)) :: (I.generators (I.grobner_basis id.ideal)))) inv_seq in
       let transient_closure = List.fold_left Id.intersect zeroth inv_seq_id in
-      logf "Invariant Dom : %a" (I.pp (pp_dim it_offset)) inv_dom;
+      logf  "Invariant Dom : %a" (I.pp (pp_dim it_offset)) inv_dom;
       if QQXs.is_zero (I.reduce inv_dom QQXs.one) then 
-        TransitionIdeal.make it_offset (I.grobner_basis (I.mk_rewrite (I.get_monomial_ordering it.ideal.ideal) (Id.generators transient_closure)))
+        TransitionIdeal.make it_offset (Id.mk_rewrite transient_closure)
       else      
-        (log_pp pp_sp it.witness;
+        (log_pp  pp_sp it.witness;
         let cf = Log.time "Rat Exp" (Rational.RatEP.solve_rec) it.witness in
+        let pp_cl f = Array.iteri (fun i cl -> Format.fprintf f "cl.(%d) = %a@." i Rational.RatEP.pp cl) in
+        logf  "%a" pp_cl cf;
         let sp_map_offset = Array.length cf in
         let module EP = (val Log.time "Splitting Field" Rational.RatEP.to_nf cf) in
+        let pp_nf f = Array.iteri (fun i cl -> Format.fprintf f "cl.(%d) = %a@." i EP.pp cl) in
+        logf  "%a" pp_nf (EP.get_rec_sols ());
 
         let zero_eig_transient, zero_eigen_stab, rels = Log.time "Algebraic Relations" EP.long_run_algebraic_relations () in
+        logf  "Alg Relations: %a" (I.pp (pp_dim it_offset)) (I.mk_rewrite (I.get_monomial_ordering it.ideal.ideal) rels);
+        
         let cl = 
           if (List.length inv_seq_id) + 1 >= zero_eigen_stab then
             Id.intersect transient_closure (Id.sum inv_dom_id (Id.make rels))
@@ -2018,7 +2024,8 @@ module SolvablePolynomialLIRR = struct
             in
             Id.intersect transient_closure (get_rels_after_inv_transient 0 zero_eig_transient)
         in
-        TransitionIdeal.make it_offset (I.grobner_basis (I.mk_rewrite (I.get_monomial_ordering it.ideal.ideal) (Id.generators cl))))
+        logf  "Ideal closure: %a" (Id.pp (pp_dim it_offset)) cl;
+        TransitionIdeal.make it_offset (Id.mk_rewrite cl))
     
 
 
