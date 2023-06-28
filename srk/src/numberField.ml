@@ -340,14 +340,17 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
   let zzmify a = 
     let m = Array.length a in
-    let n = Array.length a.(0) in
-    let res = Fmpz_mat.init m n in
-    for i = 0 to m - 1 do
-      for j = 0 to n - 1 do
-        Fmpz_mat.set_entry res (Arb_zarith.Fmpzz.zarith_to_fmpz a.(i).(j)) i j
+    if m = 0 then
+      Fmpz_mat.init 0 0 
+    else
+      let n = Array.length a.(0) in
+      let res = Fmpz_mat.init m n in
+      for i = 0 to m - 1 do
+        for j = 0 to n - 1 do
+          Fmpz_mat.set_entry res (Arb_zarith.Fmpzz.zarith_to_fmpz a.(i).(j)) i j
+        done;
       done;
-    done;
-    res
+      res
 
   let unzzmify matrix = 
     let m, n = Fmpz_mat.nb_rows matrix, Fmpz_mat.nb_cols matrix in

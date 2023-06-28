@@ -1988,9 +1988,9 @@ module SolvablePolynomialLIRR = struct
       let inv_dom_id = Id.make (I.generators inv_dom) in
       let k_equal_i i = QQXs.sub (QQXs.of_dim (2 * it.ideal.dim)) (QQXs.scalar (QQ.of_int i)) in
       let zeroth = Id.make ((k_equal_i 0) :: (List.init it_offset (fun d -> QQXs.sub (QQXs.of_dim (d+it_offset)) (QQXs.of_dim d)))) in
-      let inv_seq_id = List.mapi (fun i (id : TransitionIdeal.t) -> Id.make ((k_equal_i (i+1)) :: (I.generators (I.grobner_basis id.ideal)))) inv_seq in
+      let inv_seq_id = List.mapi (fun i (id : TransitionIdeal.t) -> Id.make ((k_equal_i (i+1)) :: (I.generators id.ideal))) inv_seq in
       let transient_closure = List.fold_left Id.intersect zeroth inv_seq_id in
-      logf  "Invariant Dom : %a" (I.pp (pp_dim it_offset)) inv_dom;
+      logf "Invariant Dom : %a" (I.pp (pp_dim it_offset)) inv_dom;
       if QQXs.is_zero (I.reduce inv_dom QQXs.one) then 
         TransitionIdeal.make it_offset (Id.mk_rewrite transient_closure)
       else      
@@ -2000,8 +2000,6 @@ module SolvablePolynomialLIRR = struct
         logf  "%a" pp_cl cf;
         let sp_map_offset = Array.length cf in
         let module EP = (val Log.time "Splitting Field" Rational.RatEP.to_nf cf) in
-        let pp_nf f = Array.iteri (fun i cl -> Format.fprintf f "cl.(%d) = %a@." i EP.pp cl) in
-        logf  "%a" pp_nf (EP.get_rec_sols ());
 
         let zero_eig_transient, zero_eigen_stab, rels = Log.time "Algebraic Relations" EP.long_run_algebraic_relations () in
         logf  "Alg Relations: %a" (I.pp (pp_dim it_offset)) (I.mk_rewrite (I.get_monomial_ordering it.ideal.ideal) rels);
@@ -2068,7 +2066,7 @@ module SolvablePolynomialLIRR = struct
     
 
   module PC = PolynomialCone
-  let abstract srk tf =
+  let abstract_sp abstraction srk tf =
     let is_symbolic_constant = TF.is_symbolic_constant tf in
     let abstract_cone ideal =
       let ideal_constants =
@@ -2107,7 +2105,7 @@ module SolvablePolynomialLIRR = struct
         TransitionIdeal.of_tf_polynomials polynomials tr_symbols
       in
       let (ti, sim, witness) =
-        TransitionIdeal.solvable_reflection ti
+        abstraction ti
       in
       let sim' =
         Array.map (fun p ->
@@ -2126,5 +2124,22 @@ module SolvablePolynomialLIRR = struct
         (LirrSolver.abstract srk (fun cone -> PC.make_cone (PC.get_ideal cone) []) (TF.formula tf))
     in
     abstract_cone ideal
+
+  let abstract srk tf = 
+    abstract_sp TransitionIdeal.solvable_reflection srk tf
+  
 end
 
+module UltSolvablePolynomialLIRR = struct
+
+
+  type 'a t = 'a SolvablePolynomialLIRR.t
+
+  let pp _ = assert false
+
+  let exp =
+    SolvablePolynomialLIRR.exp     
+
+  let abstract srk tf = 
+    SolvablePolynomialLIRR.abstract_sp TransitionIdeal.ultimately_solvable_reflection srk tf
+end
