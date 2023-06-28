@@ -1978,7 +1978,6 @@ module SolvablePolynomialLIRR = struct
 
   let exp_ti it = 
     let it_offset = it.ideal.dim in
-    logf "Exponentiating dim : %d" it_offset;
     logf "Exponentiating : %a" (TransitionIdeal.pp (pp_dim it_offset)) it.ideal;
     if I.generators (it.ideal.ideal) = [] then
       TransitionIdeal.make it_offset it.ideal.ideal
@@ -2024,13 +2023,13 @@ module SolvablePolynomialLIRR = struct
 
 
   let exp srk tr_symbols loop_count it =
-    let pp_symbols f = List.iteri (fun i (pre, prime) -> Format.fprintf f "tr_symbols.(%d) : pre = %a, prime = %a@." i (pp_symbol srk) pre (pp_symbol srk) prime) in
+    (*let pp_symbols f = List.iteri (fun i (pre, prime) -> Format.fprintf f "tr_symbols.(%d) : pre = %a, prime = %a@." i (pp_symbol srk) pre (pp_symbol srk) prime) in
     logf "constants : %a" pp_symbols it.constants;
-    logf "tr_symbols : %a" pp_symbols tr_symbols;
+    logf "tr_symbols : %a" pp_symbols tr_symbols;*)
     let pp_sim f = Array.iteri (fun i s -> Format.fprintf f "simulation.(%d) : %a@." i (pp_expr_unnumbered srk) s) in
-    logf "simulation : %a" pp_sim it.simulation;
+    logf "%a" pp_sim it.simulation;
     let post_map = (* map pre-state vars to post-state vars *)
-      TF.post_map srk tr_symbols
+      TF.post_map srk it.constants
     in
     let postify =
       let subst sym =
@@ -2042,25 +2041,24 @@ module SolvablePolynomialLIRR = struct
       substitute_const srk subst
     in
     let it_cl = exp_ti it.ti in
-    let tr_form = 
-      if QQXs.is_zero (I.reduce it_cl.ideal QQXs.one) then
-        mk_eq srk loop_count (mk_real srk QQ.zero)
-      else
-        let gens = I.generators it_cl.ideal in
-        let gens_t = List.map (
-          fun p ->
-            let p_t = QQXs.term_of srk (
-              fun d ->
-                if d = 2 * it_cl.dim then loop_count
-                else if d < it_cl.dim then it.simulation.(d)
-                else postify (it.simulation.(d-it_cl.dim))
-            ) p in
-            mk_eq srk p_t (mk_real srk (QQ.zero))
-        ) gens in
-        mk_and srk gens_t
-    in
-    let symbolic_const = List.map (fun (pre, post) -> mk_eq srk (mk_const srk pre) (mk_const srk post)) it.constants in
-    mk_and srk (tr_form :: symbolic_const)
+    logf "Ideal closure : %a" (TransitionIdeal.pp (pp_dim (it_cl.dim))) it_cl;
+    if QQXs.is_zero (I.reduce it_cl.ideal QQXs.one) then
+      let ident = List.map (fun (pre, post) -> mk_eq srk (mk_const srk pre) (mk_const srk post)) tr_symbols in
+      mk_and srk ((mk_eq srk loop_count (mk_real srk QQ.zero)) :: ident)
+    else
+      let gens = I.generators it_cl.ideal in
+      let gens_t = List.map (
+        fun p ->
+          let p_t = QQXs.term_of srk (
+            fun d ->
+              if d = 2 * it_cl.dim then loop_count
+              else if d < it_cl.dim then it.simulation.(d)
+              else postify (it.simulation.(d-it_cl.dim))
+          ) p in
+          mk_eq srk p_t (mk_real srk (QQ.zero))
+      ) gens in
+      mk_and srk gens_t
+    
 
   module PC = PolynomialCone
   let abstract srk tf =

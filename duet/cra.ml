@@ -1243,10 +1243,10 @@ let _ =
   CmdLine.register_config
     ("-lirr-sp",
      Arg.Unit (fun () ->
-         (*let open Iteration in*)
+         let open Iteration in
          monotone := true;
-         (*K.domain := (module Product(SolvablePolynomial.SolvablePolynomialLIRR)(LIRRGuard))),*)
-         K.domain := (module SolvablePolynomial.SolvablePolynomialLIRR)),
+         K.domain := (module Product(SolvablePolynomial.SolvablePolynomialLIRR)(LIRRGuard))),
+         (*K.domain := (module SolvablePolynomial.SolvablePolynomialLIRR)),*)
      " Use weak arithmetic theory with Solvable polynomial maps");
   CmdLine.register_config
     ("-termination-no-exp",
