@@ -20,6 +20,8 @@ let forward_inv_gen = ref true
 let forward_pred_abs = ref false
 let dump_goals = ref false
 let monotone = ref false
+let prsd = ref false
+let cra_refine = ref false
 let nb_goals = ref 0
 let termination_exp = ref true
 let termination_llrf = ref true
@@ -126,7 +128,8 @@ module V = struct
 end
 
 module K = struct
-  include Transition.Make(Ctx)(V)
+  module Tr = Transition.Make(Ctx)(V)
+  include Tr
 
   let add x y =
     if is_zero x then y
@@ -138,6 +141,67 @@ module K = struct
     else if is_one x then y
     else if is_one y then x
     else mul x y
+
+  (*
+  let mul x y = Log.time "refine" mul x y
+  let add x y = Log.time "refine" add x y
+  *)
+
+  module CRARefinement = Refinement.DomainRefinement
+      (struct
+        include Tr
+        let equal a _ = ((WeakSolver.is_sat srk (guard a)) == `Unsat)
+      end)
+
+  let to_dnf x =
+    let open Syntax in
+    let guard =
+      rewrite srk
+        ~down:(nnf_rewriter srk)
+        (guard x)
+    in
+    let x_tr = BatEnum.fold (fun acc a -> a :: acc) [] (transform x) in
+    let solver = WeakSolver.Solver.mk_solver srk in
+    let rhs_symbols =
+      BatEnum.fold (fun rhs_symbols (_, t) ->
+          Symbol.Set.union rhs_symbols (symbols t))
+        Symbol.Set.empty
+        (transform x)
+    in
+    let project x =
+      match V.of_symbol x with
+      | Some _ -> true
+      | None -> Symbol.Set.mem x rhs_symbols
+    in
+    WeakSolver.Solver.add solver [guard];
+    let rec split disjuncts =
+      match WeakSolver.Solver.get_model solver with
+      | `Unknown -> [x]
+      | `Unsat -> disjuncts
+      | `Sat m ->
+        let term_of_dim dim = mk_const srk (symbol_of_int dim) in
+        let disjunct =
+          PolynomialCone.project (WeakSolver.Model.nonnegative_cone m)
+            (project % symbol_of_int)
+          |> PolynomialCone.to_formula srk term_of_dim
+        in
+        WeakSolver.Solver.add solver [mk_not srk disjunct];
+        split ((construct disjunct x_tr)::disjuncts)
+    in
+    split []
+
+  let refine_star x =
+    let x_dnf = Log.time "cra:to_dnf" to_dnf x in
+    if (List.length x_dnf) = 1 then star (List.hd x_dnf)
+    else CRARefinement.refinement x_dnf
+
+  let star x = 
+    if (!cra_refine) then 
+      Log.time "cra:refine_star" refine_star x
+    else 
+      Log.time "cra:star" star x
+
+  let project = exists V.is_global
 end
 
 type ptr_term =
@@ -1203,6 +1267,14 @@ let _ =
          let open SolvablePolynomial in
          K.domain := (module ProductWedge(SolvablePolynomialPeriodicRational)(WedgeGuard))),
      " Use periodic rational spectral decomposition");
+  CmdLine.register_config
+    ("-cra-refine",
+     Arg.Set cra_refine,
+     " Turn on loop refinement");
+  CmdLine.register_config
+    ("-cra-refine-full",
+    Arg.Unit (fun () -> cra_refine := true; K.CRARefinement.refine_full := true),
+    " Turn on unrestricted loop refinement");
   CmdLine.register_config
     ("-cra-vas",
      Arg.Unit (fun () ->
