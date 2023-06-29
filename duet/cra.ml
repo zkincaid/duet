@@ -150,7 +150,7 @@ module K = struct
   module CRARefinement = Refinement.DomainRefinement
       (struct
         include Tr
-        let equal a _ = ((WeakSolver.is_sat srk (guard a)) == `Unsat)
+        let equal a _ = ((LirrSolver.is_sat srk (guard a)) == `Unsat)
       end)
 
   let to_dnf x =
@@ -161,7 +161,7 @@ module K = struct
         (guard x)
     in
     let x_tr = BatEnum.fold (fun acc a -> a :: acc) [] (transform x) in
-    let solver = WeakSolver.Solver.mk_solver srk in
+    let solver = LirrSolver.Solver.mk_solver srk in
     let rhs_symbols =
       BatEnum.fold (fun rhs_symbols (_, t) ->
           Symbol.Set.union rhs_symbols (symbols t))
@@ -173,19 +173,19 @@ module K = struct
       | Some _ -> true
       | None -> Symbol.Set.mem x rhs_symbols
     in
-    WeakSolver.Solver.add solver [guard];
+    LirrSolver.Solver.add solver [guard];
     let rec split disjuncts =
-      match WeakSolver.Solver.get_model solver with
+      match LirrSolver.Solver.get_model solver with
       | `Unknown -> [x]
       | `Unsat -> disjuncts
       | `Sat m ->
         let term_of_dim dim = mk_const srk (symbol_of_int dim) in
         let disjunct =
-          PolynomialCone.project (WeakSolver.Model.nonnegative_cone m)
+          PolynomialCone.project (LirrSolver.Model.nonnegative_cone m)
             (project % symbol_of_int)
           |> PolynomialCone.to_formula srk term_of_dim
         in
-        WeakSolver.Solver.add solver [mk_not srk disjunct];
+        LirrSolver.Solver.add solver [mk_not srk disjunct];
         split ((construct disjunct x_tr)::disjuncts)
     in
     split []
