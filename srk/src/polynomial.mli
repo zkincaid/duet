@@ -382,6 +382,9 @@ module Ideal : sig
      ideal that are defined only over dimensions satisfying the given
      predicate. *)
   val project : (int -> bool) -> t -> t
+
+  (** Make a rewrite system from the given ideal.*)
+  val mk_rewrite : t -> Rewrite.t
 end
 
 (**Grobner basis computation using the FGb library.*)

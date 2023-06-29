@@ -1319,7 +1319,14 @@ let _ =
          monotone := true;
          K.domain := (module Product(SolvablePolynomial.SolvablePolynomialLIRR)(LIRRGuard))),
          (*K.domain := (module SolvablePolynomial.SolvablePolynomialLIRR)),*)
-     " Use weak arithmetic theory with Solvable polynomial maps");
+     " Use weak arithmetic theory with solvable polynomial maps");
+  CmdLine.register_config
+    ("-lirr-usp",
+     Arg.Unit (fun () ->
+        let open Iteration in
+        monotone := true;
+        K.domain := (module Product(SolvablePolynomial.UltSolvablePolynomialLIRR)(LIRRGuard))),
+    " Use weak arithmetic theory with ultimately solvable polynomial maps");
   CmdLine.register_config
     ("-termination-no-exp",
      Arg.Clear termination_exp,
