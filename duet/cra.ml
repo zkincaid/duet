@@ -1245,7 +1245,7 @@ let _ =
      Arg.Unit (fun () ->
          let open Iteration in
          monotone := true;
-         K.domain := (module Product(SolvablePolynomial.SolvablePolynomialLIRR)(LIRRGuard))),
+         K.domain := (module Product(Product(SolvablePolynomial.SolvablePolynomialLIRR)(LIRRGuard))(LIRR))),
          (*K.domain := (module SolvablePolynomial.SolvablePolynomialLIRR)),*)
      " Use weak arithmetic theory with solvable polynomial maps");
   CmdLine.register_config
@@ -1253,7 +1253,7 @@ let _ =
      Arg.Unit (fun () ->
         let open Iteration in
         monotone := true;
-        K.domain := (module Product(SolvablePolynomial.UltSolvablePolynomialLIRR)(LIRRGuard))),
+        K.domain := (module Product(Product(SolvablePolynomial.UltSolvablePolynomialLIRR)(LIRRGuard))(LIRR))),
     " Use weak arithmetic theory with ultimately solvable polynomial maps");
   CmdLine.register_config
     ("-termination-no-exp",
