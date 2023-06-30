@@ -20,7 +20,7 @@ val qe_mbp : 'a context -> 'a formula -> 'a formula
 
 (** Model-based projection.  If [dnf] option is set, convert to
    disjunctive normal form. *)
-val mbp : ?dnf:bool -> 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
+val mbp : ?dnf:bool -> 'a context -> ?solver:'a Smt.Solver.t -> (symbol -> bool) -> 'a formula -> 'a formula
 
 (** Over-approximtate model-based projection.  If [dnf] option is set,
    convert to disjunctive normal form. *)

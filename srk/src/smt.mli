@@ -23,7 +23,12 @@ module Solver : sig
   val get_unsat_core : 'a t ->
     ('a formula) list ->
     [ `Sat | `Unsat of ('a formula) list | `Unknown ]
-end
+
+  val get_unsat_core_or_model : ?symbols:symbol list -> 'a t -> ('a formula) list -> 
+    [ `Sat of 'a interpretation 
+      | `Unsat of ('a formula) list 
+      | `Unknown ]
+  end
 
 val mk_solver : ?theory:string -> 'a context -> 'a Solver.t
 
@@ -31,11 +36,12 @@ val mk_solver : ?theory:string -> 'a context -> 'a Solver.t
     evaluate terms, but its bindings may not be enumerated (see
     [Interpretation] for more detail). *)
 val get_model : ?symbols:(symbol list) ->
-  'a context ->
+  'a context -> ?solver:'a Solver.t -> 
   'a formula ->
   [ `Sat of 'a interpretation
   | `Unsat
   | `Unknown ]
+    
 
 (** Compute a model of a formula, and return an intepretation that binds the
     specified subset of symbols.  If the symbol list contains all symbols of

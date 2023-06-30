@@ -109,10 +109,28 @@ module Make
       return a sequence of intermediate assertions [phi_1 ... phi_n] that
       support the proof (for each [i], [{ phi_{i-1} } tr_i { phi_i }] holds,
       where [phi_0] is [true] and [phi_n] implies the post-condition). *)
+  val interpolate : ?solver:(C.t Smt.Solver.t) -> ?qflia_solver:(C.t Smt.Solver.t) 
+    -> t list -> C.t formula -> [ `Valid of C.t formula list
+                                | `Invalid
+                                | `Unknown ]
 
-  val interpolate : t list -> C.t formula -> [ `Valid of C.t formula list
-                                             | `Invalid
-                                             | `Unknown ]
+  (** Same as interpolate, but returns a concrete model if interpllation fails. *)
+  val interpolate_or_concrete_model : ?solver:(C.t Smt.Solver.t) -> ?qflia_solver:(C.t Smt.Solver.t) 
+    -> t list -> C.t formula -> [`Valid of C.t formula list 
+                                | `Invalid of C.t Interpretation.interpretation 
+                                | `Unknown ]
+
+  (** Extrapolation operation as defined in Ruijie Fang's undergraduate thesis  
+      "Software Model Checking with Path and Procedure Summaries", Princeton, 2023. 
+      Given 3 transition formulas t1, t2, t3, such that [t1 * t2 * t3] is SAT, 
+      [extrapolate t1 t2 t3] returns a pair of state formulas (p, q) such that
+      (1) p[X'/X] |=  (exists X. t1)
+      (2) (exists X. p(X) /\ t2(X, X'))[X/X'] /\ q is SAT 
+      (3) q |= (exists X'. t2(X, X')  
+      The actual implementation of extrapolation uses model-based projection in srk. *)
+  val extrapolate : ?solver:(C.t Smt.Solver.t) -> t -> t -> t -> [ `Sat of (C.t formula * C.t formula ) 
+                                                                 | `Unsat ]
+
 
   (** Given a pre-condition [P], a path [path], and a post-condition [Q],
       determine whether the Hoare triple [{P}path{Q}] is valid. *)
