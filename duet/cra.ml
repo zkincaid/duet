@@ -157,17 +157,21 @@ module K = struct
     let open Syntax in
     let guard =
       rewrite srk
-        ~down:(nnf_rewriter srk)
+        ~down:(pos_rewriter srk)
         (guard x)
     in
-    let x_tr = BatEnum.fold (fun acc a -> a :: acc) [] (transform x) in
-    let solver = LirrSolver.Solver.mk_solver srk in
-    let rhs_symbols =
-      BatEnum.fold (fun rhs_symbols (_, t) ->
-          Symbol.Set.union rhs_symbols (symbols t))
-        Symbol.Set.empty
+    let (x_tr, guard, rhs_symbols) =
+      BatEnum.fold (fun (x_tr, guard, rhs_symbols) (v, rhs) ->
+          let fresh_sym = mk_symbol srk (expr_typ srk rhs) in
+          let fresh_rhs = mk_const srk fresh_sym in
+          ((v, fresh_rhs)::x_tr,
+           (mk_eq srk fresh_rhs rhs)::guard,
+           Symbol.Set.add fresh_sym rhs_symbols))
+        ([], [guard], Symbol.Set.empty)
         (transform x)
     in
+    let guard = mk_and srk guard in
+    let solver = LirrSolver.Solver.mk_solver srk in
     let project x =
       match V.of_symbol x with
       | Some _ -> true
