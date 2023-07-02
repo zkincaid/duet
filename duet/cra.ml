@@ -193,7 +193,10 @@ module K = struct
   let refine_star x =
     let x_dnf = Log.time "cra:to_dnf" to_dnf x in
     if (List.length x_dnf) = 1 then star (List.hd x_dnf)
-    else CRARefinement.refinement x_dnf
+    else 
+      let pp_list f = List.iteri (fun i p -> Format.fprintf f "Path %d : @[%a@]@." i pp p) in
+      log_pp ~level:`warn pp_list x_dnf;
+      CRARefinement.refinement x_dnf
 
   let star x = 
     if (!cra_refine) then 
