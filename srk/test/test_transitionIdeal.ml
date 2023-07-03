@@ -24,17 +24,17 @@ let z' = QQXs.of_dim 7
 let make_ti polys =
   TransitionIdeal.make 4 (I.grobner_basis (I.mk_rewrite Monomial.degrevlex polys))
 
-let show_ti =
-  let pp_dim formatter i = match i with
-    | 0 -> Format.fprintf formatter "w"
-    | 1 -> Format.fprintf formatter "x"
-    | 2 -> Format.fprintf formatter "y"
-    | 3 -> Format.fprintf formatter "z"
-    | _ -> assert false
-  in
-  SrkUtil.mk_show (TransitionIdeal.pp pp_dim)  
+let pp_dim formatter i = 
+  match i with
+  | 0 -> Format.fprintf formatter "w"
+  | 1 -> Format.fprintf formatter "x"
+  | 2 -> Format.fprintf formatter "y"
+  | 3 -> Format.fprintf formatter "z"
+  | _ -> assert false
 
+let show_ti = SrkUtil.mk_show (TransitionIdeal.pp pp_dim)
 let assert_equal_ti = assert_equal ~cmp:TransitionIdeal.equal ~printer:show_ti
+
 
 let suite = "TransitionIdeal" >::: [
     "compose" >:: (fun () ->
@@ -75,10 +75,10 @@ let suite = "TransitionIdeal" >::: [
           (make_ti (I.generators (TransitionIdeal.invariant_domain t)));
         let (seq, dom) = TransitionIdeal.iteration_sequence t in
         begin match seq with
-        | [one; two] ->
-          assert_equal_ti t one;
-          assert_equal_ti (TransitionIdeal.compose t t) two;
-        | _ -> assert_failure "Incorrect length for iteration sequence"
+          | [one; two] ->
+            assert_equal_ti t one;
+            assert_equal_ti (TransitionIdeal.compose t t) two;
+          | _ -> assert_failure "Incorrect length for iteration sequence"
         end;
         assert_equal_ti expected_dom (make_ti (I.generators dom)))
 
@@ -201,6 +201,32 @@ let suite = "TransitionIdeal" >::: [
         make_ti
           [ z'
           ; (x' - w') - (x - w) + z ]
+      in
+      assert_equal_ti expected result)
+  ; "quadratic_sim" >:: (fun () ->
+      let base_dim = 3 in
+      let w = QQXs.of_dim 0 in
+      let x = QQXs.of_dim 1 in
+      let y = QQXs.of_dim 2 in
+      let w' = QQXs.of_dim (base_dim + 0) in
+      let x' = QQXs.of_dim (base_dim + 1) in
+      let y' = QQXs.of_dim (base_dim + 2) in
+      let open QQXsInfix in
+      let t =
+        TransitionIdeal.make base_dim (I.grobner_basis (I.mk_rewrite Monomial.degrevlex
+                                                          [ (x' * x') - (x * x) + (int 1)
+                                                          ; y' - y - x
+                                                          ; w' - w - x * x ]))
+      in
+      let (t2, sim2) = TransitionIdeal.universal_degree_limited t 2 in
+      let (solvable, sim, _) = TransitionIdeal.solvable_reflection t2 in
+      let sim = TransitionIdeal.compose_polynomial_map sim sim2 in
+      let result = TransitionIdeal.image solvable sim base_dim in
+      let expected =
+        TransitionIdeal.make base_dim
+          (I.grobner_basis (I.mk_rewrite Monomial.degrevlex
+                              [ (x' * x') - (x * x) + (int 1)
+                              ; w' - w - x * x ]))
       in
       assert_equal_ti expected result)
   ]

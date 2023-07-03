@@ -55,3 +55,4 @@ module DLTSPeriodicRational : sig
 end
 
 module SolvablePolynomialLIRR : PreDomain
+module SolvablePolynomialLIRRQuadratic : PreDomain

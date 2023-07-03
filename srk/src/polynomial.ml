@@ -368,6 +368,22 @@ module Monomial = struct
       else
         None
     | _ -> None
+
+  let rec enum_monomials vars degree =
+    match BatEnum.get vars with
+    | None ->
+      if degree = 0 then BatEnum.singleton one
+      else BatEnum.empty ()
+    | Some v ->
+      let rec loop n =
+        if n == degree then
+          BatEnum.singleton (singleton v degree)
+        else
+          BatEnum.append
+            ((enum_monomials (BatEnum.clone vars) (degree - n)) /@ (mul_term v n))
+            (loop (n + 1))
+      in
+      loop 0
 end
 
 module type Multivariate = sig
