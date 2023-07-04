@@ -2132,7 +2132,6 @@ end
 
 module UltSolvablePolynomialLIRR = struct
 
-
   type 'a t = 'a SolvablePolynomialLIRR.t
 
   let pp _ = assert false
@@ -2143,3 +2142,70 @@ module UltSolvablePolynomialLIRR = struct
   let abstract srk tf = 
     SolvablePolynomialLIRR.abstract_sp TransitionIdeal.ultimately_solvable_reflection srk tf
 end
+
+module SolvablePolynomialLIRRQuadratic = struct
+  include SolvablePolynomialLIRR
+  let abstract srk tf =
+    let is_symbolic_constant = TF.is_symbolic_constant tf in
+    let abstract_cone ideal =
+      let ideal_constants =
+        List.fold_left (fun constants p ->
+            IntSet.fold
+              (fun i ks ->
+                 let s = symbol_of_int i in
+                 if is_symbolic_constant s then Symbol.Set.add s ks
+                 else ks)
+              (QQXs.dimensions p)
+              constants)
+          Symbol.Set.empty
+          (I.generators ideal)
+        |> Symbol.Set.elements
+      in
+      let ks =
+        List.map (dup_symbol srk) ideal_constants
+      in
+      let tr_symbols =
+        List.fold_left2
+          (fun tr_symbols k k' -> (k,k')::tr_symbols)
+          (TF.symbols tf)
+          ideal_constants
+          ks
+      in
+      let polynomials =
+        List.fold_left2
+          (fun polynomials k k' ->
+             (QQXs.sub (QQXs.of_dim (int_of_symbol k)) (QQXs.of_dim (int_of_symbol k')))
+             ::polynomials)
+          (I.generators ideal)
+          ideal_constants
+          ks
+      in
+      let ti =
+        TransitionIdeal.of_tf_polynomials polynomials tr_symbols
+      in
+      let (ti2, sim2) =
+        TransitionIdeal.affine_degree_limited ti 2
+      in
+      let (ti, sim, witness) =
+        TransitionIdeal.solvable_reflection ti2
+      in
+      let sim' =
+        Array.map (fun p ->
+            QQXs.term_of
+              srk
+              (fun i -> mk_const srk (fst (List.nth tr_symbols i)))
+              p)
+          (TransitionIdeal.compose_polynomial_map sim sim2)
+      in
+      { ti = {ideal = ti; witness = witness }
+      ; simulation = sim'
+      ; constants = tr_symbols}
+    in
+    let ideal =
+      PC.get_ideal
+        (LirrSolver.abstract srk (fun cone ->
+             PC.make_cone (PC.get_ideal cone) []) (TF.formula tf))
+    in
+    abstract_cone ideal
+end
+

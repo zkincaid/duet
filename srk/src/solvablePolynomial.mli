@@ -68,7 +68,6 @@ module SolvablePolynomialLIRR :
     val exp_ti : pre_t -> TransitionIdeal.t
   end
 
-module UltSolvablePolynomialLIRR : 
-sig
-   include PreDomain
-end
+module UltSolvablePolynomialLIRR : PreDomain
+
+module SolvablePolynomialLIRRQuadratic : PreDomain

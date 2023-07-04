@@ -65,7 +65,6 @@ let enumerate (ti : TransitionIdeal.t) n =
   ) (1, ti_0) (List.tl tis))
 
 
-
 let suite = "TransitionIdeal" >::: [
     "compose" >:: (fun () ->
         let open QQXsInfix in
@@ -105,10 +104,10 @@ let suite = "TransitionIdeal" >::: [
           (make_ti (I.generators (TransitionIdeal.invariant_domain t)));
         let (seq, dom) = TransitionIdeal.iteration_sequence t in
         begin match seq with
-        | [one; two] ->
-          assert_equal_ti t one;
-          assert_equal_ti (TransitionIdeal.compose t t) two;
-        | _ -> assert_failure "Incorrect length for iteration sequence"
+          | [one; two] ->
+            assert_equal_ti t one;
+            assert_equal_ti (TransitionIdeal.compose t t) two;
+          | _ -> assert_failure "Incorrect length for iteration sequence"
         end;
         assert_equal_ti expected_dom (make_ti (I.generators dom)))
 
@@ -233,7 +232,6 @@ let suite = "TransitionIdeal" >::: [
           ; (x' - w') - (x - w) + z ]
       in
       assert_equal_ti expected result)
-
   ; "solvable_cl1" >:: (fun () ->
       let open QQXsInfix in
       let t =
@@ -339,18 +337,36 @@ let suite = "TransitionIdeal" >::: [
         ; z' - (int 3) * z
         ; y - z - (int 1) ]
     in
-    Log.logf ~level:`always "t : %a" (TransitionIdeal.pp (pp_dim t.dim)) t;
-    let (solvable, sim, witness) = TransitionIdeal.ultimately_solvable_reflection t in
-    let pp_sim f = Array.iteri (fun i s -> Format.fprintf f "simulation.(%d) : %a@." i (QQXs.pp (pp_dim t.dim)) s) in
-    Log.logf ~level:`always "solvable : %a" (TransitionIdeal.pp (pp_dim solvable.dim)) solvable;
-    Log.logf ~level:`always "witness : %a" (TransitionIdeal.pp_sp) witness;
-    Log.logf ~level:`always "%a" pp_sim sim;
+    let (solvable, _, witness) = TransitionIdeal.ultimately_solvable_reflection t in
     let sp_lirr_t = SolvablePolynomial.SolvablePolynomialLIRR.make_sp solvable witness in
     let cl = SolvablePolynomial.SolvablePolynomialLIRR.exp_ti sp_lirr_t in
-    Log.logf ~level:`always "Cl : %a" (TransitionIdeal.pp (pp_dim cl.dim)) cl;
     let first_few = enumerate solvable 2 in
     let res = Polynomial.Ideal.subset (Polynomial.Ideal.make (I.generators cl.ideal)) first_few in
-    Log.logf ~level:`always "T^0 inter T^1 inter T^2 : %a" (Polynomial.Ideal.pp (pp_dim solvable.dim)) first_few;
     assert_bool "Not subset" res)
-  ;
+  ; "quadratic_sim" >:: (fun () ->
+      let base_dim = 3 in
+      let w = QQXs.of_dim 0 in
+      let x = QQXs.of_dim 1 in
+      let y = QQXs.of_dim 2 in
+      let w' = QQXs.of_dim (base_dim + 0) in
+      let x' = QQXs.of_dim (base_dim + 1) in
+      let y' = QQXs.of_dim (base_dim + 2) in
+      let open QQXsInfix in
+      let t =
+        TransitionIdeal.make base_dim (I.grobner_basis (I.mk_rewrite Monomial.degrevlex
+                                                          [ (x' * x') - (x * x) + (int 1)
+                                                          ; y' - y - x
+                                                          ; w' - w - x * x ]))
+      in
+      let (t2, sim2) = TransitionIdeal.universal_degree_limited t 2 in
+      let (solvable, sim, _) = TransitionIdeal.solvable_reflection t2 in
+      let sim = TransitionIdeal.compose_polynomial_map sim sim2 in
+      let result = TransitionIdeal.image solvable sim base_dim in
+      let expected =
+        TransitionIdeal.make base_dim
+          (I.grobner_basis (I.mk_rewrite Monomial.degrevlex
+                              [ (x' * x') - (x * x) + (int 1)
+                              ; w' - w - x * x ]))
+      in
+      assert_equal_ti expected result)
   ]

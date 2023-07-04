@@ -141,6 +141,10 @@ module Monomial : sig
 
   (** Sum of powers of all variables. *)
   val total_degree : t -> int
+
+  (** [enum_monomials V d] enumerates over all distinct monomials of total
+     degree d over the variables V. *)
+  val enum_monomials : dim BatEnum.t -> int -> t BatEnum.t
 end
 
 (** Signature of multivariate polynmials *)
