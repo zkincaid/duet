@@ -2022,7 +2022,6 @@ module SolvablePolynomialLIRR = struct
             in
             Id.intersect transient_closure (get_rels_after_inv_transient 0 zero_eig_transient)
         in
-        logf  "Ideal closure: %a" (Id.pp (pp_dim it_offset)) cl;
         TransitionIdeal.make it_offset (Id.mk_rewrite cl))
     
 

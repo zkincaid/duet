@@ -1335,6 +1335,13 @@ let _ =
         K.domain := (module Product(Product(SolvablePolynomial.UltSolvablePolynomialLIRR)(LIRRGuard))(LIRR))),
     " Use weak arithmetic theory with ultimately solvable polynomial maps");
   CmdLine.register_config
+    ("-lirr-sp-quad",
+     Arg.Unit (fun () ->
+        let open Iteration in
+        monotone := true;
+        K.domain := (module Product(Product(SolvablePolynomial.SolvablePolynomialLIRRQuadratic)(LIRRGuard))(LIRR))),
+    " Use weak arithmetic theory with solvable polynomial maps using quadratic simulations");
+  CmdLine.register_config
     ("-termination-no-exp",
      Arg.Clear termination_exp,
      " Disable exp-based termination analysis");
