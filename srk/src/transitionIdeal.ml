@@ -516,7 +516,7 @@ let affine_degree_limited ti degree =
     let pure_monomial_space =
       BatArray.fold_left (fun space m ->
           QQXsSpace.add m (QQXsSpace.add (postify m) space))
-        QQXsSpace.zero
+        (QQXsSpace.add QQXs.one QQXsSpace.zero)
         sim
     in
     QQXsSpace.intersect nf_space pure_monomial_space
