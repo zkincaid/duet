@@ -25,8 +25,8 @@
     normalizffi
     faugere
     faugere.zarith
-    arb
-    arb.zarith
+    arbduet
+    arbduet.zarith
     )
   (preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))
 

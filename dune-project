@@ -18,7 +18,11 @@
     apron
     z3
     ntl
-    ocamlgraph))
+    ocamlgraph
+    normalizffi
+    faugere
+    arbduet
+    ))
 
 (package
   (name pa)

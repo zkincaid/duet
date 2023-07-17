@@ -1339,7 +1339,7 @@ let _ =
      Arg.Unit (fun () ->
         let open Iteration in
         monotone := true;
-        K.domain := (module Product(Product(SolvablePolynomial.SolvablePolynomialLIRRQuadratic)(LIRRGuard))(LIRR))),
+        K.domain := (module Product(SolvablePolynomial.UltSolvablePolynomialLIRR)(Product(Product(SolvablePolynomial.SolvablePolynomialLIRRQuadratic)(LIRRGuard))(LIRR)))),
     " Use weak arithmetic theory with solvable polynomial maps using quadratic simulations");
   CmdLine.register_config
     ("-termination-no-exp",

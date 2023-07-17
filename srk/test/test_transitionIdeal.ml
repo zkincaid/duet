@@ -261,12 +261,12 @@ let suite = "TransitionIdeal" >::: [
         ; z' - (int 3) * z
         ; y - z - (int 1) ]
     in
-    Log.logf ~level:`always "t : %a" (TransitionIdeal.pp (pp_dim t.dim)) t;
+    (*Log.logf ~level:`always "t : %a" (TransitionIdeal.pp (pp_dim t.dim)) t;*)
     let (solvable, _, witness) = TransitionIdeal.solvable_reflection t in
-    Log.logf ~level:`always "solvable : %a" (TransitionIdeal.pp (pp_dim solvable.dim)) solvable;
+    (*Log.logf ~level:`always "solvable : %a" (TransitionIdeal.pp (pp_dim solvable.dim)) solvable;*)
     let sp_lirr_t = SolvablePolynomial.SolvablePolynomialLIRR.make_sp solvable witness in
     let cl = SolvablePolynomial.SolvablePolynomialLIRR.exp_ti sp_lirr_t in
-    Log.logf ~level:`always "Cl : %a" (TransitionIdeal.pp (pp_dim cl.dim)) cl;
+    (*Log.logf ~level:`always "Cl : %a" (TransitionIdeal.pp (pp_dim cl.dim)) cl;*)
     let first_few = enumerate solvable 2 in
     let res = Polynomial.Ideal.subset (Polynomial.Ideal.make (I.generators cl.ideal)) first_few in
     (*Log.logf ~level:`always "T^0 inter T^1 inter T^2 : %a" (Polynomial.Ideal.pp (pp_dim solvable.dim)) first_few;*)

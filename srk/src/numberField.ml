@@ -333,7 +333,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
   end
    
 
-  open Arb
+  open Arbduet
 
   module ZZV = Ring.MakeVector(ZZ)
   module ZZM = Ring.MakeMatrix(ZZ)
@@ -347,7 +347,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       let res = Fmpz_mat.init m n in
       for i = 0 to m - 1 do
         for j = 0 to n - 1 do
-          Fmpz_mat.set_entry res (Arb_zarith.Fmpzz.zarith_to_fmpz a.(i).(j)) i j
+          Fmpz_mat.set_entry res (Arbduet_zarith.Fmpzz.zarith_to_fmpz a.(i).(j)) i j
         done;
       done;
       res
@@ -357,7 +357,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     let res = Array.make_matrix m n ZZ.zero in
     for i = 0 to m - 1 do
       for j = 0 to n - 1 do
-        res.(i).(j) <- Arb_zarith.Fmpzz.fmpz_to_zarith (Fmpz_mat.get_entry matrix i j)
+        res.(i).(j) <- Arbduet_zarith.Fmpzz.fmpz_to_zarith (Fmpz_mat.get_entry matrix i j)
       done;
     done;
     res
@@ -461,7 +461,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       (Fmpz_mat.get_entry (get_reduced i) (rank - 1) (rank - 1))
 
     let get_smallest_int i = 
-      Arb_zarith.Fmpzz.fmpz_to_zarith (get_smallest_int_internal i)
+      Arbduet_zarith.Fmpzz.fmpz_to_zarith (get_smallest_int_internal i)
 
     let pp_i f i = 
       ZZM.pp ZZ.pp f (ZZM.of_dense (unzzmify (get_reduced i)))
@@ -606,7 +606,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
     let pp f i = 
       let (d, a) = get_normalized i in
-      Format.fprintf f "@[1/(%a)@]" ZZ.pp (Arb_zarith.Fmpzz.fmpz_to_zarith d);
+      Format.fprintf f "@[1/(%a)@]" ZZ.pp (Arbduet_zarith.Fmpzz.fmpz_to_zarith d);
       pp_i f a
     
     let equal ai bi = 
@@ -624,7 +624,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       ref (UnNorm (d, i))
 
     let make_frac_ideal d i = 
-      make_frac_ideal_internal (Arb_zarith.Fmpzz.zarith_to_fmpz d) i
+      make_frac_ideal_internal (Arbduet_zarith.Fmpzz.zarith_to_fmpz d) i
 
     (*Algorithm 3.17 of Ge*)
     let compute_overorder o i = 
@@ -810,20 +810,20 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
   let get_conj_div_2pi e r prec = 
     let conj = QQX.fold (
       fun d coef acc ->
-        let coef_num = Arb.Acb.init_set_fmpz (Arb_zarith.Fmpzz.zarith_to_fmpz (QQ.numerator coef)) in
-        let coef_den = Arb.Acb.init_set_fmpz (Arb_zarith.Fmpzz.zarith_to_fmpz (QQ.denominator coef)) in
-        let coef_acb = Arb.Acb.div coef_num coef_den prec in (* should be exact. *)
-        let t = Arb.Acb.mul coef_acb (Arb.Acb.pow_si r d prec) prec in (* could increase prec? *)
-        Arb.Acb.add t acc prec
-    ) e (Arb.Acb.init_set_fmpz (Arb.Fmpz.init_set_str "0" 10)) in
-    let log_conj = Arb.Acb.log conj prec in
-    Arb.Acb.trim (Arb.Acb.div_si (Arb.Acb.div log_conj (Arb.Acb.pi prec) prec) 2 prec)
+        let coef_num = Acb.init_set_fmpz (Arbduet_zarith.Fmpzz.zarith_to_fmpz (QQ.numerator coef)) in
+        let coef_den = Acb.init_set_fmpz (Arbduet_zarith.Fmpzz.zarith_to_fmpz (QQ.denominator coef)) in
+        let coef_acb = Acb.div coef_num coef_den prec in (* should be exact. *)
+        let t = Acb.mul coef_acb (Acb.pow_si r d prec) prec in (* could increase prec? *)
+        Acb.add t acc prec
+    ) e (Acb.init_set_fmpz (Fmpz.init_set_str "0" 10)) in
+    let log_conj = Acb.log conj prec in
+    Acb.trim (Acb.div_si (Acb.div log_conj (Acb.pi prec) prec) 2 prec)
 
 
   let find_relations_of_units (units : elem list) = 
-    let arb_poly = Arb.Fmpz_poly.init () in
+    let arb_poly = Fmpz_poly.init () in
     for i = 0 to deg do
-      Arb.Fmpz_poly.set_coef arb_poly i (Arb_zarith.Fmpzz.zarith_to_fmpz (QQ.numerator (QQX.coeff i int_poly)));
+      Fmpz_poly.set_coef arb_poly i (Arbduet_zarith.Fmpzz.zarith_to_fmpz (QQ.numerator (QQX.coeff i int_poly)));
     done;
     let n = 2 * deg in
     let s = (List.length units) + deg in
@@ -832,7 +832,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     logf ~level:`trace "Initial guess for required bits of precision: %d" t_guess;
     let build_cross_matrix prec = 
       let prec = prec + 5 in (* Guess plus a few extra bits. *)
-      let roots = Arb.Fmpz_poly.get_complex_roots arb_poly prec in 
+      let roots = Fmpz_poly.get_complex_roots arb_poly prec in 
       List.map (
         fun u ->
           List.map (
@@ -846,28 +846,28 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       fun maximum row -> 
         let b_row = List.fold_left (
           fun sum conj ->
-            let (c, d) = Arb.Acb.get_real_imag_mag_upper conj in
-            ZZ.add (ZZ.add (Arb_zarith.Fmpzz.fmpz_to_zarith c) (Arb_zarith.Fmpzz.fmpz_to_zarith d)) sum
+            let (c, d) = Acb.get_real_imag_mag_upper conj in
+            ZZ.add (ZZ.add (Arbduet_zarith.Fmpzz.fmpz_to_zarith c) (Arbduet_zarith.Fmpzz.fmpz_to_zarith d)) sum
         ) ZZ.zero row in
         ZZ.max maximum b_row
     ) (ZZ.of_int (-1)) u_r_cross_matrix in
     let t_req, m = calc_needed_prec n s real_b 1 (QQ.of_frac 1 16) in
-    let fmpz_mat = Arb.Fmpz_mat.init s (n+s) in
+    let fmpz_mat = Fmpz_mat.init s (n+s) in
     let t = 
       let rec aux mat prec = 
         let is_precise_enough = List.for_all (
           fun row -> 
-            List.for_all (fun conj -> Arb.Acb.rel_accuracy_bits conj > t_req) row
+            List.for_all (fun conj -> Acb.rel_accuracy_bits conj > t_req) row
         ) mat in
         if is_precise_enough then
           let used_t, rev_mat = List.fold_left (
             fun (max_t, ac) row ->
               let t_row, r = List.fold_left (
                 fun (mx_t, acc) c ->
-                  let (ureal, ereal) = Arb.Acb.get_real_mid_fmpz c in
-                  let (uimag, eimag) = Arb.Acb.get_imag_mid_fmpz c in
+                  let (ureal, ereal) = Acb.get_real_mid_fmpz c in
+                  let (uimag, eimag) = Acb.get_imag_mid_fmpz c in
                   let er, ei = 
-                    match (ZZ.to_int (Arb_zarith.Fmpzz.fmpz_to_zarith ereal)), (ZZ.to_int (Arb_zarith.Fmpzz.fmpz_to_zarith eimag)) with
+                    match (ZZ.to_int (Arbduet_zarith.Fmpzz.fmpz_to_zarith ereal)), (ZZ.to_int (Arbduet_zarith.Fmpzz.fmpz_to_zarith eimag)) with
                     | None, _ | _, None -> failwith "Exponents of fmpz is larger than maxint"
                     | Some er, Some ei -> er, ei
                   in
@@ -882,15 +882,15 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
           for i = 0 to s - 1 do
             for j = 0 to (n+s) - 1 do
               if i = j then 
-                Arb.Fmpz_mat.set_entry fmpz_mat (Arb.Fmpz.init_set_str "1" 10) i j
+                Fmpz_mat.set_entry fmpz_mat (Fmpz.init_set_str "1" 10) i j
               else if (i >= List.length units && j >= s && (j-s) / 2 = (i - List.length units) && (j-s) mod 2 = 1) then 
-                let entry = Arb.Fmpz.mul_2exp (Arb.Fmpz.init_set_str "1" 10) used_t in
-                Arb.Fmpz_mat.set_entry fmpz_mat entry i j
+                let entry = Fmpz.mul_2exp (Fmpz.init_set_str "1" 10) used_t in
+                Fmpz_mat.set_entry fmpz_mat entry i j
               else if i < List.length units && j >= s then
                 let uij, eij = (List.nth (List.nth int_mat i) (j-s)) in
-                Arb.Fmpz_mat.set_entry fmpz_mat (Arb.Fmpz.mul_2exp uij (used_t+eij)) i j
+                Fmpz_mat.set_entry fmpz_mat (Fmpz.mul_2exp uij (used_t+eij)) i j
               else 
-                Arb.Fmpz_mat.set_entry fmpz_mat (Arb.Fmpz.init_set_str "0" 10) i j
+                Fmpz_mat.set_entry fmpz_mat (Fmpz.init_set_str "0" 10) i j
             done;
           done;
           used_t
@@ -901,13 +901,13 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       aux u_r_cross_matrix t_guess
     in
     logf ~level:`trace "Using t = %d, reducing matrix" t;
-    Arb.Fmpz_mat.lll_original fmpz_mat (3, 4) (51, 100); (* Using lll_storjohann here seemed to crash sometimes.*)
+    Fmpz_mat.lll_original fmpz_mat (3, 4) (51, 100); (* Using lll_storjohann here seemed to crash sometimes.*)
     let rec find_relations i basis =
       if i >= s then basis
       else
         let row_zz = List.map (
           fun j ->
-            Arb_zarith.Fmpzz.fmpz_to_zarith (Arb.Fmpz_mat.get_entry fmpz_mat i j)
+            Arbduet_zarith.Fmpzz.fmpz_to_zarith (Fmpz_mat.get_entry fmpz_mat i j)
         ) (List.init (n+s) (fun x -> x)) in
         let norm_squared = List.fold_left (fun acc x -> ZZ.add acc (ZZ.mul x x)) ZZ.zero row_zz in
         if ZZ.compare norm_squared (ZZ.mul (Z.pow (ZZ.of_int 2) (s-1)) m) <= 0 then
