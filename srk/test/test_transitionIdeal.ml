@@ -1,6 +1,6 @@
 open Srk
 open OUnit
-module I = Polynomial.Rewrite
+module I = Polynomial.Ideal
 module QQXs = Polynomial.QQXs
 module Monomial = Polynomial.Monomial
 
@@ -22,7 +22,7 @@ let y' = QQXs.of_dim 6
 let z' = QQXs.of_dim 7
 
 let make_ti polys =
-  TransitionIdeal.make 4 (I.grobner_basis (I.mk_rewrite Monomial.degrevlex polys))
+  TransitionIdeal.make 4 (I.make polys)
 
 let pp_dim offset formatter i =
   if i = 2* offset then
@@ -49,20 +49,21 @@ let show_ti =
 let assert_equal_ti = assert_equal ~cmp:TransitionIdeal.equal ~printer:show_ti
 
 let enumerate (ti : TransitionIdeal.t) n = 
-  let rec ti_to_n i = 
-    if i = 0 then
-      make_ti (List.init ti.dim (fun d -> QQXs.sub (QQXs.of_dim (d + ti.dim)) (QQXs.of_dim d)))
-    else if i = 1 then ti
+  let rec ti_to_n acc ti_to_i_minus_1 i = 
+    if i > n then acc
+    else if i = 0 then 
+      let ti_0 = make_ti (List.init ti.dim (fun d -> QQXs.sub (QQXs.of_dim (d + ti.dim)) (QQXs.of_dim d))) in
+      let ti_0_id = I.add_saturate ti_0.ideal (QQXs.sub (QQXs.of_dim (2*ti.dim)) (QQXs.scalar (QQ.of_int i))) in
+      ti_to_n ti_0_id ti_0 (i+1)
+    else if i = 1 then
+      let ti_1 = I.add_saturate ti.ideal (QQXs.sub (QQXs.of_dim (2*ti.dim)) (QQXs.scalar (QQ.of_int i))) in
+      ti_to_n (I.intersect ti_1 acc) ti (i+1)
     else
-      TransitionIdeal.compose ti (ti_to_n (i-1))
-    in
-  let tis = List.init (n+1) ti_to_n in
-  let ti_0 = Polynomial.Ideal.make ((QQXs.sub (QQXs.of_dim (2*ti.dim)) (QQXs.scalar (QQ.of_int 0))) :: (I.generators (I.grobner_basis (List.hd tis).ideal))) in
-  snd (List.fold_left (
-    fun (i, acc) (t : TransitionIdeal.t) ->
-      let gens = (QQXs.sub (QQXs.of_dim (2*ti.dim)) (QQXs.scalar (QQ.of_int i))) :: I.generators (I.grobner_basis (t.ideal)) in
-      i+1, Polynomial.Ideal.intersect acc (Polynomial.Ideal.make gens)
-  ) (1, ti_0) (List.tl tis))
+      let ti_i = TransitionIdeal.compose ti_to_i_minus_1 ti in
+      let ti_i_id = I.add_saturate ti_i.ideal (QQXs.sub (QQXs.of_dim (2*ti.dim)) (QQXs.scalar (QQ.of_int i))) in
+      ti_to_n (I.intersect ti_i_id acc) ti_i (i+1)
+  in
+  ti_to_n (I.make [QQXs.zero]) (make_ti [QQXs.zero]) 0
 
 
 let suite = "TransitionIdeal" >::: [
@@ -353,10 +354,10 @@ let suite = "TransitionIdeal" >::: [
       let y' = QQXs.of_dim (base_dim + 2) in
       let open QQXsInfix in
       let t =
-        TransitionIdeal.make base_dim (I.grobner_basis (I.mk_rewrite Monomial.degrevlex
-                                                          [ (x' * x') - (x * x) + (int 1)
-                                                          ; y' - y - x
-                                                          ; w' - w - x * x ]))
+        TransitionIdeal.make base_dim (I.make
+                                            [ (x' * x') - (x * x) + (int 1)
+                                            ; y' - y - x
+                                            ; w' - w - x * x ])
       in
       let (t2, sim2) = TransitionIdeal.universal_degree_limited t 2 in
       let (solvable, sim, _) = TransitionIdeal.solvable_reflection t2 in
@@ -364,9 +365,9 @@ let suite = "TransitionIdeal" >::: [
       let result = TransitionIdeal.image solvable sim base_dim in
       let expected =
         TransitionIdeal.make base_dim
-          (I.grobner_basis (I.mk_rewrite Monomial.degrevlex
-                              [ (x' * x') - (x * x) + (int 1)
-                              ; w' - w - x * x ]))
+          (I.make
+                [ (x' * x') - (x * x) + (int 1)
+                ; w' - w - x * x ])
       in
       assert_equal_ti expected result)
   ]

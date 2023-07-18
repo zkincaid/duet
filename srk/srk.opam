@@ -9,9 +9,13 @@ depends: [
   "gmp"
   "camlidl"
   "apron"
+  "zarith"
   "z3"
   "ntl"
   "ocamlgraph"
+  "normalizffi"
+  "faugere"
+  "arbduet"
 ]
 build: [
   ["dune" "subst"] {pinned}

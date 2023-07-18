@@ -15,6 +15,9 @@ depends: [
   "z3"
   "ntl"
   "ocamlgraph"
+  "normalizffi"
+  "faugere"
+  "arbduet"
 ]
 build: [
   ["dune" "subst"] {pinned}
