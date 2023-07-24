@@ -1,6 +1,6 @@
 open BatPervasives
 
-module I = Polynomial.Ideal
+module I = Polynomial.Rewrite
 module V = Linear.QQVector
 module QQMatrix = Linear.QQMatrix
 module QQXs = Polynomial.QQXs
@@ -64,19 +64,41 @@ let compose ti1 ti2 =
         if x >= dim then QQXs.of_dim (x + dim)
         else QQXs.of_dim x))
   in
-  let ideal = I.make (a_shift @ b_shift) |> I.project (fun d -> d < 2*dim) in (* is this right?*)
+  let elim_ord =
+    Monomial.block
+      [(fun x -> x >= 2 * dim); (fun x -> x >= dim)]
+      Monomial.degrevlex
+  in
+  let ideal = 
+    I.mk_rewrite elim_ord (a_shift@b_shift)
+    |> I.grobner_basis
+    |> I.restrict (fun m ->
+        BatEnum.for_all (fun (d, _) -> d < 2 * dim) (Monomial.enum m))
+  in
   { dim; ideal }
 
 let domain t =
-  I.project (fun d -> d < t.dim) t.ideal
+  let elim_ord =
+    Monomial.block [(fun x -> x >= t.dim)] Monomial.degrevlex
+  in
+  let prestate m =
+    BatEnum.for_all (fun (d, _) -> d < t.dim) (Monomial.enum m)
+  in
+  I.restrict prestate (I.reorder_groebner elim_ord t.ideal)
 
 let invariant_domain t =
+  let elim_ord =
+    Monomial.block [(fun x -> x >= t.dim)] Monomial.degrevlex
+  in
   let postify =
     QQXs.substitute (fun x -> QQXs.of_dim (x + t.dim))
   in
+  let prestate m =
+    BatEnum.for_all (fun (d, _) -> d < t.dim) (Monomial.enum m)
+  in
   let rec loop dom transition_ideal =
     if dom = [] then
-      I.project (fun d -> d < t.dim) transition_ideal
+      I.restrict prestate transition_ideal
     else
       let transition_ideal' =
         List.fold_left (fun ti p ->
@@ -87,19 +109,30 @@ let invariant_domain t =
       let dom' =
         List.filter (fun p ->
             not (QQXs.equal (I.reduce transition_ideal p) QQXs.zero))
-          (I.generators (I.project (fun d -> d < t.dim) transition_ideal'))
+          (I.generators (I.restrict prestate transition_ideal'))
       in
       loop dom' transition_ideal'
   in
-  let transition_ideal_dom = I.project (fun d -> d < t.dim) t.ideal in (*is this right?*)
-  loop (I.generators transition_ideal_dom) t.ideal
+  let transition_ideal = I.reorder_groebner elim_ord t.ideal in
+  loop (I.generators (I.restrict prestate transition_ideal)) transition_ideal
 
 let iteration_sequence t =
+  let elim_ord =
+    Monomial.block
+      [(fun x -> x >= 2 * t.dim); (fun x -> x >= t.dim)]
+      Monomial.degrevlex
+  in
   let shift_left =
     I.generators t.ideal
     |> List.map (QQXs.substitute (fun x ->
         if x < t.dim then QQXs.of_dim (x + 2*t.dim)
         else QQXs.of_dim x))
+  in
+  let prestate m =
+    BatEnum.for_all (fun (d, _) -> d < t.dim) (Monomial.enum m)
+  in
+  let transition m =
+    BatEnum.for_all (fun (d, _) -> d < 2*t.dim) (Monomial.enum m)
   in
   let rec fix it =
     let shift_right =
@@ -108,10 +141,14 @@ let iteration_sequence t =
           if x >= t.dim then QQXs.of_dim (x + t.dim)
           else QQXs.of_dim x))
     in
-    let ideal' = I.make (shift_left @ shift_right)
-      |> I.project (fun d -> d < 2* t.dim)
+    let ideal' =
+      List.fold_left (fun rewrite p ->
+          I.add_saturate rewrite p)
+        (I.grobner_basis (I.mk_rewrite elim_ord shift_right))
+        shift_left
+      |> I.restrict transition
     in
-    let dom = I.project (fun d -> d < t.dim) ideal' in
+    let dom = I.restrict prestate ideal' in
     if I.subset dom it.ideal then
       ([it], dom)
     else
@@ -140,6 +177,11 @@ let inverse_image ti map =
        x_{i+dom_dim} - p_i(x_{2*dom_dim+dim},...,x_{2*dom_dim+2*dim-1}
      and eliminate the auxiliary vocabulary.
   *)
+  let elim_ord =
+    Monomial.block
+      [(fun x -> x >= 2 * dom_dim)]
+      Monomial.degrevlex
+  in
 
   (* Shift into auxiliary [2 * dom_dim ... 2 * dom_dim + 2*dim - 1] vocab *)
   let shift =
@@ -154,11 +196,14 @@ let inverse_image ti map =
         let pre_tr = QQXs.sub (QQXs.of_dim i) (shift p) in
         let post_tr = QQXs.sub (QQXs.of_dim (i + dom_dim)) (shift_post p) in
         I.add_saturate (I.add_saturate ideal pre_tr) post_tr)
-      (I.make (List.map shift (I.generators ti.ideal)))
+      (I.grobner_basis (I.mk_rewrite elim_ord (List.map shift (I.generators ti.ideal))))
       map
   in
+  let in_target m =
+    BatEnum.for_all (fun (d, _) -> d < 2 * dom_dim) (Monomial.enum m)
+  in
   { dim = dom_dim 
-  ; ideal = I.project (fun d -> d < 2 * dom_dim) translation_ideal }
+  ; ideal = I.restrict in_target translation_ideal }
 
 let image ti map dim =
   let post_map =
@@ -170,7 +215,8 @@ let image ti map dim =
         else post_map.(i - ti.dim))
   in
   let ideal =
-    I.make (List.map inv_image (I.generators ti.ideal))
+    I.mk_rewrite Monomial.degrevlex (List.map inv_image (I.generators ti.ideal))
+    |> I.grobner_basis
   in
   { dim; ideal }
 
@@ -180,6 +226,12 @@ let of_tf_polynomials polynomials tr_symbols =
     if i < 0 then QQXs.of_dim i
     else QQXs.of_dim (i + (2 * dim))
   in
+  let tr m =
+    BatEnum.for_all (fun (d, _) -> d < 2*dim) (Monomial.enum m)
+  in
+  let elim_ord =
+    Monomial.block [(fun x -> x >= 2 * dim)] Monomial.degrevlex
+  in
   let eq i p = QQXs.add_term (QQ.of_int (-1)) (Monomial.singleton i 1) p in
   let ideal =
     BatList.fold_lefti (fun defs i (s,s') ->
@@ -188,8 +240,9 @@ let of_tf_polynomials polynomials tr_symbols =
         pre::post::defs)
       (List.map (QQXs.substitute shift) polynomials)
       tr_symbols
-    |> I.make
-    |> I.project (fun d -> d < 2*dim)
+    |> I.mk_rewrite elim_ord
+    |> I.grobner_basis
+    |> I.restrict tr
   in
   { dim; ideal }
 
@@ -263,7 +316,7 @@ let _solvable_witness abstract_dlts ti =
   *)
   let extract_stratum worklist rewrite =
     let build (mA, mB, pvc, i, rest) p =
-      let p = Polynomial.Rewrite.reduce rewrite p in
+      let p = I.reduce rewrite p in
       (* Rewrite p = 0 as ax' = bx + q(z) *)
       match format_as_solvable_eq ti.dim p with
       | None -> (mA, mB, pvc, i, p::rest)
@@ -337,14 +390,14 @@ let _solvable_witness abstract_dlts ti =
                       (fun j -> QQXs.of_dim (j + (2*ti.dim)))
                       blk_add.(i)))
             in
-            Polynomial.Rewrite.add_saturate (Polynomial.Rewrite.add_saturate rewrite p) q)
+            I.add_saturate (I.add_saturate rewrite p) q)
           rewrite
           (0 -- (size - 1))
       in
       fix rest sp sim rewrite (target_dim + size)
   in
   let (witness, sim) = 
-    fix generators [] [] (Polynomial.Rewrite.mk_rewrite elim []) (2*ti.dim)
+    fix generators [] [] (I.mk_rewrite elim []) (2*ti.dim)
   in
   let size =
     List.fold_left (fun size sim -> size + (QQMatrix.nb_rows sim)) 0 sim
@@ -549,7 +602,7 @@ let affine_degree_limited ti degree =
     QQXsSpace.basis pure_nf_space
     /@ to_target
     |> BatList.of_enum
-    |> I.make
+    |> I.mk_rewrite Monomial.degrevlex
     (* All polynomials are linear -- already a Groebner basis *)
   in
   ({ dim = Array.length sim ; ideal = ideal }, sim)

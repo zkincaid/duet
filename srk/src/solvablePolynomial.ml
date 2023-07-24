@@ -468,6 +468,12 @@ let _extract_solvable_polynomial_eq witness srk wedge tr_symbols term_of_id =
     if i < 0 then QQXs.of_dim i
     else QQXs.of_dim (i + (2 * dim))
   in
+  let tr m =
+    BatEnum.for_all (fun (d, _) -> d < 2*dim) (Monomial.enum m)
+  in
+  let elim_ord =
+    Monomial.block [(fun x -> x >= 2 * dim)] Monomial.degrevlex
+  in
   let defeq i p = QQXs.add_term (QQ.of_int (-1)) (Monomial.singleton i 1) p in
   let shift_sym s = shift (CS.cs_term_id cs (`App (s, []))) in
   let ideal =
@@ -485,8 +491,9 @@ let _extract_solvable_polynomial_eq witness srk wedge tr_symbols term_of_id =
         ::defs)
       ideal
       term_of_id
-    |> Polynomial.Ideal.make
-    |> Polynomial.Ideal.project (fun d -> d < 2 * dim)
+      |> Polynomial.Rewrite.mk_rewrite elim_ord
+      |> Polynomial.Rewrite.grobner_basis
+      |> Polynomial.Rewrite.restrict tr
   in
   let ti = TransitionIdeal.make dim ideal in
   let (witness, sim) = witness ti in
@@ -1938,7 +1945,9 @@ module DLTSPeriodicRational = struct
     exp_impl SolvablePolynomialPeriodicRational.exp srk tr_symbols loop_count iter
 end
 
-module I = Polynomial.Ideal
+module I = Polynomial.Rewrite
+
+module Id = Polynomial.Ideal
 
 module SolvablePolynomialLIRR = struct
 
@@ -1976,13 +1985,14 @@ module SolvablePolynomialLIRR = struct
       TransitionIdeal.make it_offset it.ideal.ideal
     else
       let inv_seq, inv_dom = TransitionIdeal.iteration_sequence it.ideal in
+      let inv_dom_id = Id.make (I.generators inv_dom) in
       let k_equal_i i = QQXs.sub (QQXs.of_dim (2 * it.ideal.dim)) (QQXs.scalar (QQ.of_int i)) in
-      let zeroth = I.make ((k_equal_i 0) :: (List.init it_offset (fun d -> QQXs.sub (QQXs.of_dim (d+it_offset)) (QQXs.of_dim d)))) in
-      let inv_seq_id = List.mapi (fun i (id : TransitionIdeal.t) -> I.add_saturate id.ideal (k_equal_i (i+1))) inv_seq in
-      let transient_closure = List.fold_left I.intersect zeroth inv_seq_id in
+      let zeroth = Id.make ((k_equal_i 0) :: (List.init it_offset (fun d -> QQXs.sub (QQXs.of_dim (d+it_offset)) (QQXs.of_dim d)))) in
+      let inv_seq_id = List.mapi (fun i (id : TransitionIdeal.t) -> Id.make ((k_equal_i (i+1)) :: (I.generators id.ideal))) inv_seq in
+      let transient_closure = List.fold_left Id.intersect zeroth inv_seq_id in
       logf "Invariant Dom : %a" (I.pp (pp_dim it_offset)) inv_dom;
       if QQXs.is_zero (I.reduce inv_dom QQXs.one) then 
-        TransitionIdeal.make it_offset transient_closure
+        TransitionIdeal.make it_offset (Id.mk_rewrite transient_closure)
       else      
         (log_pp  pp_sp it.witness;
         let cf = Log.time "Rat Exp" (Rational.RatEP.solve_rec) it.witness in
@@ -1992,11 +2002,11 @@ module SolvablePolynomialLIRR = struct
         let module EP = (val Log.time "Splitting Field" Rational.RatEP.to_nf cf) in
 
         let zero_eig_transient, zero_eigen_stab, rels = Log.time "Algebraic Relations" EP.long_run_algebraic_relations () in
-        logf  "Alg Relations: %a" (I.pp (pp_dim it_offset)) (I.make rels);
+        logf  "Alg Relations: %a" (Id.pp (pp_dim it_offset)) (Id.make rels);
         
         let cl = 
           if (List.length inv_seq_id) + 1 >= zero_eigen_stab then
-            I.intersect transient_closure (I.sum inv_dom (I.make rels))
+            Id.intersect transient_closure (Id.sum inv_dom_id (Id.make rels))
           else
             let rec get_rels_after_inv_transient i l = 
               if i >= (List.length inv_seq_id) + 1 then 
@@ -2006,13 +2016,13 @@ module SolvablePolynomialLIRR = struct
                       fun (gs, index) p ->
                         (QQXs.sub (QQXs.of_dim (index + sp_map_offset)) p) :: gs, index + 1
                     ) ([k_equal_i i], 0) state in
-                    I.intersect ideal (I.sum inv_dom (I.make gens))
-                ) (I.sum inv_dom (I.make rels)) l
+                    Id.intersect ideal (Id.sum inv_dom_id (Id.make gens))
+                ) (Id.sum inv_dom_id (Id.make rels)) l
               else get_rels_after_inv_transient (i+1) (List.tl l)
             in
-            I.intersect transient_closure (get_rels_after_inv_transient 0 zero_eig_transient)
+            Id.intersect transient_closure (get_rels_after_inv_transient 0 zero_eig_transient)
         in
-        TransitionIdeal.make it_offset cl)
+        TransitionIdeal.make it_offset (Id.mk_rewrite cl))
     
 
 
@@ -2112,7 +2122,7 @@ module SolvablePolynomialLIRR = struct
       PC.get_ideal
         (LirrSolver.abstract srk (fun cone -> PC.make_cone (PC.get_ideal cone) []) (TF.formula tf))
     in
-    abstract_cone (I.make (Polynomial.Rewrite.generators ideal))
+    abstract_cone ideal
 
   let abstract srk tf = 
     abstract_sp TransitionIdeal.solvable_reflection srk tf
@@ -2195,6 +2205,6 @@ module SolvablePolynomialLIRRQuadratic = struct
         (LirrSolver.abstract srk (fun cone ->
              PC.make_cone (PC.get_ideal cone) []) (TF.formula tf))
     in
-    abstract_cone (I.make (Polynomial.Rewrite.generators ideal))
+    abstract_cone ideal
 end
 
