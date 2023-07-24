@@ -389,6 +389,8 @@ module Ideal : sig
 
   (** Make a rewrite system from the given ideal.*)
   val mk_rewrite : t -> Rewrite.t
+
+  val use_fgb : bool ref
 end
 
 (**Grobner basis computation using the FGb library.*)
