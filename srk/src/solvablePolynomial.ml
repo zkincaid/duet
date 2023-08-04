@@ -945,7 +945,7 @@ let term_of_ratep srk loop_counter pre_term_of_id ep =
     let translate_mon m = 
       BatEnum.fold (
         fun mul (dim, pow) ->
-          (mk_pow srk (pre_term_of_id dim) pow) :: mul (*mk_int or mk_real?*)
+          (mk_pow srk (pre_term_of_id dim) pow) :: mul
       ) [] (Monomial.enum m)
     in
     let add_l = QQXs.fold (
@@ -958,7 +958,7 @@ let term_of_ratep srk loop_counter pre_term_of_id ep =
   let translate_poly p = 
     let add_l = CX.fold (
       fun pow c acc ->
-        let term = mk_mul srk [(translate_const_ring c); (mk_pow srk loop_counter pow)] in (*mk_int or mk_real?*)
+        let term = mk_mul srk [(translate_const_ring c); (mk_pow srk loop_counter pow)] in
         term :: acc
     ) p [] in
     mk_add srk add_l
@@ -968,7 +968,7 @@ let term_of_ratep srk loop_counter pre_term_of_id ep =
   in
   let translate_iif ((den, shift), c) = 
     let func = QQX.show den in (*Converting the iif to a string*)
-    let arg = if shift = 0 then loop_counter else mk_add srk [loop_counter; mk_real srk (QQ.of_int shift)] in (*mk_real or mk_int?*)
+    let arg = if shift = 0 then loop_counter else mk_add srk [loop_counter; mk_int srk shift] in
     let sym =
       if not (is_registered_name srk func) then
         register_named_symbol srk func (`TyFun ([`TyReal], `TyReal));

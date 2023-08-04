@@ -10,7 +10,7 @@ module type PreKleeneAlgebra = sig
   val zero : t
   val one : t
   val star : t -> t
-  val equal : t -> t -> bool
+  val is_zero : t -> bool
   val compare : t -> t -> int
 end
 
@@ -28,7 +28,7 @@ module DomainRefinement (PreKleeneWithoutTiming : PreKleeneAlgebra) = struct
     let one = PreKleeneWithoutTiming.one
     let star x = Log.time "refine_ops" PreKleeneWithoutTiming.star x
     (*let equal = PreKleeneWithoutTiming.equal*)
-    let equal x y = Log.time "refine_edge_tests" (PreKleeneWithoutTiming.equal x) y
+    let is_zero x = Log.time "refine_edge_tests" PreKleeneWithoutTiming.is_zero x
     let compare = PreKleeneWithoutTiming.compare
   end
 
@@ -558,7 +558,7 @@ module DomainRefinement (PreKleeneWithoutTiming : PreKleeneAlgebra) = struct
     while List.length !worklist <> 0 do
       let pair_to_check = List.hd !worklist in
       worklist := List.tl !worklist;
-      let infeasible = PreKleene.equal (PreKleene.mul (IntMap.find (fst pair_to_check) label_to_atom) (IntMap.find (snd pair_to_check) label_to_atom)) PreKleene.zero in
+      let infeasible = PreKleene.is_zero (PreKleene.mul (IntMap.find (fst pair_to_check) label_to_atom) (IntMap.find (snd pair_to_check) label_to_atom)) in
       if not infeasible then
         RGraph.add_edge refinement_graph (fst pair_to_check) (snd pair_to_check);
         if (fst pair_to_check) = (snd pair_to_check) then
@@ -592,7 +592,7 @@ module DomainRefinement (PreKleeneWithoutTiming : PreKleeneAlgebra) = struct
 
     List.iter 
       (fun (x, y) ->
-        let infeasible = PreKleene.equal (PreKleene.mul (IntMap.find x label_to_atom) (IntMap.find y label_to_atom)) PreKleene.zero in
+        let infeasible = PreKleene.is_zero (PreKleene.mul (IntMap.find x label_to_atom) (IntMap.find y label_to_atom)) in
         if not infeasible then RGraph.add_edge refinement_graph x y
       ) all_pairs;
     refinement_graph

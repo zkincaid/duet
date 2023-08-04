@@ -102,7 +102,7 @@ let test_qr4 () =
 let test_gcd1 () = 
   let a = mk_qqx [6;7;1] in
   let b = mk_qqx [-6;-5;1] in
-  let (g, u, v) = QQX.ex_euc a b in
+  let (g, u, v) = QQX.gcdext a b in
   let g_correct = mk_qqx [1; 1] in
   assert_equal_qqx g g_correct;
   assert_equal_qqx g (QQX.add (QQX.mul u a) (QQX.mul v b))
@@ -110,7 +110,7 @@ let test_gcd1 () =
 let test_gcd2 () = 
   let a = mk_qqx [-2;0;1] in
   let b = mk_qqx [0;1] in
-  let (g, u, v) = QQX.ex_euc a b in
+  let (g, u, v) = QQX.gcdext a b in
   let g_correct = mk_qqx [1] in
   assert_equal_qqx g g_correct;
   assert_equal_qqx g (QQX.add (QQX.mul u a) (QQX.mul v b))
@@ -119,7 +119,7 @@ let test_gcd2 () =
 let test_gcd3 () = 
   let a = mk_qqx [-2;0;1] in
   let b = mk_qqx [0] in
-  let (g, u, v) = QQX.ex_euc a b in
+  let (g, u, v) = QQX.gcdext a b in
   let g_correct = a in
   assert_equal_qqx g g_correct;
   assert_equal_qqx g (QQX.add (QQX.mul u a) (QQX.mul v b))
@@ -127,7 +127,7 @@ let test_gcd3 () =
 let test_gcd4 () = 
   let a = mk_qqx [0] in
   let b = mk_qqx [-2;0;1] in
-  let (g, u, v) = QQX.ex_euc a b in
+  let (g, u, v) = QQX.gcdext a b in
   let g_correct = b in
   assert_equal_qqx g g_correct;
   assert_equal_qqx g (QQX.add (QQX.mul u a) (QQX.mul v b))

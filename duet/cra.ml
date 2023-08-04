@@ -150,7 +150,7 @@ module K = struct
   module CRARefinement = Refinement.DomainRefinement
       (struct
         include Tr
-        let equal a _ = ((LirrSolver.is_sat srk (guard a)) == `Unsat)
+        let is_zero a = ((LirrSolver.is_sat srk (guard a)) == `Unsat)
       end)
 
   let to_dnf x =

@@ -149,15 +149,14 @@ let factor_test3 () =
 let splitting_test1 () =
   let open QQXInfix in
   let p = v * v * v - int(2) in
-  let root_field, roots = NumberField.splitting_field p in
-  let module NF = NumberField.MakeNF(struct let min_poly = root_field end) in
+  let NumberField.Sf ((module NF), roots) = NumberField.splitting_field p in
   (*let print_roots f rs = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_string fo "; ") NF.pp f (List.map fst rs) in
   Log.log ~level:`always "Field polynomial";
   Log.log_pp ~level:`always QQX.pp root_field;
   Log.log ~level:`always "Roots";
   Log.log_pp ~level:`always print_roots roots;*)
   let check_root (r, _) = 
-    assert_bool "Test root" (NF.is_zero (NF.X.eval (NF.X.lift p) (NF.make_elem r)))
+    assert_bool "Test root" (NF.is_zero (NF.X.eval (NF.X.lift p) r))
   in
   List.iter check_root roots
 
@@ -516,14 +515,13 @@ let test_find_relations3 () =
 let find_root_relations1 () =
   let open QQXInfix in
   let p = v * v * v - int(2) in
-  let root_field, roots = NumberField.splitting_field p in
-  let module NF = NumberField.MakeNF(struct let min_poly = root_field end) in
+  let NumberField.Sf ((module NF), roots) = NumberField.splitting_field p in
   (*let print_roots f rs = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_string fo "; ") NF.pp f (List.map fst rs) in
   Log.log ~level:`always "Field polynomial";
   Log.log_pp ~level:`always QQX.pp root_field;
   Log.log ~level:`always "Roots";
   Log.log_pp ~level:`always print_roots roots;*)
-  let roots_e = List.map NF.make_elem (fst (List.split roots)) in
+  let roots_e = fst (List.split roots) in
   let relations = NF.find_relations roots_e in
   let check_relation rel = 
     let prod = List.fold_left NF.mul NF.one (List.map2 NF.exp roots_e rel) in
@@ -536,9 +534,8 @@ let find_root_relations2 () =
   let open QQXInfix in
   (* p = (x-2)(x^2+1)(x^3-2)*)
   let p = v * v * v * v * v * v - int(2) * v* v*v *v *v + v*v*v*v - int(4)*v*v*v +int(4)*v*v-int(2)*v + int(4) in
-  let root_field, roots = NumberField.splitting_field p in
-  let module NF = NumberField.MakeNF(struct let min_poly = root_field end) in
-  let roots_e = List.map NF.make_elem (fst (List.split roots)) in
+  let NumberField.Sf ((module NF), roots) = NumberField.splitting_field p in
+  let roots_e = fst (List.split roots) in
   (*Log.log ~level:`always "Root_field";
   Log.log_pp ~level:`always QQX.pp NF.int_poly;
   let print_roots = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_newline fo ()) NF.pp in

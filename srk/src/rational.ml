@@ -28,6 +28,7 @@ end
 module MakeRat (D : sig 
   include Euclidean
   val pp : Format.formatter -> t -> unit
+  val scalar_inv : scalar -> scalar
 end) = struct
 
   type num = D.t
@@ -35,7 +36,7 @@ end) = struct
   type den = D.t
 
   let gcd a b = 
-    let g, _, _ = D.ex_euc a b in
+    let g, _, _ = D.gcdext a b in
     g
 
   let div_factor a factor = fst (D.qr a factor)
@@ -58,8 +59,8 @@ end) = struct
         (a := Norm (D.zero, D.one);
         (D.zero, D.one))
       else
-        let gcd = gcd n d in
-        let res = div_factor n gcd, div_factor d gcd in (* is this normal? could have const factor*)
+        let gcd = D.scalar_mul (D.coeff (D.order d) d) (gcd n d) in
+        let res = div_factor n gcd, div_factor d gcd in
         a := Norm res;
         res
 
@@ -94,7 +95,9 @@ end) = struct
   let inverse a = 
     match !a with
     | Unnorm (p, q) when not (D.equal q D.zero) -> ref (Unnorm (q, p))
-    | Norm (p, q) when not (D.equal q D.zero) -> ref (Norm (q, p))
+    | Norm (p, q) when not (D.equal q D.zero) -> 
+      let plc = D.scalar_inv (D.coeff (D.order p) p) in
+      ref (Norm (D.scalar_mul plc q, D.scalar_mul plc p))
     | _ -> raise Divide_by_zero
 
   let lift (p : D.t) = ref (Norm (p, D.one))
@@ -124,7 +127,7 @@ end) = struct
 
   (*den_fact1 and den_fact2 must be coprime*)
   let partial_fraction_pair (num : D.t) (den_fact1 : D.t) (den_fact2 : D.t) = 
-    let gcd, c, d = D.ex_euc den_fact1 den_fact2 in
+    let gcd, c, d = D.gcdext den_fact1 den_fact2 in
     if not (D.equal gcd D.one) then failwith "Trying to partial fraction with non coprime factors";
     let (q, f1) = D.qr (D.mul d num) den_fact1 in
     let f2 = D.add (D.mul c num) (D.mul q den_fact2) in
@@ -135,7 +138,7 @@ end) = struct
     if power <= 1 then [(num, power)]
     else
       let den_fact_prime = D.derivative den_fact in
-      let g, c, d = D.ex_euc den_fact den_fact_prime in
+      let g, c, d = D.gcdext den_fact den_fact_prime in
       if not (D.equal g D.one) then failwith "Trying to partial frac power of polynomial with squares";
       let rec aux f k = 
         if k <= 1 then [(f, k)]
@@ -215,7 +218,11 @@ end) = struct
 
   let of_exponential_poly e p = {ep = E.mul (E.of_exponential e) (E.of_polynomial p); heaviside = IM.empty}
 
-  let of_heavy shift c = {ep = E.zero; heaviside = IM.add shift c IM.empty}
+  let of_heavy shift c = 
+    if C.equal c C.zero then
+      zero
+    else
+      {ep = E.zero; heaviside = IM.add shift c IM.empty}
 
   let scalar_mul c term = 
     let ep = E.scalar_mul c term.ep in
@@ -311,7 +318,7 @@ end
 module type ExpPolyNF = sig
   module NF : NumberField.NF
 
-  module ConstRing : Multivariate with type scalar = NF.elem
+  module ConstRing : Multivariate with type scalar = NF.t
 
   module ConstRingX : Univariate with type scalar = ConstRing.t
 
@@ -324,9 +331,9 @@ module type ExpPolyNF = sig
 
   val of_polynomial : ConstRingX.t -> t
 
-  val of_exponential : NF.elem -> t
+  val of_exponential : NF.t -> t
 
-  val of_exponential_poly : NF.elem -> ConstRingX.t -> t
+  val of_exponential_poly : NF.t -> ConstRingX.t -> t
 
   val of_heavy : int -> ConstRing.t -> t
   
@@ -340,7 +347,7 @@ module type ExpPolyNF = sig
 
   val eval : t -> int -> ConstRing.t
 
-  val enum_ep : t -> (ConstRingX.t * NF.elem) BatEnum.t
+  val enum_ep : t -> (ConstRingX.t * NF.t) BatEnum.t
 
   val enum_heavy : t -> (int * ConstRing.t) BatEnum.t
 
@@ -348,7 +355,7 @@ module type ExpPolyNF = sig
 
   val get_rec_sols : unit -> t array
 
-  val base_relations : unit -> QQXs.t list * (NF.elem * int) BatEnum.t
+  val base_relations : unit -> QQXs.t list * (NF.t * int) BatEnum.t
 
   val algebraic_relations : unit -> QQXs.t list
 
@@ -375,13 +382,13 @@ open Polynomial
 module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struct
   module NF = NF
 
-  module ConstRing = MakeConstRing(struct include NF type t = elem let lift = NF.of_rat end)
+  module ConstRing = MakeConstRing(struct include NF let lift = NF.of_rat end)
 
   
   module ConstRingX = MakeUnivariate(ConstRing)
 
   include MakeEPWithHeavy
-    (struct include NF type t = elem end)
+    (NF)
     (struct include ConstRing let lift = ConstRing.scalar let pp = ConstRing.pp NF.pp (fun fo d -> Format.pp_print_string fo ("x_" ^ (string_of_int d))) end)
     (struct include ConstRingX 
       let pp formatter p =
@@ -404,7 +411,7 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
     end)
 
 
-  module BM = BatMap.Make(struct type t = NF.elem let compare = NF.compare end)
+  module BM = BatMap.Make(struct type t = NF.t let compare = NF.compare end)
 
   let rec_sols = ref (Array.make 0 zero)
 
@@ -534,6 +541,7 @@ end
 module RX = MakeRat(struct
   include QQX
   let int_mul i = QQX.scalar_mul (QQ.of_int i)
+  let scalar_inv = QQ.inverse
 end)
 
 module RXVector = struct
@@ -627,7 +635,7 @@ module MakeRatDiff
   let one = N.one, D.one
   
   let gcd a b = 
-    let g, _, _ = D.ex_euc a b in
+    let g, _, _ = D.gcdext a b in
     g
 
   let div_factor a fact = fst (D.qr a fact)
@@ -658,7 +666,7 @@ module MakeRatDiff
 
   (*den_fact1 and den_fact2 must be coprime*)
   let partial_fraction_pair (num : N.t) (den_fact1 : D.t) (den_fact2 : D.t) = 
-    let gcd, c, d = D.ex_euc den_fact1 den_fact2 in
+    let gcd, c, d = D.gcdext den_fact1 den_fact2 in
     if not (D.equal gcd D.one) then failwith "Trying to partial fraction with non coprime factors";
     let (q, f1) = I.qr (N.mul (I.lift d) num) den_fact1 in
     let f2 = N.add (N.mul (I.lift c) num) (N.mul q (I.lift den_fact2)) in
@@ -669,7 +677,7 @@ module MakeRatDiff
     if power <= 1 then [(num, power)]
     else
       let den_fact_prime = D.derivative den_fact in
-      let g, c, d = D.ex_euc den_fact den_fact_prime in
+      let g, c, d = D.gcdext den_fact den_fact_prime in
       if not (D.equal g D.one) then failwith "Trying to partial frac power of polynomial with squares";
       let rec aux f k = 
         if k <= 1 then [(f, k)]
@@ -1003,14 +1011,6 @@ module RatEP = struct
 
   let translate_term (n, (den, power)) = 
     if QQX.order den > 1 then(
-      (*let size = BatList.length (BatList.of_enum (QQX.enum den)) in
-      if size = 1 then(
-        let heaviside = ConstRingX.fold (
-          fun deg coef heavies -> 
-            IM.add (power - deg) coef heavies
-        ) n IM.empty in
-        {ep = RE.zero; iifs = IIFS.empty; heaviside})
-      else*)
         let iif_den = QQX.exp den power in
         let iifs = ConstRingX.fold (
           fun deg coef iif ->
@@ -1114,15 +1114,18 @@ module RatEP = struct
 
   let to_nf eps = 
     let all_iifs = Array.fold_left (fun acc ep -> BatEnum.append acc (IIFS.keys ep.iifs)) (BatEnum.empty ()) eps in
-    let sf, roots = 
-      if BatEnum.is_empty all_iifs then QQX.zero, []
+    let sf = 
+      if BatEnum.is_empty all_iifs then 
+        NumberField.splitting_field (QQX.one)
       else
         let irreds = BatEnum.uniq_by (fun (den1, _) (den2, _) -> QQX.equal den1 den2) all_iifs in
         let root_poly = BatEnum.fold (fun rp (irred, _) -> QQX.mul rp irred) QQX.one irreds in
         NumberField.splitting_field root_poly
     in
-    let module NF = NumberField.MakeNF(struct let min_poly = sf end) in
-    let roots_e = List.map (fun (r, _) -> NF.make_elem r) roots in
+    let NumberField.Sf ((module NF), roots) = sf in
+    (*let ((module NF : NumberField.NF), roots) = sf in
+    let module NF = NumberField.MakeNF(struct let min_poly = sf end) in*)
+    let roots_e = List.map (fun (r, _) -> r) roots in
     let module EP = MakeEPNF(NF) in
     let lift_nfx_to_constnfx d =   
       let e = BatEnum.map (
@@ -1228,15 +1231,7 @@ module RatEP = struct
     ep
   
   let exp a i = 
-    let rec exp_by_squaring y x n = 
-      if n < 0 then failwith "Exponentiating a negative exponent"
-      else if n = 0 then y
-      else if n mod 2 = 0 then
-        exp_by_squaring y (mul x x) (n/2)
-      else
-        exp_by_squaring (mul x y) (mul x x) ((n-1)/2)
-    in
-    exp_by_squaring one a i
+    SrkUtil.exp mul one a i
 
   let solve_rec_rs initial sp : t array = 
     let size = List.fold_left (+) 0 (List.map (fun (blk : block) -> Array.length blk.blk_transform) sp) in
@@ -1262,16 +1257,6 @@ module RatEP = struct
         let blk_size = Array.length (blk.blk_add) in
         let blk_add = Array.map translate_blk_add blk.blk_add in
         let init = Array.sub initial offset blk_size in
-          (*match initial with
-          | None -> Array.mapi (fun i _ -> ConstRing.of_dim (i + offset)) blk.blk_add
-          | Some ini ->
-            Array.mapi (
-              fun i ini_v ->
-                match ini_v with 
-                | None -> ConstRing.of_dim (i + offset)
-                | Some v -> ConstRing.scalar v
-            ) ini
-        in*)
         let sol = solve_mat_rec_rs blk.blk_transform init blk_add in
         for i = 0 to blk_size - 1 do
           cf.(i + offset) <- translate_rs sol.(i)

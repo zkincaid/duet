@@ -47,6 +47,7 @@ end
 module MakeRat (D : sig 
     include Polynomial.Euclidean
     val pp : Format.formatter -> t -> unit
+    val scalar_inv : scalar -> scalar
   end) : sig
    
   include RationalFunc with type num = D.t and type den = D.t
@@ -81,7 +82,7 @@ module type ExpPolyNF = sig
 
   (**A constant is a multivariate polynomial with number field coefficients. The variable
       represent the initial values of the sequence*)
-  module ConstRing : Polynomial.Multivariate with type scalar = NF.elem
+  module ConstRing : Polynomial.Multivariate with type scalar = NF.t
 
   (**The polynomial part of an exponential polynomial*)
   module ConstRingX : Polynomial.Univariate with type scalar = ConstRing.t
@@ -93,9 +94,9 @@ module type ExpPolyNF = sig
   val of_polynomial : ConstRingX.t -> t
 
   (**Exponential bases are number field elements*)
-  val of_exponential : NF.elem -> t
+  val of_exponential : NF.t -> t
 
-  val of_exponential_poly : NF.elem -> ConstRingX.t -> t
+  val of_exponential_poly : NF.t -> ConstRingX.t -> t
 
   (**One way to handle 0 eigenvalues is to use heavyside functions. Essentially iverson brackets multiplied by constants
       of_heavy i c represents the term \[n>=i\] * c.*)
@@ -108,7 +109,7 @@ module type ExpPolyNF = sig
   val eval : t -> int -> ConstRing.t
   
   (** Enumerate the exponential part.*)
-  val enum_ep : t -> (ConstRingX.t * NF.elem) BatEnum.t
+  val enum_ep : t -> (ConstRingX.t * NF.t) BatEnum.t
 
   (** Enumerate the heavysides*)
   val enum_heavy : t -> (int * ConstRing.t) BatEnum.t
@@ -120,7 +121,7 @@ module type ExpPolyNF = sig
 
   (** Get the algebraic relations of the bases of the exponentials in [get_rec_sols ()].
       The second returned element gives the mapping from bases to variable dimensions.*)
-  val base_relations : unit -> Polynomial.QQXs.t list * (NF.elem * int) BatEnum.t
+  val base_relations : unit -> Polynomial.QQXs.t list * (NF.t * int) BatEnum.t
 
   (** Get the algebraic relations of [get_rec_sols ()]. Let d be [(Array.length (get_rec_sols ()))].
       The result contains polynomials over the dimensions 0, ..., d-1, d, ..., 2d - 1, 2d. The

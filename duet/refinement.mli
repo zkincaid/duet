@@ -7,7 +7,7 @@ module type PreKleeneAlgebra = sig
   val zero : t
   val one : t
   val star : t -> t
-  val equal : t -> t -> bool
+  val is_zero : t -> bool
   val compare : t -> t -> int
 end
 

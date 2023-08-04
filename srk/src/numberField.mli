@@ -17,6 +17,8 @@ val make_univariate : QQXs.t -> QQX.t
 val primitive_elem : int -> QQXs.t -> QQXs.t -> Monomial.dim -> Monomial.dim -> QQX.t * QQX.t * QQX.t
 
 
+val compute_min_poly_p : QQX.t -> QQX.t -> QQX.t
+
 module type NF = sig  
 
   (** The degree of the extension.*)
@@ -26,49 +28,49 @@ module type NF = sig
   val int_poly : QQX.t
 
   (** The type of elements of the number field. *)
-  type elem
+  type t
 
   (** Converts a univariate polynomial to an element of the number field.*)
-  val make_elem : QQX.t -> elem
+  val make_elem : QQX.t -> t
 
   (** Get the polynomial representation of an elem modulo int_poly*)
-  val get_poly : elem -> QQX.t
+  val get_poly : t -> QQX.t
   
-  val of_rat : QQ.t -> elem
+  val of_rat : QQ.t -> t
 
   (** Computes the monic minimal polynomial of a given element. *)
-  val compute_min_poly : elem -> QQX.t
+  val compute_min_poly : t -> QQX.t
 
-  val mul : elem -> elem -> elem
+  val mul : t -> t -> t
 
-  val int_mul : int -> elem -> elem
+  val int_mul : int -> t -> t
 
-  val add : elem -> elem -> elem
+  val add : t -> t -> t
 
-  val sub : elem -> elem -> elem
+  val sub : t -> t -> t
 
-  val inverse : elem -> elem
+  val inverse : t -> t
 
-  val exp : elem -> int -> elem
+  val exp : t -> int -> t
 
-  val equal : elem -> elem -> bool
+  val equal : t -> t -> bool
 
-  val compare : elem -> elem -> int
+  val compare : t -> t -> int
 
-  val is_zero : elem -> bool
+  val is_zero : t -> bool
 
-  val one : elem
+  val one : t
 
-  val zero : elem
+  val zero : t
 
-  val negate : elem -> elem
+  val negate : t -> t
 
-  val pp : Format.formatter -> elem -> unit
+  val pp : Format.formatter -> t -> unit
 
   (** Univariate polynomials over the number field*)
   module X : 
     sig
-      include Euclidean with type scalar = elem
+      include Euclidean with type scalar = t
   
       (** Pretty printer. The field variable is z and the polynomial variable is x.*)
       val pp : Format.formatter -> t -> unit
@@ -81,14 +83,14 @@ module type NF = sig
       val de_lift : t -> QQXs.t
 
       (** Factors a square free polynomial in the number field.*)
-      val factor_square_free_poly : t -> (scalar * ((t * int) list))
+      val factor_square_free_poly : t -> (scalar * (t list))
 
       (** Factors an arbitrary polynomial in the number field.*)
       val factor : t -> (scalar * ((t * int) list))
 
       (** Extract the root of a linear polynomial
           @raise Failure if the input is not linear*)
-      val extract_root_from_linear : t -> elem
+      val extract_root_from_linear : t -> scalar
     end
 
   (** An order of the number field. An order in a number field is a finite 
@@ -110,10 +112,10 @@ module type NF = sig
 
     (** Every element of the number field a can be uniquely written as a = 1/d * o, where
        d is an integer and o is an element of O. [make_o_el a = (d, o)]*)
-    val make_o_el : elem -> ZZ.t * o
+    val make_o_el : t -> ZZ.t * o
 
     (** [order_el_to_f_elem (d, o) = a], where a = 1/d * o. *)
-    val order_el_to_f_elem : ZZ.t * o -> elem
+    val order_el_to_f_elem : ZZ.t * o -> t
 
     (** This is really just used for testing. An arbitrary integer matrix may not be an ideal.*)
     val idealify : ZZ.t array array -> ideal
@@ -200,15 +202,17 @@ module type NF = sig
                                                             \[...\]
                                                             \[f_l1; ...; f_lk\]\]
         for the set {n_1, ..., n_k : gamma_1^n_1...gamma_k^n_k = 1.} *)
-  val find_relations : elem list -> int list list
+  val find_relations : t list -> int list list
 
 end
 
-(** Given a minimal polynomial, construct a number field. Giving a
+(** Given an irreducible polynomial, construct a number field. Giving a
     polynomial that is not irreducible in Q[x] gives undefined behavior.*)
 module MakeNF (A : sig val min_poly : QQX.t end) : NF
+
+type sf = Sf : (module NF with type t = 'a) * (('a * int) list) -> sf
 
 (** [min_poly, roots] = [splitting_field p] is such that Q[x]/min_poly is the
     splitting field of [p]. [roots] give the representation of the roots along with
     their multiplicity of [p] in the splitting field.*)
-val splitting_field : QQX.t -> QQX.t * ((QQX.t * int) list)
+val splitting_field : QQX.t -> sf

@@ -38,7 +38,7 @@ module type Euclidean = sig
 
   (** Given two non-zero polynomials a and b, computes u, v, g such that 
     gcd(a, b) = g, g is monic, and au + bv = g via the extended euclidean algorithm.*)
-  val ex_euc : t -> t -> t * t * t
+  val gcdext : t -> t -> t * t * t
 
   (** Given a polynomial p, computes (a1, i1), ..., (ak, ik) such that a1^i1...ak^ik = p
       and each ai is square free.*)

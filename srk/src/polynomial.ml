@@ -92,7 +92,7 @@ module type Euclidean = sig
 
   val qr : t -> t -> t * t
 
-  val ex_euc : t -> t -> t * t * t
+  val gcdext : t -> t -> t * t * t
 
   val square_free_factor : t -> (t * int) list
 
@@ -120,7 +120,7 @@ module MakeEuclidean (F : Algebra.Field) = struct
         in
       aux zero a
   
-  let ex_euc a b = 
+  let gcdext a b = 
     let rec aux r0 r1 s0 s1 t0 t1 = 
       if is_zero r1 then 
         let lcri = F.inverse (coeff (order r0) r0) in
@@ -144,7 +144,7 @@ module MakeEuclidean (F : Algebra.Field) = struct
       if equal b one then
         facts
       else
-        let a, _, _ = ex_euc b d in
+        let a, _, _ = gcdext b d in
         let new_b = fst (qr b a) in
         let c = fst (qr d a) in
         let new_d = sub c (derivative new_b) in
@@ -154,7 +154,7 @@ module MakeEuclidean (F : Algebra.Field) = struct
           aux new_b new_d (i+1) ((a, i) :: facts)
       in
     let p_p = derivative p in
-    let a_0, _, _ = ex_euc p p_p in
+    let a_0, _, _ = gcdext p p_p in
     let b_1 = fst (qr p a_0) in
     let c_1 = fst (qr p_p a_0) in
     let d_1 = sub c_1 (derivative b_1) in
@@ -1369,8 +1369,8 @@ module FGb = struct
 
   (* Is this right? *)
   let get_mon_order (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) a b = 
-    let ablk1, ablk2 = Monomial.split_block (fun v -> if (List.mem v blk1) then true else false) a in
-    let bblk1, bblk2 = Monomial.split_block (fun v -> if (List.mem v blk1) then true else false) b in
+    let ablk1, ablk2 = Monomial.split_block (fun v -> List.mem v blk1) a in
+    let bblk1, bblk2 = Monomial.split_block (fun v -> List.mem v blk1) b in
     let compare_by_block fmon1 fmon2 = 
       let diff_rev = List.rev (List.map2 (-) fmon1 fmon2) in
       match List.find_opt ((<>) 0) diff_rev with
@@ -1576,14 +1576,7 @@ module Ideal = struct
     let vs = IS.union j.vs k.vs in
     let j = generators_f j in
     let k = generators_f k in
-    let t =
-      1 + (List.fold_left
-              (fun m p ->
-                try max m (SrkUtil.Int.Set.max_elt (QQXs.dimensions p))
-                with Not_found -> m)
-              0
-              (j @ k))
-    in
+    let t = (IS.max_elt vs) + 1 in
     (* { tp : p in j } *)
     let j' = List.map (QQXs.mul (QQXs.of_dim t)) j in
     (* { (1-t)p : p in k } *)

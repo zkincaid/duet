@@ -46,40 +46,40 @@ let primitive_elem needed_deg mp0 mp1 v0 v1 =
 module type NF = sig  
   val deg : int
   val int_poly : QQX.t
-  type elem
-  val make_elem : QQX.t -> elem
-  val get_poly : elem -> QQX.t
-  val of_rat : QQ.t -> elem
-  val compute_min_poly : elem -> QQX.t
-  val mul : elem -> elem -> elem
-  val int_mul : int -> elem -> elem
-  val add : elem -> elem -> elem
-  val sub : elem -> elem -> elem
-  val inverse : elem -> elem
-  val exp : elem -> int -> elem
-  val equal : elem -> elem -> bool
-  val compare : elem -> elem -> int
-  val is_zero : elem -> bool
-  val one : elem
-  val zero : elem
-  val negate : elem -> elem
-  val pp : Format.formatter -> elem -> unit
+  type t
+  val make_elem : QQX.t -> t
+  val get_poly : t -> QQX.t
+  val of_rat : QQ.t -> t
+  val compute_min_poly : t -> QQX.t
+  val mul : t -> t -> t
+  val int_mul : int -> t -> t
+  val add : t -> t -> t
+  val sub : t -> t -> t
+  val inverse : t -> t
+  val exp : t -> int -> t
+  val equal : t -> t -> bool
+  val compare : t -> t -> int
+  val is_zero : t -> bool
+  val one : t
+  val zero : t
+  val negate : t -> t
+  val pp : Format.formatter -> t -> unit
   module X : 
     sig
-      include Euclidean with type scalar = elem
+      include Euclidean with type scalar = t
       val pp : Format.formatter -> t -> unit
       val lift : QQX.t -> t
       val de_lift : t -> QQXs.t
-      val factor_square_free_poly : t -> (scalar * ((t * int) list))
+      val factor_square_free_poly : t -> (scalar * (t list))
       val factor : t -> (scalar * ((t * int) list))
-      val extract_root_from_linear : t -> elem
+      val extract_root_from_linear : t -> scalar
     end
   module O : sig
     type ideal
     type o
     val pp_o : Format.formatter -> o -> unit
-    val make_o_el : elem -> ZZ.t * o
-    val order_el_to_f_elem : ZZ.t * o -> elem
+    val make_o_el : t -> ZZ.t * o
+    val order_el_to_f_elem : ZZ.t * o -> t
     val idealify : ZZ.t array array -> ideal
     val pp_i : Format.formatter -> ideal -> unit
     val equal_i : ideal -> ideal -> bool
@@ -106,42 +106,39 @@ module type NF = sig
     val compute_factorization : frac_ideal list -> int list list * frac_ideal list * frac_ideal
     val find_unit_basis : o list -> int list list
   end
-  val find_relations : elem list -> int list list
+  val find_relations : t list -> int list list
 end
 
 
-
-
+let compute_min_poly_p el p = 
+  let open Linear in
+  let p_deg = QQX.order p in
+  if p_deg = 0 then el
+  else
+    let m = Array.make_matrix p_deg (p_deg+1) QQ.zero in (*m is a matrix whose columns consist of the powers of el*)
+    for i = 0 to p_deg do
+      let r = snd (QQX.qr (QQX.exp el i) p) in
+      BatEnum.iter (
+        fun (c, d) -> 
+          m.(d).(i) <- c
+      ) (QQX.enum r)
+    done;
+    (*In general I don't think null is guarenteed to be reduced with respect to powers of el. However,
+       I think it is do to how nullspace is implemented. *)
+    let null = nullspace (QQMatrix.of_dense m) (List.init (p_deg + 1) (fun i -> i)) in
+    let min = snd (List.fold_left (
+      fun (min_deg, min_p) vec ->
+        let poly = QQX.of_enum (QQVector.enum vec) in
+        if QQX.order poly < min_deg then (QQX.order poly, poly)
+        else (min_deg, min_p)
+    ) (p_deg + 2, QQX.one) null) in
+    let lc = QQX.coeff (QQX.order min) min in
+    QQX.map (fun _ c -> QQ.div c lc) min
 
 
 module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
-  type elem = QQX.t (* elements of the field are polynomials of degree < the degree of the field*)
-
-  let compute_min_poly_p el p = 
-    let open Linear in
-    let p_deg = QQX.order p in
-    if p_deg = 0 then el
-    else
-      let m = Array.make_matrix p_deg (p_deg+1) QQ.zero in (*m is a matrix whose columns consist of the powers of el*)
-      for i = 0 to p_deg do
-        let r = snd (QQX.qr (QQX.exp el i) p) in
-        BatEnum.iter (
-          fun (c, d) -> 
-            m.(d).(i) <- c
-        ) (QQX.enum r)
-      done;
-      (*In general I don't think null is guarenteed to be reduced with respect to powers of el. However,
-         I think it is do to how nullspace is implemented. *)
-      let null = nullspace (QQMatrix.of_dense m) (List.init (p_deg + 1) (fun i -> i)) in
-      let min = snd (List.fold_left (
-        fun (min_deg, min_p) vec ->
-          let poly = QQX.of_enum (QQVector.enum vec) in
-          if QQX.order poly < min_deg then (QQX.order poly, poly)
-          else (min_deg, min_p)
-      ) (p_deg + 2, QQX.one) null) in
-      let lc = QQX.coeff (QQX.order min) min in
-      QQX.map (fun _ c -> QQ.div c lc) min
+  type t = QQX.t (* elements of the field are polynomials of degree < the degree of the field*)
 
 
   (* The lcm of the denominators of min_poly*)
@@ -186,14 +183,14 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     QQX.sub
 
   let inverse a = 
-    let (_, u, _) = QQX.ex_euc a int_poly in
+    let (_, u, _) = QQX.gcdext a int_poly in
     u
 
+  let pos_exp = SrkUtil.exp mul QQX.one 
+
   let exp a i = 
-    if i < 0 then
-      inverse (reduce (QQX.exp a i))
-    else
-      reduce (QQX.exp a i)
+    if i >= 0 then pos_exp a i
+    else inverse (pos_exp a (-i))
 
   let equal a b = 
     QQX.equal (reduce a) (reduce b)
@@ -238,23 +235,23 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
   let int_mul i x = QQX.scalar_mul (QQ.of_int i) x
 
-  module E = struct let one = one let mul = mul let negate = negate let exp = exp let pp = pp end
+  module E = struct 
+    type nonrec t = t
+    let zero = zero
+    let int_mul = int_mul
+    let one = one 
+    let mul = mul 
+    let negate = negate 
+    let exp = exp 
+    let pp = pp 
+    let equal = equal
+    let add = add
+    let inverse = inverse
+  end
 
   (*Polynonials in the number field.*)
   module X = struct 
-    include MakeEuclidean(
-      struct 
-        type t = elem
-        let equal = equal
-        let add = add
-        let zero = zero
-        let one = one
-        let mul = mul
-        let negate = negate
-        let pp = pp
-        let inverse = inverse
-        let int_mul i x = QQX.scalar_mul (QQ.of_int i) x
-      end)
+    include MakeEuclidean(E)
 
     let pp = pp E.pp
       
@@ -272,7 +269,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       if QQX.is_zero int_poly then
         let p_uni = make_univariate (de_lift p) in
         let content, facts = QQX.factor p_uni in
-        make_elem (QQX.scalar content), List.map (fun (f, d) -> lift f, d) facts
+        make_elem (QQX.scalar content), List.map (fun (f, _) -> lift f) facts
       else
         (*let lc = coeff (order p) p in
         let pmonic = scalar_mul (inverse lc) p in
@@ -309,7 +306,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
                     ) (one, QQX.one) (Monomial.enum m) in
               let coe = QQX.scalar_mul coef coef_part in
               add (scalar_mul coe var_part) acc
-          ) poly zero, deg
+          ) poly zero
         in
         (E.one, List.map find_factor factors)
 
@@ -319,7 +316,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
       List.fold_left (
         fun (coef, factors) (square_free_fact, deg) ->
           let (lc, facts) = factor_square_free_poly square_free_fact in
-          let new_facts = List.map (fun (f, d) -> (f, d * deg)) facts in
+          let new_facts = List.map (fun f -> (f, deg)) facts in
           E.mul (E.exp lc deg) coef, new_facts @ factors
       ) (E.one, []) square_free_facts
 
@@ -820,7 +817,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     Acb.trim (Acb.div_si (Acb.div log_conj (Acb.pi prec) prec) 2 prec)
 
 
-  let find_relations_of_units (units : elem list) = 
+  let find_relations_of_units (units : t list) = 
     let arb_poly = Fmpz_poly.init () in
     for i = 0 to deg do
       Fmpz_poly.set_coef arb_poly i (Arbduet_zarith.Fmpzz.zarith_to_fmpz (QQ.numerator (QQX.coeff i int_poly)));
@@ -973,8 +970,10 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
 end
 
+type sf = Sf : (module NF with type t = 'a) * (('a * int) list) -> sf
+
 (*See the wikipedia entry on splitting field for more information on this method.*)
-let splitting_field p_with_squares = 
+let splitting_field p_with_squares : sf = 
   let square_free_facts = QQX.square_free_factor p_with_squares in
   let p = List.fold_left (fun acc (f, _) -> QQX.mul acc f) QQX.one square_free_facts in
   let rec aux min_poly = 
@@ -982,7 +981,8 @@ let splitting_field p_with_squares =
     let (_, facts) = NF.X.factor (NF.X.lift p) in (*Can probably be made more efficient.*)
     let (lin_facts, non_lin_facts) = List.partition (fun (x, _) -> NF.X.order x <= 1) facts in
     if List.length non_lin_facts = 0 then
-      NF.int_poly, (List.map (fun (x, d) -> NF.X.extract_root_from_linear x, d) lin_facts)
+      let nf = (module NF : NF with type t = QQX.t) in
+      Sf (nf, (List.map (fun (x, d) -> NF.X.extract_root_from_linear x, d) lin_facts))
     else
       let non_lin_fact, _ = List.hd non_lin_facts in
       let new_min_poly, _, _ = primitive_elem (NF.deg * NF.X.order non_lin_fact) (make_multivariate 0 NF.int_poly) (NF.X.de_lift non_lin_fact) 0 1 in
