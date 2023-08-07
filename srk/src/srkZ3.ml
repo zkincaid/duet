@@ -434,19 +434,21 @@ let get_default_context =
       default_context := Some ctx;
       ctx
 
-let mk_solver ?(context=get_default_context ()) ?(theory="") srk =
-  let s =
-    if theory = "" then
-      Z3.Solver.mk_simple_solver context
-    else
-      Z3.Solver.mk_solver_s context theory
-  in
-  let of_formula = z3_of_formula srk context in
-  let formula_of t = formula_of_z3 srk t in
-  { srk; z3 = context; s; of_formula; formula_of }
-
 module Solver = struct
   type 'a t = 'a solver
+
+  let make ?(context=get_default_context ()) ?(theory="") srk =
+    let s =
+      if theory = "" then
+        Z3.Solver.mk_simple_solver context
+      else
+        Z3.Solver.mk_solver_s context theory
+    in
+    let of_formula = z3_of_formula srk context in
+    let formula_of t = formula_of_z3 srk t in
+    { srk; z3 = context; s; of_formula; formula_of }
+
+
   let add solver formulas =
     Z3.Solver.add solver.s (List.map solver.of_formula formulas)
 
@@ -454,8 +456,8 @@ module Solver = struct
   let pop solver = Z3.Solver.pop solver.s
   let reset solver = Z3.Solver.reset solver.s
 
-  let check solver args =
-    let args = List.map solver.of_formula args in
+  let check ?(assumptions=[]) solver =
+    let args = List.map solver.of_formula assumptions in
     try
       match Log.time "solver.check" (Z3.Solver.check solver.s) args with
       | Z3.Solver.SATISFIABLE -> `Sat
@@ -537,10 +539,10 @@ module Solver = struct
       in
       `Fun func
 
-  let get_model ?(symbols=[]) solver =
+  let get_model ?(symbols=[]) ?(assumptions=[]) solver =
     let srk = solver.srk in
     let z3 = solver.z3 in
-    match check solver [] with
+    match check ~assumptions solver with
     | `Sat ->
       begin match Z3.Solver.get_model solver.s with
         | Some m ->
@@ -553,7 +555,7 @@ module Solver = struct
   let get_concrete_model solver symbols =
     let srk = solver.srk in
     let z3 = solver.z3 in
-    match check solver [] with
+    match check solver with
     | `Sat ->
       begin match Z3.Solver.get_model solver.s with
         | Some m ->
@@ -566,7 +568,7 @@ module Solver = struct
   let to_string solver = Z3.Solver.to_string solver.s
 
   let get_unsat_core solver assumptions =
-    match check solver assumptions with
+    match check ~assumptions solver with
     | `Sat -> `Sat
     | `Unknown -> `Unknown
     | `Unsat ->

@@ -81,3 +81,7 @@ val purify_expr : 'a context ->
                   ?label:(('a, 'b) expr -> string) ->
                   ('a, 'c) expr ->
                   (('a, 'c) expr * (('a, 'b) expr) Symbol.Map.t)
+
+val eliminate_floor_mod_div : 'a context -> 'a formula -> 'a formula
+
+val eliminate_ite : 'a context -> 'a formula -> 'a formula

@@ -46,17 +46,21 @@ val expr_of_z3 : 'a context -> z3_expr -> ('a,typ_fo) expr
 
 module Solver : sig
   type 'a t
+
+  val make : ?context:z3_context -> ?theory:string -> 'a context -> 'a t
+
   val add : 'a t -> ('a formula) list -> unit
   val push : 'a t -> unit
   val pop : 'a t -> int -> unit
   val reset : 'a t -> unit
-  val check : 'a t -> ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
+  val check : ?assumptions:('a formula list) -> 'a t -> [ `Sat | `Unsat | `Unknown ]
   val to_string : 'a t -> string
     
   (** Compute a model of a solver's context.  The model is abstract -- it can
       be used to evaluate terms, but its bindings may not be enumerated (see
       [Interpretation] for more detail). *)
   val get_model : ?symbols:(symbol list) ->
+    ?assumptions:('a formula list) ->
     'a t ->
     [ `Sat of 'a interpretation
     | `Unsat
@@ -78,8 +82,6 @@ module Solver : sig
 
   val get_reason_unknown : 'a t -> string
 end
-
-val mk_solver : ?context:z3_context -> ?theory:string -> 'a context -> 'a Solver.t
 
 (** Given a formula phi and a list of objectives [o1,...,on], find the least
     bounding interval for each objective within the feasible region defined by

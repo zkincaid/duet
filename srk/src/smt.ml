@@ -5,7 +5,7 @@ include Log.Make(struct let name = "srk.smt" end)
 
 module Solver = SrkZ3.Solver
 
-let mk_solver ?(theory="") srk = SrkZ3.mk_solver ~theory srk
+let mk_solver ?(theory="") srk = Solver.make ~theory srk
 
 let get_model ?(symbols=[]) srk phi =
   let solver = mk_solver srk in
@@ -20,7 +20,7 @@ let get_concrete_model srk symbols phi =
 let is_sat srk phi =
   let solver = mk_solver srk in
   Solver.add solver [phi];
-  Solver.check solver []
+  Solver.check solver
 
 let entails srk phi psi =
   match is_sat srk (mk_and srk [phi; mk_not srk psi]) with

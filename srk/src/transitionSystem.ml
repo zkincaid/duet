@@ -421,7 +421,7 @@ module Make
           let context = Z3.mk_context [("timeout", "100")] in
 
           let predicates' =
-            let solver = SrkZ3.mk_solver ~theory:"QF_LIRA" ~context srk in
+            let solver = SrkZ3.Solver.make ~theory:"QF_LIRA" ~context srk in
             let postify =
               substitute_const srk (fun sym ->
                   match Var.of_symbol sym with
@@ -486,7 +486,7 @@ module Make
                   end);
 
             List.fold_left2 (fun set predicate indicator ->
-                match SrkZ3.Solver.check solver [indicator] with
+                match SrkZ3.Solver.check ~assumptions:[indicator] solver  with
                 | `Unsat -> PS.add predicate set
                 | _ -> set)
               unmodified_predicates

@@ -318,7 +318,7 @@ let wedge_entails wedge phi =
     Nonlinear.uninterpret srk (mk_not srk phi);
     mk_sign_axioms srk
   ];
-  match Smt.Solver.check s [] with
+  match Smt.Solver.check s with
   | `Sat | `Unknown -> false
   | `Unsat -> true
 
@@ -2027,7 +2027,7 @@ let is_sat srk phi =
           go ()
   in
   if Symbol.Map.is_empty nonlinear then
-    Smt.Solver.check solver []
+    Smt.Solver.check solver
   else
     go ()
 

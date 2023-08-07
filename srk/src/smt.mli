@@ -8,9 +8,10 @@ module Solver : sig
   val push : 'a t -> unit
   val pop : 'a t -> int -> unit
   val reset : 'a t -> unit
-  val check : 'a t -> ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
+  val check : ?assumptions:('a formula list) -> 'a t -> [ `Sat | `Unsat | `Unknown ]
   val to_string : 'a t -> string
   val get_model : ?symbols:(symbol list) ->
+    ?assumptions:('a formula list) ->
     'a t ->
     [ `Sat of 'a interpretation
     | `Unsat

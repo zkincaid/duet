@@ -705,7 +705,7 @@ module Split (Iter : PreDomain) = struct
       in
       Smt.Solver.push solver;
       Smt.Solver.add solver [psi];
-      let result = Smt.Solver.check solver [] in
+      let result = Smt.Solver.check solver in
       Smt.Solver.pop solver 1;
       result
     in
@@ -883,7 +883,7 @@ let invariant_transition_predicates srk tf predicates =
            false
       end
   in
-  if Smt.Solver.check solver [] = `Unsat then
+  if Smt.Solver.check solver = `Unsat then
     []
   else
     List.filter is_invariant predicates
@@ -1023,7 +1023,7 @@ let phase_graph srk tf candidates algebra =
         let cell2_can_follow_cell1 =
           cond_neg_clause@cond_pos_clause@result_neg_clause@result_pos_clause
         in
-        Smt.Solver.check solver cell2_can_follow_cell1 != `Unsat
+        Smt.Solver.check ~assumptions:cell2_can_follow_cell1 solver != `Unsat
       end
   in
 
