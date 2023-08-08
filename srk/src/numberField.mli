@@ -16,7 +16,8 @@ val make_univariate : QQXs.t -> QQX.t
     the method to work p needs to be irreducible in K2 and q needs to be irreducible in K1.*)
 val primitive_elem : int -> QQXs.t -> QQXs.t -> Monomial.dim -> Monomial.dim -> QQX.t * QQX.t * QQX.t
 
-
+(** [m = compute_min_poly_p q p] computes the minimal polynomial [m] of [q] within the field
+    Q[z]/p(z). That is with q(z) an element of Q[z]/p(z).*)
 val compute_min_poly_p : QQX.t -> QQX.t -> QQX.t
 
 module type NF = sig  

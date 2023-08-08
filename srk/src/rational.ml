@@ -219,15 +219,20 @@ end) = struct
   let of_exponential_poly e p = {ep = E.mul (E.of_exponential e) (E.of_polynomial p); heaviside = IM.empty}
 
   let of_heavy shift c = 
-    if C.equal c C.zero then
+    if shift = 0 then
+      scalar c
+    else if C.equal c C.zero then
       zero
     else
       {ep = E.zero; heaviside = IM.add shift c IM.empty}
 
   let scalar_mul c term = 
-    let ep = E.scalar_mul c term.ep in
-    let heaviside = IM.map (C.mul c) term.heaviside in
-    {ep; heaviside}
+    if C.equal c C.zero then
+      zero
+    else
+      let ep = E.scalar_mul c term.ep in
+      let heaviside = IM.map (C.mul c) term.heaviside in
+      {ep; heaviside}
 
   let add a b =
     let ep = E.add a.ep b.ep in
