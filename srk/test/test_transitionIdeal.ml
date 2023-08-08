@@ -13,6 +13,7 @@ module QQXsInfix = struct
   let dim k = QQXs.of_dim (Char.code k)
 end
 
+
 let w = QQXs.of_dim 0
 let x = QQXs.of_dim 1
 let y = QQXs.of_dim 2
@@ -34,6 +35,8 @@ let pp_dim offset formatter i =
     | 1 -> Format.fprintf formatter "x"
     | 2 -> Format.fprintf formatter "y"
     | 3 -> Format.fprintf formatter "z"
+    | 4 -> Format.fprintf formatter "u"
+    | 5 -> Format.fprintf formatter "v"
     | _ -> assert false
   else
     match (i-offset) with
@@ -41,11 +44,13 @@ let pp_dim offset formatter i =
     | 1 -> Format.fprintf formatter "x'"
     | 2 -> Format.fprintf formatter "y'"
     | 3 -> Format.fprintf formatter "z'"
+    | 4 -> Format.fprintf formatter "u'"
+    | 5 -> Format.fprintf formatter "v'"
     | _ -> assert false
 
 
 let show_ti =
-  SrkUtil.mk_show (TransitionIdeal.pp (pp_dim 4))  
+  SrkUtil.mk_show (TransitionIdeal.pp (pp_dim 6))  
 
 let assert_equal_ti = assert_equal ~cmp:TransitionIdeal.equal ~printer:show_ti
 
@@ -345,6 +350,37 @@ let suite = "TransitionIdeal" >::: [
     let first_few = enumerate solvable 2 in
     let res = Polynomial.Ideal.subset (Polynomial.Ideal.make (R.generators cl.ideal)) first_few in
     assert_bool "Not subset" res)
+    ; "ultsolvable_cl2" >:: (fun () ->
+      let open QQXsInfix in
+      let w = QQXs.of_dim 0 in
+      let x = QQXs.of_dim 1 in
+      let y = QQXs.of_dim 2 in
+      let z = QQXs.of_dim 3 in
+      let u  = QQXs.of_dim 4 in
+      let w' = QQXs.of_dim 6 in
+      let x' = QQXs.of_dim 7 in
+      let y' = QQXs.of_dim 8 in
+      let z' = QQXs.of_dim 9 in
+      let u'  = QQXs.of_dim 10 in
+      let v'  = QQXs.of_dim 11 in
+      let polys =
+        [w' - w
+        ; x' - w
+        ; x
+        ; y' - w * y
+        ; z' - y 
+        ; u' - z
+        ; v' - u] in
+      let t = TransitionIdeal.make 6 (R.grobner_basis (R.mk_rewrite Monomial.degrevlex polys)) in
+      let (solvable, _, witness) = TransitionIdeal.ultimately_solvable_reflection t in
+      (*Log.logf ~level:`always "solvable : %a" (TransitionIdeal.pp (pp_dim t.dim)) solvable;
+      Log.logf ~level:`always "witness : %a" TransitionIdeal.pp_sp witness;*)
+      let sp_lirr_t = SolvablePolynomial.SolvablePolynomialLIRR.make_sp solvable witness in
+      let cl = SolvablePolynomial.SolvablePolynomialLIRR.exp_ti sp_lirr_t in
+      (*Log.logf ~level:`always "Cl : %a" (TransitionIdeal.pp (pp_dim cl.dim)) cl;*)
+      let first_few = enumerate solvable 10 in
+      let res = Polynomial.Ideal.subset (Polynomial.Ideal.make (R.generators cl.ideal)) first_few in
+      assert_bool "Not subset" res)
   ; "quadratic_sim" >:: (fun () ->
       let base_dim = 3 in
       let w = QQXs.of_dim 0 in

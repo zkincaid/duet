@@ -1978,7 +1978,7 @@ module SolvablePolynomialLIRR = struct
 
   let exp_ti it = 
     let it_offset = it.ideal.dim in
-    logf  "Exponentiating : %a" (TransitionIdeal.pp (pp_dim it_offset)) it.ideal;
+    logf "Exponentiating : %a" (TransitionIdeal.pp (pp_dim it_offset)) it.ideal;
     if I.generators (it.ideal.ideal) = [] then
       TransitionIdeal.make it_offset it.ideal.ideal
     else 
@@ -1998,12 +1998,12 @@ module SolvablePolynomialLIRR = struct
           (log_pp  pp_sp it.witness;
           let cf = Log.time "Rat Exp" (Rational.RatEP.solve_rec) it.witness in
           let pp_cl f = Array.iteri (fun i cl -> Format.fprintf f "cl.(%d) = %a@." i Rational.RatEP.pp cl) in
-          logf  "%a" pp_cl cf;
+          logf "%a" pp_cl cf;
           let sp_map_offset = Array.length cf in
           let module EP = (val Log.time "Splitting Field" Rational.RatEP.to_nf cf) in
 
           let zero_eig_transient, zero_eigen_stab, rels = Log.time "Algebraic Relations" EP.long_run_algebraic_relations () in
-          logf  "Alg Relations: %a" (Id.pp (pp_dim it_offset)) (Id.make rels);
+          logf "Alg Relations: %a" (Id.pp (pp_dim it_offset)) (Id.make rels);
           
           let cl = 
             if (List.length inv_seq_id) + 1 >= zero_eigen_stab then

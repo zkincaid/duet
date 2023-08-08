@@ -94,13 +94,13 @@ let mat_rec_test1 () =
 
 let mat_rec_test2 () =
   let transform = qqify [|[|0; 1|];
-                        [|1; 0|]|] in
+                          [|0; 0|];|] in
   let add = [|QQXs.zero; QQXs.zero|] in
   let init = [|QQXs.of_dim 0; QQXs.of_dim 1|] in
   let first_10 = enumerate transform init add 9 in
   let eps = RatEP.solve_rec [({blk_transform = transform; blk_add = add} : block)] in
-  Array.iteri (fun dim ep ->
-    Log.logf ~level:`always "Dim %d : %a" dim RatEP.pp ep) eps;
+  (*Array.iteri (fun dim ep ->
+    Log.logf ~level:`always "Dim %d : %a" dim RatEP.pp ep) eps;*)
   let dim0_10 = List.init 10 (fun i -> RatEP.eval eps.(0) i) in
   let dim1_10 = List.init 10 (fun i -> RatEP.eval eps.(1) i) in
   assert_equal_seq first_10.(0) dim0_10;
