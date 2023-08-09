@@ -109,31 +109,30 @@ module type NF = sig
   val find_relations : t list -> int list list
 end
 
+module M = Linear.MakeLinearMap(QQ)(SrkUtil.Int)(
+  struct
+    include QQX
 
-let compute_min_poly_p el p = 
-  let open Linear in
-  let p_deg = QQX.order p in
-  if p_deg = 0 then el
-  else
-    let m = Array.make_matrix p_deg (p_deg+1) QQ.zero in (*m is a matrix whose columns consist of the powers of el*)
-    for i = 0 to p_deg do
-      let r = snd (QQX.qr (QQX.exp el i) p) in
-      BatEnum.iter (
-        fun (c, d) -> 
-          m.(d).(i) <- c
-      ) (QQX.enum r)
-    done;
-    (*In general I don't think null is guarenteed to be reduced with respect to powers of el. However,
-       I think it is do to how nullspace is implemented. *)
-    let null = nullspace (QQMatrix.of_dense m) (List.init (p_deg + 1) (fun i -> i)) in
-    let min = snd (List.fold_left (
-      fun (min_deg, min_p) vec ->
-        let poly = QQX.of_enum (QQVector.enum vec) in
-        if QQX.order poly < min_deg then (QQX.order poly, poly)
-        else (min_deg, min_p)
-    ) (p_deg + 2, QQX.one) null) in
-    let lc = QQX.coeff (QQX.order min) min in
-    QQX.map (fun _ c -> QQ.div c lc) min
+    let split_leading v =
+      try
+        let (d, b) = min_support v in
+        let v' = set d QQ.zero v in
+        Some (d, b, v')
+      with Not_found ->
+        None
+  end
+)(QQX)
+
+let compute_min_poly_p el p =
+  let e i = snd (QQX.qr (QQX.exp el i) p) in
+  let rec aux app_res m i =
+    match app_res with
+   | Some p -> QQX.add_term QQ.one i p
+   | None ->
+     let new_m = M.add_exn (e i) (QQX.negate (QQX.exp (QQX.identity) i)) m in
+       aux (M.apply new_m (e (i+1))) new_m (i+1)
+  in
+  aux None M.empty 0
 
 
 module MakeNF (A : sig val min_poly : QQX.t end) = struct
@@ -155,6 +154,8 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
      a representation of the field we use Q[x]/q(x). The isomorphism is recognized by x --> 1/d x.*)
   let int_poly = 
     if QQX.is_zero A.min_poly then QQX.identity
+    else if QQX.order A.min_poly < 1 then
+      failwith ("Creating a trivial field A.min_poly = " ^ ((SrkUtil.mk_show QQX.pp) A.min_poly))
     else compute_min_poly_p (QQX.scalar_mul (QQ.of_zz min_poly_den_lcm) QQX.identity) A.min_poly
 
 
