@@ -152,7 +152,7 @@ let splitting_test1 () =
   let NumberField.Sf ((module NF), roots) = NumberField.splitting_field p in
   (*let print_roots f rs = Format.pp_print_list ~pp_sep:(fun fo () -> Format.pp_print_string fo "; ") NF.pp f (List.map fst rs) in
   Log.log ~level:`always "Field polynomial";
-  Log.log_pp ~level:`always QQX.pp root_field;
+  Log.log_pp ~level:`always QQX.pp NF.int_poly;
   Log.log ~level:`always "Roots";
   Log.log_pp ~level:`always print_roots roots;*)
   let check_root (r, _) = 

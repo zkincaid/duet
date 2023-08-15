@@ -129,8 +129,15 @@ module type ExpPolyNF = sig
       and the 2d'th variable is the iteration variable K.*)
   val algebraic_relations : unit -> Polynomial.QQXs.t list
 
+  (** [(transient, shift, sols) = shift_remove_heavys ()] is such that sols have no heavyside terms. Also,
+      let x_j be a sequence in [get_rec_sols ()]. Then x_j\[n\] = transient\[j\]\[n\] if n < shift and x_j\[n\] = sols\[j\]\[n-shift\]
+      otherwise.*)
   val shift_remove_heavys : unit -> Polynomial.QQXs.t array list * int * t array
 
+  (** Get the long run algebraic relations of [get_rec_sols ()]. That is let [(transient, shift, sols) = shift_remove_heavys ()].
+      Then [long_run_algebraic_relations () = transient, shift, rels] where rels are the algebraic relations of sols[n+shift].
+      Note that sols were shifted by shift_remove_heavys. So the relations in rels hold for [get_rec_sols ()] for any position
+      greater than or equal to shift.*)
   val long_run_algebraic_relations : unit -> Polynomial.QQXs.t array list * int * Polynomial.QQXs.t list
 
 end

@@ -268,12 +268,12 @@ end) = struct
     let shift_poly p =
       BatEnum.fold (
         fun acc (c, pow) ->
-          CX.add acc (CX.scalar_mul c (CX.exp (CX.add CX.identity (CX.scalar (C.int_mul n C.one))) pow)) (*Add or sub? p(k+n)*) 
+          CX.add acc (CX.scalar_mul c (CX.exp (CX.add CX.identity (CX.scalar (C.int_mul n C.one))) pow))
       ) CX.zero (CX.enum p)
     in
     let shift_ep_add acc (p, b) = 
       let shifted_p = shift_poly p in
-      add acc (of_exponential_poly b (CX.scalar_mul (C.lift (B.exp b (-n))) shifted_p)) (*-n or n?*)
+      add acc (of_exponential_poly b (CX.scalar_mul (C.lift (B.exp b (-n))) shifted_p))
     in
     let shifted_ep = BatEnum.fold shift_ep_add zero (E.enum e.ep) in
     let shift_heavy_add acc (shift, c) = 
@@ -367,8 +367,6 @@ module type ExpPolyNF = sig
   val shift_remove_heavys : unit -> QQXs.t array list * int * t array
 
   val long_run_algebraic_relations : unit -> QQXs.t array list * int * QQXs.t list
-
-  (*TODO mul*)
 end
 
 module MakeConstRing (
@@ -533,7 +531,7 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
     algebraic_relations_in (get_rec_sols ())
 
 
-  let long_run_algebraic_relations () = (*Should I resubsitute for K?*)
+  let long_run_algebraic_relations () =
     let (transient, shift, shifted) = shift_remove_heavys () in
     let rels = algebraic_relations_in shifted in
     let loop_counter = 2 * (Array.length (get_rec_sols ())) in

@@ -140,8 +140,9 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
   type t = QQX.t (* elements of the field are polynomials of degree < the degree of the field*)
 
 
-  (* The lcm of the denominators of min_poly*)
-  let min_poly_den_lcm = 
+  (* Let p be A.min_poly divided by the lc of A.min_poly. Then min_poly_den_multiple is a multiple
+     of the denominators of p.*)
+  let min_poly_den_multiple = 
     QQX.fold (
       fun _ c l ->
         ZZ.lcm (QQ.denominator c) l
@@ -156,7 +157,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     if QQX.is_zero A.min_poly then QQX.identity
     else if QQX.order A.min_poly < 1 then
       failwith ("Creating a trivial field A.min_poly = " ^ ((SrkUtil.mk_show QQX.pp) A.min_poly))
-    else compute_min_poly_p (QQX.scalar_mul (QQ.of_zz min_poly_den_lcm) QQX.identity) A.min_poly
+    else compute_min_poly_p (QQX.scalar_mul (QQ.of_zz min_poly_den_multiple) QQX.identity) A.min_poly
 
 
   let compute_min_poly e = compute_min_poly_p e int_poly
@@ -168,7 +169,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
     else snd (QQX.qr a int_poly)
 
   (*The isomorphism is recognized by x --> 1/d x.*)
-  let make_elem p = reduce (QQX.map (fun d c -> QQ.div c (QQ.exp (QQ.of_zz min_poly_den_lcm) d)) p)
+  let make_elem p = reduce (QQX.map (fun d c -> QQ.div c (QQ.exp (QQ.of_zz min_poly_den_multiple) d)) p)
 
   let get_poly e = e
 
