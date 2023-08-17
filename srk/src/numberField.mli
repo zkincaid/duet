@@ -9,11 +9,11 @@ val make_multivariate : Monomial.dim -> QQX.t -> QQXs.t
     @raise Failure if input is not a univariate polynomial.*)
 val make_univariate : QQXs.t -> QQX.t
 
-(** Let K1 = Q[v0,v1]/p and K2=Q[v0,v1]/q be number fields. Let K1 have degree d1 and K2 have degree d2.
-    [prim, v0_in_prim, v1_in_prim] = [primitive_elem (d1*d2) p q v0 v1] 
-    is such that the number field K3 = Q[x]/prim of degree d1*d2 such that K3 contains K1 and K2. 
-    [v0_in_prim] and [v1_in_prim] give the representations of v0 and v1 in K3 respectively. For
-    the method to work p needs to be irreducible in K2 and q needs to be irreducible in K1.*)
+(** Let K1 = Q\[v0\]/p(v0) and K2=K1\[v1\]/q(v1) with p in Q\[v0\] and q in Q\[v0, v1\]. K2 can be 
+    represented by Q\[v0, v1\]/<p, q>. Let K1 have degree d1 over Q and K2 have degree d2 over K1.
+    [prim, v0_in_prim, v1_in_prim] = [primitive_elem (d1*d2) p q v0 v1] is such that K2 is isomporphic
+    to Q\[x\]/<prim>. v0_in_prim and v1_in_prim give the images of the elements v0 + <p, q> and
+    v1 + <p, q> under the isomorphism from K2 = Q\[v0, v1\]/<p, q> to Q\[x\]/<prim>.*)
 val primitive_elem : int -> QQXs.t -> QQXs.t -> Monomial.dim -> Monomial.dim -> QQX.t * QQX.t * QQX.t
 
 (** [m = compute_min_poly_p q p] computes the minimal polynomial [m] of [q] within the field
