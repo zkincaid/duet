@@ -20,6 +20,8 @@ let forward_inv_gen = ref true
 let forward_pred_abs = ref false
 let dump_goals = ref false
 let monotone = ref false
+let prsd = ref false
+let cra_refine = ref false
 let nb_goals = ref 0
 let termination_exp = ref true
 let termination_llrf = ref true
@@ -126,7 +128,8 @@ module V = struct
 end
 
 module K = struct
-  include Transition.Make(Ctx)(V)
+  module Tr = Transition.Make(Ctx)(V)
+  include Tr
 
   let add x y =
     if is_zero x then y
@@ -138,6 +141,74 @@ module K = struct
     else if is_one x then y
     else if is_one y then x
     else mul x y
+
+  (*
+  let mul x y = Log.time "refine" mul x y
+  let add x y = Log.time "refine" add x y
+  *)
+
+  module CRARefinement = Refinement.DomainRefinement
+      (struct
+        include Tr
+        let is_zero a = ((LirrSolver.is_sat srk (guard a)) == `Unsat)
+      end)
+
+  let to_dnf x =
+    let open Syntax in
+    let guard =
+      rewrite srk
+        ~down:(pos_rewriter srk)
+        (guard x)
+    in
+    let (x_tr, guard, rhs_symbols) =
+      BatEnum.fold (fun (x_tr, guard, rhs_symbols) (v, rhs) ->
+          let fresh_sym = mk_symbol srk (expr_typ srk rhs) in
+          let fresh_rhs = mk_const srk fresh_sym in
+          ((v, fresh_rhs)::x_tr,
+           (mk_eq srk fresh_rhs rhs)::guard,
+           Symbol.Set.add fresh_sym rhs_symbols))
+        ([], [guard], Symbol.Set.empty)
+        (transform x)
+    in
+    let guard = mk_and srk guard in
+    let solver = LirrSolver.Solver.mk_solver srk in
+    let project x =
+      match V.of_symbol x with
+      | Some _ -> true
+      | None -> Symbol.Set.mem x rhs_symbols
+    in
+    LirrSolver.Solver.add solver [guard];
+    let rec split disjuncts =
+      match LirrSolver.Solver.get_model solver with
+      | `Unknown -> [x]
+      | `Unsat -> disjuncts
+      | `Sat m ->
+        let term_of_dim dim = mk_const srk (symbol_of_int dim) in
+        let disjunct =
+          PolynomialCone.project (LirrSolver.Model.nonnegative_cone m)
+            (project % symbol_of_int)
+          |> PolynomialCone.to_formula srk term_of_dim
+        in
+        LirrSolver.Solver.add solver [mk_not srk disjunct];
+        split ((construct disjunct x_tr)::disjuncts)
+    in
+    split []
+
+  let refine_star x =
+    let x_dnf = Log.time "cra:to_dnf" to_dnf x in
+    if (List.length x_dnf) = 1 then star (List.hd x_dnf)
+    else 
+      let pp_list f = List.iteri (fun i p -> Format.fprintf f "Path %d : @[%a@]@." i pp p) in
+      log_pp ~level:`warn pp_list x_dnf;
+      CRARefinement.refinement x_dnf
+
+  let star x = 
+    if (!cra_refine) then 
+      Log.time "cra:refine_star" refine_star x
+    else 
+      Log.time "cra:star" star x
+
+  let project = exists V.is_global
 end
 
 type ptr_term =
@@ -1204,6 +1275,14 @@ let _ =
          K.domain := (module ProductWedge(SolvablePolynomialPeriodicRational)(WedgeGuard))),
      " Use periodic rational spectral decomposition");
   CmdLine.register_config
+    ("-cra-refine",
+     Arg.Set cra_refine,
+     " Turn on loop refinement");
+  CmdLine.register_config
+    ("-cra-refine-full",
+    Arg.Unit (fun () -> cra_refine := true; K.CRARefinement.refine_full := true),
+    " Turn on unrestricted loop refinement");
+  CmdLine.register_config
     ("-cra-vas",
      Arg.Unit (fun () ->
          let open Iteration in
@@ -1240,6 +1319,28 @@ let _ =
          monotone := true;
          K.domain := (module Product(LIRR)(LIRRGuard))),
      " Use weak arithmetic theory");
+  CmdLine.register_config
+    ("-lirr-sp",
+     Arg.Unit (fun () ->
+         let open Iteration in
+         monotone := true;
+         K.domain := (module Product(Product(SolvablePolynomial.SolvablePolynomialLIRR)(LIRRGuard))(LIRR))),
+         (*K.domain := (module SolvablePolynomial.SolvablePolynomialLIRR)),*)
+     " Use weak arithmetic theory with solvable polynomial maps");
+  CmdLine.register_config
+    ("-lirr-usp",
+     Arg.Unit (fun () ->
+        let open Iteration in
+        monotone := true;
+        K.domain := (module Product(Product(SolvablePolynomial.UltSolvablePolynomialLIRR)(LIRRGuard))(LIRR))),
+    " Use weak arithmetic theory with ultimately solvable polynomial maps");
+  CmdLine.register_config
+    ("-lirr-sp-quad",
+     Arg.Unit (fun () ->
+        let open Iteration in
+        monotone := true;
+        K.domain := (module Product(SolvablePolynomial.UltSolvablePolynomialLIRR)(Product(Product(SolvablePolynomial.SolvablePolynomialLIRRQuadratic)(LIRRGuard))(LIRR)))),
+    " Use weak arithmetic theory with solvable polynomial maps using quadratic simulations");
   CmdLine.register_config
     ("-termination-no-exp",
      Arg.Clear termination_exp,

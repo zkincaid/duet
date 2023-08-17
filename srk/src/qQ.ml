@@ -60,6 +60,8 @@ let exp x k =
   if k < 0 then inverse (go x (-k))
   else go x k
 
+let int_mul i x = Q.mul (of_int i) x
+
 let floor x =
   let (num, den) = to_zzfrac x in
   ZZ.fdiv num den

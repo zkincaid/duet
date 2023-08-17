@@ -2,46 +2,85 @@ open BatPervasives
 open Syntax
 
 module QQX = Polynomial.QQX
-module E = Ring.RingMap(QQ)(QQX)
 module QQMatrix = Linear.QQMatrix
 
-type t = E.t
+module MakeEP 
+  (B : sig 
+    include Algebra.Ring 
+    val compare : t -> t -> int 
+    val exp : t -> int -> t 
+    val pp : Format.formatter -> t -> unit
+  end)
+  (C : sig
+    include Algebra.Ring
+    val lift : B.t -> t
+    val int_mul : int -> t -> t
+  end)
+  (CX : sig
+    include Polynomial.Univariate with type scalar = C.t
+    val pp : Format.formatter -> t -> unit
+  end) = struct
 
-let equal = E.equal
+  open BatPervasives
 
-let pp formatter f =
-  let pp_elt formatter (p, lambda) =
-    if QQ.equal lambda QQ.one then
-      QQX.pp formatter p
+  module E = Ring.RingMap(B)(CX)
+
+  type t = E.t
+
+  let equal = E.equal
+
+  let pp formatter f =
+    let pp_elt formatter (p, lambda) =
+      if B.equal lambda B.one then
+        CX.pp formatter p
+      else
+        Format.fprintf formatter "(%a)(%a)^x" CX.pp p B.pp lambda
+    in
+    let pp_sep formatter () =
+      Format.fprintf formatter "@ + "
+    in
+    if E.equal E.zero f then
+      Format.pp_print_string formatter "0"
     else
-      Format.fprintf formatter "(%a)%a^x" QQX.pp p QQ.pp lambda
-  in
-  let pp_sep formatter () =
-    Format.fprintf formatter "@ + "
-  in
-  if E.equal E.zero f then
-    Format.pp_print_string formatter "0"
-  else
-    SrkUtil.pp_print_enum_nobox ~pp_sep pp_elt formatter (E.enum f)
+      SrkUtil.pp_print_enum_nobox ~pp_sep pp_elt formatter (E.enum f)
 
-let show = SrkUtil.mk_show pp
+  let show = SrkUtil.mk_show pp
 
-let add = E.add
+  let add = E.add
 
-let negate = E.negate
+  let negate = E.negate
 
-let zero = E.zero
+  let zero = E.zero
 
-let one = E.of_term QQX.one QQ.one
+  let one = E.of_term CX.one B.one
 
-let mul f g =
-  BatEnum.fold (fun h (p1, lambda1) ->
-      BatEnum.fold (fun h (p2, lambda2) ->
-          E.add_term (QQX.mul p1 p2) (QQ.mul lambda1 lambda2) h)
-        h
-        (E.enum g))
-    zero
-    (E.enum f)
+  let mul f g =
+    BatEnum.fold (fun h (p1, lambda1) ->
+        BatEnum.fold (fun h (p2, lambda2) ->
+            E.add_term (CX.mul p1 p2) (B.mul lambda1 lambda2) h)
+          h
+          (E.enum g))
+      zero
+      (E.enum f)
+
+  let of_polynomial p = E.of_term p B.one
+  let of_exponential lambda = E.of_term CX.one lambda
+  let scalar k = E.of_term (CX.scalar k) B.one
+  let scalar_mul lambda f = E.map (fun _ -> CX.scalar_mul lambda) f
+
+  let eval f x =
+    let qq_x = C.int_mul x C.one in
+    E.enum f
+    /@ (fun (p, lambda) ->
+        (C.mul (CX.eval p qq_x) (C.lift (B.exp lambda x))))
+    |> BatEnum.fold C.add C.zero
+
+
+  let enum = E.enum
+
+end
+
+include MakeEP(QQ)(struct include QQ let lift x = x end)(struct include QQX end)
 
 let compose_left_affine f coeff add =
   let g = QQX.add_term (QQ.of_int coeff) 1 (QQX.scalar (QQ.of_int add)) in
@@ -52,11 +91,6 @@ let compose_left_affine f coeff add =
         h)
     zero
     (E.enum f)
-
-let of_polynomial p = E.of_term p QQ.one
-let of_exponential lambda = E.of_term QQX.one lambda
-let scalar k = E.of_term (QQX.scalar k) QQ.one
-let scalar_mul lambda f = E.map (fun _ -> QQX.scalar_mul lambda) f
 
 (* Given a list of (lambda_1, d_1)...(lambda_n, d_n) pairs and a list of values (v_0,...,v_m)
    find an exponential-polynomial of the form 
@@ -148,13 +182,6 @@ let term_of srk t f =
                     Nonlinear.mk_pow srk (mk_real srk lambda) t])
   |> BatList.of_enum
   |> mk_add srk
-
-let eval f x =
-  let qq_x = QQ.of_int x in
-  E.enum f
-  /@ (fun (p, lambda) ->
-      (QQ.mul (QQX.eval p qq_x) (QQ.exp lambda x)))
-  |> BatEnum.fold QQ.add QQ.zero
 
 let summation f =
   solve_rec ~initial:(eval f 0) QQ.one (compose_left_affine f 1 1)

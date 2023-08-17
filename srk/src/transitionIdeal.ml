@@ -33,7 +33,8 @@ let equal ti1 ti2 =
 
 let pp pp_dim formatter ti =
   let pp_dim' formatter i =
-    if i < ti.dim then pp_dim formatter i
+    if i = 2*ti.dim then Format.fprintf formatter "K"
+    else if i < ti.dim then pp_dim formatter i
     else Format.fprintf formatter "%a'" pp_dim (i - ti.dim)
   in
   I.pp pp_dim' formatter ti.ideal
@@ -448,6 +449,66 @@ let ultimately_solvable_reflection ti =
   let id = Array.init ti.dim (fun i -> QQXs.of_dim i) in
   loop id ti
 
+
+
+
+(** Produce a formatted string representing the matrix recurrence *)
+let pp_mat_rec f (matrix, offset, add) = 
+  let primed_str = Array.init (Array.length matrix) (fun i -> "x_" ^ (string_of_int (i+offset)) ^ "'") in
+  let unprimed_str = Array.init (Array.length matrix) (fun i -> "x_" ^ (string_of_int (i+offset))) in
+  let add_str = Array.map (SrkUtil.mk_show (QQXs.pp (fun fo d -> Format.fprintf fo "x_%d" d))) add in
+  let matrix_str = Array.map (fun x -> Array.map QQ.show x) matrix in
+  let length_of_biggest_primed = Array.fold_left (fun a b -> max a (String.length b)) 0 primed_str in
+  let length_of_biggest_unprimed = Array.fold_left (fun a b -> max a (String.length b)) 0 unprimed_str in
+  let length_of_biggest_add = Array.fold_left (fun a b -> max a (String.length b)) 0 add_str in
+  let lens_with_format_list = 
+    List.init (Array.length matrix) (
+      fun i ->
+        let len = Array.fold_left (
+          fun maxi r ->
+            max maxi (String.length r.(i))
+            ) (-1) matrix_str in
+        Scanf.format_from_string ("%" ^ (string_of_int (len+1)) ^ "s") "%s"
+    ) in
+  let primed_form = Scanf.format_from_string ("| %" ^ string_of_int length_of_biggest_primed ^ "s |") "%s" in
+  let unprimed_form = Scanf.format_from_string ("| %" ^ string_of_int length_of_biggest_unprimed ^ "s |") "%s" in
+  let add_form = Scanf.format_from_string ("| %" ^ string_of_int length_of_biggest_add ^ "s |") "%s" in
+  let pp_row f i = 
+    Format.pp_open_box f 0;
+    Format.fprintf f primed_form primed_str.(i);
+    if i = ((Array.length matrix_str)/2) then
+      Format.fprintf f "%3s" " = "
+    else
+      Format.fprintf f "%3s" "";
+    let row_lis = Array.to_list (Array.get matrix_str i) in
+    Format.pp_print_string f "|";
+    List.iter2 (fun form value -> Format.fprintf f form value) lens_with_format_list row_lis;
+    Format.pp_print_string f " |";
+    if i = ((Array.length matrix_str)/2) then
+      Format.fprintf f "%3s" " * "
+    else
+      Format.fprintf f "%3s" "";
+    Format.fprintf f unprimed_form unprimed_str.(i);
+    if i = ((Array.length matrix_str)/2) then
+      Format.fprintf f "%3s" " + "
+    else
+      Format.fprintf f "%3s" "";
+    Format.fprintf f add_form add_str.(i);
+    Format.pp_close_box f ();
+    Format.pp_print_space f ()
+  in
+  Format.pp_open_vbox f 0;
+  Array.iteri (fun i _ -> pp_row f i) matrix;
+  Format.pp_print_newline f ();
+  Format.pp_close_box f ()
+
+let pp_sp f sp = 
+  let _ = List.fold_left (
+    fun (i, offset) (blk : block) ->
+      Format.fprintf f "@[Block %d : %a@]" i pp_mat_rec (blk.blk_transform, offset, blk.blk_add);
+      (i+1, offset + (Array.length blk.blk_transform))      
+      ) (1, 0) sp in
+  ()
 let universal_degree_limited ti degree =
   let mk_polynomial m = QQXs.of_list [QQ.one, m] in
   let sim =

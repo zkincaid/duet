@@ -54,5 +54,20 @@ module DLTSPeriodicRational : sig
   val abstract_rational : 'a context -> 'a TransitionFormula.t -> 'a t
 end
 
-module SolvablePolynomialLIRR : PreDomain
+
+val pp_sp : Format.formatter -> TransitionIdeal.solvable_polynomial -> unit
+
+module SolvablePolynomialLIRR : 
+  sig
+    include PreDomain
+
+    type pre_t
+
+    val make_sp : TransitionIdeal.t -> TransitionIdeal.solvable_polynomial -> pre_t
+
+    val exp_ti : pre_t -> TransitionIdeal.t
+  end
+
+module UltSolvablePolynomialLIRR : PreDomain
+
 module SolvablePolynomialLIRRQuadratic : PreDomain

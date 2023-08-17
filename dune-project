@@ -17,9 +17,12 @@
     camlidl
     apron
     z3
-    OCRS
     ntl
-    ocamlgraph))
+    ocamlgraph
+    normalizffi
+    faugere
+    arbduet
+    ))
 
 (package
   (name pa)
