@@ -36,6 +36,9 @@ module type Field = sig
   val inverse : t -> t
   val zero : t
   val mul : t -> t -> t
+  
+  (*Mathematically this isn't needed ix = x + x + ... + x. But there could be faster implementations.*)
+  val int_mul : int -> t -> t
   val one : t
   val pp : Format.formatter -> t -> unit
 end

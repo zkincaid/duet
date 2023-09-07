@@ -13,7 +13,11 @@
     gmp
     camlidl
     apron
+    zarith
     z3
-    OCRS
     ntl
-    ocamlgraph))
+    ocamlgraph
+    normalizffi
+    faugere
+    arbduet
+    ))

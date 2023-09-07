@@ -27,6 +27,7 @@ val floor : t -> ZZ.t
 val ceiling : t -> ZZ.t
 val sub : t -> t -> t
 val exp : t -> int -> t
+val int_mul : int -> t -> t
 
 val numerator : t -> ZZ.t
 val denominator : t -> ZZ.t

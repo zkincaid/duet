@@ -21,14 +21,47 @@ module type Univariate = sig
 
   (** [mul_monomial k d p] multiplies the polynomial p by k * x^d *)
   val mul_monomial : scalar -> int -> t -> t
+
+  val pp : (Format.formatter -> scalar -> unit) -> Format.formatter -> t -> unit
+  
 end
 
 (** Univariate polynomials over a given ring *)
 module MakeUnivariate (R : Algebra.Ring) : Univariate with type scalar = R.t
 
+module type Euclidean = sig
+  include Univariate
+
+  (** Given polynomials a and b with b not 0, compute q, r such that
+    a = bq + r with deg(r) < deg (b).*)
+  val qr : t -> t -> t * t
+
+  (** Given two non-zero polynomials a and b, computes u, v, g such that 
+    gcd(a, b) = g, g is monic, and au + bv = g via the extended euclidean algorithm.*)
+  val gcdext : t -> t -> t * t * t
+
+  (** Given a polynomial p, computes (a1, i1), ..., (ak, ik) such that a1^i1...ak^ik = p
+      and each ai is square free.*)
+  val square_free_factor : t -> (t * int) list
+
+  (** Compute the derivative of the input polynomial*)
+  val derivative : t -> t
+
+  val int_mul : int -> t -> t
+
+end
+
+(** Univariate polynomials over a field give a Euclidean domain. *)
+module MakeEuclidean (
+  F : sig
+    include Algebra.Field
+    val int_mul : int -> t -> t (*Mathematically this isn't needed ix = x + x + ... + x. But there could be faster implementations.*)
+  end
+  ) : Euclidean with type scalar = F.t
+
 (** Univariate polynomials with rational coefficients *)
 module QQX : sig
-  include Univariate with type scalar = QQ.t
+  include Euclidean with type scalar = QQ.t
 
   val pp : Format.formatter -> t -> unit
   val show : t -> string
@@ -51,6 +84,7 @@ module QQX : sig
 
   (** [term_of srk t p] computes a term representing [p(t)]. *)
   val term_of : ('a context) -> 'a arith_term -> t -> 'a arith_term
+
 end
 
 (** Monomials *)
@@ -178,6 +212,8 @@ module type Multivariate = sig
   val degree : t -> int
 
   val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
+
+  val compare : (scalar -> scalar -> int) -> t -> t -> int
 end
                     
 (** Multi-variate polynomials over a ring *)
@@ -350,7 +386,28 @@ module Ideal : sig
      ideal that are defined only over dimensions satisfying the given
      predicate. *)
   val project : (int -> bool) -> t -> t
+
+  (** Make a rewrite system from the given ideal.*)
+  val mk_rewrite : t -> Rewrite.t
+
+  val use_fgb : bool ref
 end
+
+(**Grobner basis computation using the FGb library.*)
+module FGb : sig
+  (**[grobner_basis block1 block2 polys] computes a Grobner basis of the polynomials in [polys] within the ring Q\[block1, block2\]. 
+  The monomial order used in the computation is a block ordering defined by the variables in [block1] and [block2] with [block1] >> [block2]. That is,
+  for any monomials m1 and m2 where, m1 contains variables in [block1] but m2 does not, m1>m2. The monomial order within each block is degree reverse
+  lexicographic defined by the order of the variables in the given list. That is [grobner_basis \["x"; "y"; "z"\] \[\] polys] defines a drl order with [x] > [y] > [z].
+  As in the previous example [block2] can be empty, indicated a normal drl order. However, [block1] must be non-empty. For the input polynomials to be 
+  well formed the variables in [polys] need to be in the set [block1 @ block2]. *)
+  val grobner_basis : Monomial.dim list -> Monomial.dim list -> QQXs.t list -> QQXs.t list
+
+  (**[get_mon_order block1 block2] should return the monomial ordering used in the Grobner basis computation [grobner_basis block1 block2 polys].*)
+  val get_mon_order : Monomial.dim list -> Monomial.dim list -> Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt]
+
+end
+
 
 (** A witness is a representation of a polynomial combination of a set of
    generator polynomials, where each generator polynomial is represente by an

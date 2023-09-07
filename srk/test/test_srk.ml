@@ -27,7 +27,9 @@ let suite = "Main" >::: [
     Test_termination.suite;
     Test_transition.suite;
     Test_WeightedGraph.suite;
-    Test_chc.suite
+    Test_chc.suite;
+    Test_numberField.suite;
+    Test_rational.suite
 ]
 
 let _ =

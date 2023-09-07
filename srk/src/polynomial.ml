@@ -25,6 +25,7 @@ module type Univariate = sig
   val eval : t -> scalar -> scalar
   val exp : t -> int -> t
   val mul_monomial : scalar -> int -> t -> t
+  val pp : (Format.formatter -> scalar -> unit) -> Format.formatter -> t -> unit
 end
 
 module MakeUnivariate(R : Algebra.Ring) = struct
@@ -66,27 +67,108 @@ module MakeUnivariate(R : Algebra.Ring) = struct
   let scalar k = add_term k 0 zero
 
   let eval p k = fst (pivot 0 (compose p (scalar k)))
-end
 
-module QQX = struct
-  include MakeUnivariate(QQ)
-
-  let pp formatter p =
+  let pp scalar_pp formatter p =
     let pp_monomial formatter (coeff, order) =
       if order = 0 then
-        QQ.pp formatter coeff
-      else if QQ.equal coeff QQ.one then
+        scalar_pp formatter coeff
+      else if R.equal coeff R.one then
         Format.fprintf formatter "@[x^%d@]" order
-      else if QQ.equal coeff (QQ.negate QQ.one) then
+      else if R.equal coeff (R.negate R.one) then
         Format.fprintf formatter "@[-x^%d@]" order
       else
-        Format.fprintf formatter "@[%a*x^%d@]" QQ.pp coeff order
+        Format.fprintf formatter "@[%a*x^%d@]" scalar_pp coeff order
     in
     SrkUtil.pp_print_enum
       ~pp_sep:(fun formatter () -> Format.fprintf formatter "@ + ")
       pp_monomial
       formatter
       (enum p)
+
+end
+
+module type Euclidean = sig
+  include Univariate
+
+  val qr : t -> t -> t * t
+
+  val gcdext : t -> t -> t * t * t
+
+  val square_free_factor : t -> (t * int) list
+
+  val derivative : t -> t
+
+  val int_mul : int -> t -> t
+end
+
+module MakeEuclidean (F : Algebra.Field) = struct
+  include MakeUnivariate(F)
+
+  let qr a b = 
+    if is_zero b then failwith "Divide by 0";
+    let d = order b in
+    let c = coeff d b in
+    if d = 0 then 
+      (scalar_mul (F.inverse c) a, zero)
+    else
+      let rec aux q r =
+        let rd = order r in
+        if rd = 0 || rd < d then (q, r)
+        else
+          let s = (of_term (F.mul (coeff rd r) (F.inverse c)) (rd - d)) in
+          aux (add q s) (sub r (mul s b))
+        in
+      aux zero a
+  
+  let gcdext a b = 
+    let rec aux r0 r1 s0 s1 t0 t1 = 
+      if is_zero r1 then 
+        let lcri = F.inverse (coeff (order r0) r0) in
+        (scalar_mul lcri r0, scalar_mul lcri s0, scalar_mul lcri t0)
+      else
+        let q = fst (qr r0 r1) in
+        aux r1 (sub r0 (mul q r1)) s1 (sub s0 (mul q s1)) t1 (sub t0 (mul q t1))
+    in
+    aux a b one zero zero one
+  
+  let derivative f = 
+    of_list (fold (
+      fun deg coef acc ->
+        if deg = 0 then (F.zero, 0) :: acc
+        else
+         (F.int_mul deg coef, deg - 1) :: acc
+    ) f [])
+
+  let square_free_factor p = 
+    let rec aux b d i facts = 
+      if equal b one then
+        facts
+      else
+        let a, _, _ = gcdext b d in
+        let new_b = fst (qr b a) in
+        let c = fst (qr d a) in
+        let new_d = sub c (derivative new_b) in
+        if equal a one then 
+          aux new_b new_d (i+1) facts
+        else
+          aux new_b new_d (i+1) ((a, i) :: facts)
+      in
+    let p_p = derivative p in
+    let a_0, _, _ = gcdext p p_p in
+    let b_1 = fst (qr p a_0) in
+    let c_1 = fst (qr p_p a_0) in
+    let d_1 = sub c_1 (derivative b_1) in
+    aux b_1 d_1 1 []
+
+  let int_mul i a = map (fun _ s -> F.int_mul i s) a
+
+end
+
+
+module QQX = struct
+  include MakeEuclidean(struct include QQ let int_mul i x = QQ.mul (QQ.of_int i) x end)
+
+  let pp = (pp QQ.pp)
 
   let show = SrkUtil.mk_show pp
 
@@ -192,6 +274,8 @@ module QQX = struct
       p
       []
     |> Syntax.mk_add srk
+
+
 end
 
 module Monomial = struct
@@ -420,6 +504,7 @@ module type Multivariate = sig
   val dimensions : t -> SrkUtil.Int.Set.t
   val degree : t -> int
   val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
+  val compare : (scalar -> scalar -> int) -> t -> t -> int
 end
 
 module MakeMultivariate(R : Algebra.Ring) = struct
@@ -1249,35 +1334,132 @@ module Rewrite = struct
   let reduce_rewrite = R.reduce_rewrite
 end
 
+
+module FGb = struct
+  type fmon = Z.t * (int list)
+  type fpoly = fmon list
+
+  let () = Faugere_zarith.Fgb_int_zarith.set_number_of_threads 2(*; Faugere_zarith.Fgb_int_zarith.set_fgb_verbosity 1*)
+
+  
+  let mon_to_fmon vs m = 
+    List.map (
+      fun v -> 
+        match Monomial.IntMap.find_opt v m with
+          | None -> 0
+          | Some d -> d)
+      vs
+
+  let convert_to_faugere (vs : Monomial.dim list) (p : QQXs.t) : fpoly = 
+    let (clearing_denom, rat_fmon) = 
+      BatEnum.fold (
+        fun (cd, ml) (c, m)  -> 
+          let new_cd = Z.lcm (Q.den c) cd in 
+          (new_cd, (c, mon_to_fmon vs m) :: ml)
+       ) (Z.one, []) (QQXs.enum p)        
+      in
+    List.map (
+      fun (c, m) -> Q.num (Q.mul (Q.of_bigint clearing_denom) c), m
+    ) rat_fmon
+
+  let convert_from_faugere (vs : Monomial.dim list) (p : fpoly) : QQXs.t =
+    let convert_fmon_to_mon (c, fm) = 
+      Q.of_bigint c, Monomial.of_enum (BatList.enum (List.mapi (fun i deg -> List.nth vs i, deg) fm)) in
+    QQXs.of_list (List.map convert_fmon_to_mon p)
+
+  (* Is this right? *)
+  let get_mon_order (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) a b = 
+    let ablk1, ablk2 = Monomial.split_block (fun v -> List.mem v blk1) a in
+    let bblk1, bblk2 = Monomial.split_block (fun v -> List.mem v blk1) b in
+    let compare_by_block fmon1 fmon2 = 
+      let diff_rev = List.rev (List.map2 (-) fmon1 fmon2) in
+      match List.find_opt ((<>) 0) diff_rev with
+      | None -> `Eq
+      | Some x -> 
+        if x < 0 then `Gt
+        else `Lt
+    in
+    let ablk1_total, bblk1_total = Monomial.total_degree ablk1, Monomial.total_degree bblk1 in
+    if ablk1_total > bblk1_total then `Gt
+    else if ablk1_total < bblk1_total then `Lt
+    else
+      let blk_comp = compare_by_block (mon_to_fmon blk1 ablk1) (mon_to_fmon blk1 bblk1) in
+      match blk_comp with
+      | `Gt | `Lt -> blk_comp
+      | `Eq ->
+        let ablk2_total, bblk2_total = Monomial.total_degree ablk2, Monomial.total_degree bblk2 in
+        if ablk2_total > bblk2_total then `Gt
+        else if ablk2_total < bblk2_total then `Lt
+        else
+          compare_by_block (mon_to_fmon blk2 ablk2) (mon_to_fmon blk2 bblk2)
+
+  let grobner_basis_fmon (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) (polys : fpoly list) = 
+    let non_zero = List.filter (fun ml -> not (List.for_all (fun (c, _) -> ZZ.equal ZZ.zero c) ml)) polys in 
+    if List.length non_zero = 0 then [convert_to_faugere (blk1 @ blk2) QQXs.zero]
+    else
+      try 
+        Faugere_zarith.Fgb_int_zarith.fgb non_zero (List.map string_of_int blk1) (List.map string_of_int blk2)
+      with Faugere.FgbE s ->
+        if String.starts_with ~prefix:"Sorry the size of the matrix is too big" s then (*If Fgb fails I do not expect Rewrite to succeed, but at least we will try this way.*)
+          (logf ~level:`trace "fgb: %s" s;
+          log ~level:`trace "Trying Rewrite";          
+          let r = Rewrite.grobner_basis (Rewrite.mk_rewrite (get_mon_order blk1 blk2) (List.map (convert_from_faugere (blk1 @ blk2)) polys)) in
+          List.map (convert_to_faugere (blk1 @ blk2)) (Rewrite.generators r))
+        else
+          raise (Faugere.FgbE s)
+
+  let grobner_basis (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) (polys : QQXs.t list) = 
+    let fpolys = List.map (convert_to_faugere (blk1 @ blk2)) polys in
+    let gb = grobner_basis_fmon blk1 blk2 fpolys in
+    List.map (convert_from_faugere (blk1 @ blk2)) gb
+
+
+end
+
+
 module Ideal = struct
-  type t = Rewrite.t
-  open Rewrite
+
+  type rew_t = Rewrite.t
 
   (* Common monomial ordering *)
   let order = Monomial.degrevlex
 
-  let add_saturate ideal p = Rewrite.add_saturate ideal p
+  let add_saturate_r ideal p = Rewrite.add_saturate ideal p
 
-  let reduce ideal p =
+  let reduce_r ideal p =
     Rewrite.reduce ideal p
 
   (* Projection of the ideal generated by a set of polynomials *)
   let project_impl p generators =
     let elim_order = Monomial.block [not % p] order in
     let rewrite =
-      mk_rewrite elim_order generators
-      |> grobner_basis
+      Rewrite.mk_rewrite elim_order generators
+      |> Rewrite.grobner_basis
     in
-    restrict
+    Rewrite.restrict
       (fun m ->
          BatEnum.for_all (fun (d, _) -> p d) (Monomial.enum m))
       rewrite
 
-  let project p j = project_impl p (generators j)
+  let project_r p j = project_impl p (Rewrite.generators j)
 
-  let intersect j k =
-    let j = generators j in
-    let k = generators k in
+  let mem_r p j = Rewrite.reduce_zero j p
+
+  let subset_r = Rewrite.subset
+
+  let equal_r = Rewrite.equal
+
+  let make_r generators =
+    Rewrite.grobner_basis (Rewrite.mk_rewrite order generators)
+
+  let generators_r = Rewrite.generators
+
+
+  let pp_r = Rewrite.pp
+
+  let intersect_r j k =
+    let j = generators_r j in
+    let k = generators_r k in
     let t =
       1 + (List.fold_left
              (fun m p ->
@@ -1294,16 +1476,185 @@ module Ideal = struct
     in
     project_impl (not % (=) t) (j' @ k')
 
-  let mem p j = reduce_zero j p
 
-  let subset = subset
 
-  let equal = equal
 
-  let make generators =
-    grobner_basis (mk_rewrite order generators)
+  module IS = SrkUtil.Int.Set
 
-  let generators = generators
+  type fgb_t = 
+  {
+    basis : FGb.fpoly list
+  ; vs : IS.t
+  }
+
+  (*type t = Rewrite.t*)
+  (*open Rewrite
+
+  (* Common monomial ordering *)
+  let order = Monomial.degrevlex*)
+
+  let to_fmon vs = 
+    FGb.convert_to_faugere (BatList.of_enum (IS.enum vs))
+
+  let of_fmon vs = 
+    FGb.convert_from_faugere (BatList.of_enum (IS.enum vs))
+
+  (*maybe a better way to do this*)
+  let recompute_fmon old_vs new_vs p = 
+    to_fmon new_vs (of_fmon old_vs p)
+
+  let generators_f ideal = List.filter_map (fun p -> let pq = of_fmon ideal.vs p in if QQXs.is_zero pq then None else Some pq) ideal.basis
+
+
+  let add_saturate_f ideal p = 
+    if QQXs.is_zero p then ideal
+    else
+      let p_vs = QQXs.dimensions p in
+      let gens, vs = 
+        if IS.subset p_vs ideal.vs then
+          let p_fmon = to_fmon ideal.vs p in
+          p_fmon :: ideal.basis, ideal.vs
+        else
+          let new_vs = IS.union p_vs ideal.vs in
+          let p_fmon = to_fmon new_vs p in
+          p_fmon :: (List.map (recompute_fmon ideal.vs new_vs) ideal.basis), new_vs
+      in
+      let basis = FGb.grobner_basis_fmon (BatList.of_enum (IS.enum vs)) [] gens in
+      {basis; vs}
+
+
+  let mk_rewrite_f ideal = 
+    let gens = List.map (of_fmon ideal.vs) ideal.basis in
+    let order = FGb.get_mon_order (BatList.of_enum (IS.enum ideal.vs)) [] in
+    Rewrite.mk_rewrite order gens
+
+
+  let reduce_f ideal p =
+    Rewrite.reduce (mk_rewrite_f ideal) p
+
+
+  let project_f pred j = 
+    let v_list = BatList.of_enum (IS.enum j.vs) in
+    let _, (good_indices_r, bad_incicies_r) = List.fold_left (
+      fun (i, (good, bad)) v ->
+        if pred v then (i+1, (i :: good, bad))
+        else (i+1,(good, i :: bad))
+    ) (0, ([], [])) v_list in
+    let good_i, bad_i = List.rev good_indices_r, List.rev bad_incicies_r in
+    let rearrange_mon ml = 
+      (List.map (fun i -> List.nth ml i) bad_i) @ (List.map (fun i -> List.nth ml i) good_i)
+    in
+    let rearrange_p = List.map (fun (c, ml) -> c, rearrange_mon ml) in
+    let good_vs, bad_vs = List.partition pred v_list in
+    let rearranged = List.map rearrange_p j.basis in
+    let basis_with_bad = FGb.grobner_basis_fmon bad_vs good_vs rearranged in
+    let mon_only_good (c, ml) = 
+      let rec aux i  = 
+        if i >= List.length bad_vs then true
+        else 
+          let deg = List.nth ml i in
+          if deg = 0 then aux (i + 1)
+          else false
+      in
+      ZZ.equal c ZZ.zero || (aux 0)
+    in
+    let basis_no_bad = List.filter (List.for_all mon_only_good) basis_with_bad in
+    let shorten_mon (c, m) = 
+      let m_i, _ = List.partition (fun (i, _) -> i >= List.length bad_vs) (List.mapi (fun i a -> i, a) m) in
+      c, snd (List.split m_i)
+    in
+    let basis = List.map (List.map shorten_mon) basis_no_bad in
+    {basis; vs = IS.of_list good_vs}
+
+  let make_f generators =
+    let vs = List.fold_left (fun acc p -> IS.union acc (QQXs.dimensions p)) IS.empty generators in
+    let fpolys = List.map (to_fmon vs) generators in
+    let basis = FGb.grobner_basis_fmon (BatList.of_enum (IS.enum vs)) [] fpolys in
+    {basis; vs}
+
+  let intersect_f j k =
+    let vs = IS.union j.vs k.vs in
+    let j = generators_f j in
+    let k = generators_f k in
+    let t = (IS.max_elt vs) + 1 in
+    (* { tp : p in j } *)
+    let j' = List.map (QQXs.mul (QQXs.of_dim t)) j in
+    (* { (1-t)p : p in k } *)
+    let k' =
+      List.map (QQXs.mul (QQXs.sub (QQXs.scalar QQ.one) (QQXs.of_dim t))) k
+    in
+    let gens = List.map (to_fmon (IS.add t vs)) (j' @ k') in
+    project_f (fun i -> i <> t) {basis = gens; vs = (IS.add t vs)}
+
+  let pp_f pp_dim f i = 
+    Rewrite.pp pp_dim f (mk_rewrite_f i)
+
+  let mem_f p j = 
+    let rw = mk_rewrite_f j in
+    Rewrite.reduce_zero rw p
+
+  let subset_f i j = 
+    let rwi, rwj = mk_rewrite_f i, mk_rewrite_f j in
+    Rewrite.subset rwi rwj
+
+  let equal_f i j = 
+    let rwi, rwj = mk_rewrite_f i, mk_rewrite_f j in
+    Rewrite.equal rwi rwj
+
+
+  type t = R of rew_t | F of fgb_t
+
+  let pp pp_dim f i = 
+    match i with | R id -> pp_r pp_dim f id | F id -> pp_f pp_dim f id
+
+  let use_fgb = ref true
+
+  let make gs = 
+    if !use_fgb then F (make_f gs)
+    else R (make_r gs)
+
+  let add_saturate i p = 
+    match i with | R id -> R (add_saturate_r id p) | F id -> F (add_saturate_f id p)
+
+  let reduce i = 
+    match i with | R id -> reduce_r id | F id -> reduce_f id
+
+  
+  let generators i = 
+    match i with | R id -> generators_r id | F id -> generators_f id
+
+  let subset i j = 
+    match (i, j) with
+    | R idi, R idj -> subset_r idi idj
+    | F idi, F idj -> subset_f idi idj
+    | _ -> failwith "Not handling different implementations"
+
+  let equal i j = 
+    match (i, j) with
+    | R idi, R idj -> equal_r idi idj
+    | F idi, F idj -> equal_f idi idj
+    | _ -> failwith "Not handling different implementations"
+
+  let mem p i = 
+    match i with
+    | R idi -> mem_r p idi
+    | F idi -> mem_f p idi
+
+  let intersect i j = 
+    match (i, j) with
+    | R idi, R idj -> R (intersect_r idi idj)
+    | F idi, F idj -> F (intersect_f idi idj)
+    | _ -> failwith "Not handling different implementations"
+
+  let project f i = 
+    match i with
+    | R idi -> R (project_r f idi)
+    | F idi -> F (project_f f idi)
+
+  let mk_rewrite i = 
+    match i with
+    | R idi -> idi
+    | F idi -> mk_rewrite_f idi
 
   let product j k =
     let j_generators = generators j in
@@ -1322,7 +1673,6 @@ module Ideal = struct
       j
       (generators k)
 
-  let pp = pp
 end
 
 module Witness = struct
