@@ -4,6 +4,7 @@ open Interpretation
 
 module Solver : sig
   type 'a t
+  val make : ?context:SrkZ3.z3_context -> ?theory:string -> 'a context -> 'a t
   val add : 'a t -> ('a formula) list -> unit
   val push : 'a t -> unit
   val pop : 'a t -> int -> unit

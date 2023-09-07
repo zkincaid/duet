@@ -130,3 +130,10 @@ let assert_not_implies phi psi =
     assert_failure (Printf.sprintf "%s\nimplies\n%s"
                       (Formula.show srk phi)
                       (Formula.show srk psi))
+
+let with_theory th f x =
+  let th' = get_theory srk in
+  set_theory srk th;
+  let result = f x in
+  set_theory srk th';
+  result

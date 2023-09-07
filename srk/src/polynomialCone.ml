@@ -232,3 +232,52 @@ let equal pc1 pc2 =
 
 let is_proper pc =
   not (QQXs.equal QQXs.zero (Rewrite.reduce pc.zero QQXs.one))
+
+let inverse_image pc map =
+  let dim = Array.length map in
+  (* Shift polynomials by dim dimensions, to ensure the variables 0...dim-1
+     are free to use *)
+  let shift =
+    QQXs.substitute (fun i ->
+        let i' = if i > 0 then i + dim else i in
+        QQXs.of_dim i')
+  in
+  (* Elimination order that is compatible with the monomial order of pc; after
+     shifting pc.zero, it's still a Groebner basis w.r.t. this order. *)
+  let elim_ord =
+    let base_order = Rewrite.get_monomial_ordering pc.zero in
+    let split m =
+      BatEnum.fold (fun (t,f) (dim, pow) ->
+          if dim >= dim then
+            (Monomial.mul_term (dim - 2*dim) pow t, f)
+          else
+            (t, Monomial.mul_term dim pow f))
+        (Monomial.one, Monomial.one)
+        (Monomial.enum m)
+    in
+    (fun m1 m2 ->
+       let (m1, m1') = split m1 in
+       let (m2, m2') = split m2 in
+       match base_order m1 m2 with
+       | `Eq -> Monomial.degrevlex m1' m2'
+       | other -> other)
+  in
+  let shift_zero =
+    Rewrite.generators pc.zero
+    |> List.map shift
+    |> Rewrite.mk_rewrite elim_ord
+  in
+  (* Augument shift_zero with { shift(map.(i)) - i : i in [0, dim) } *)
+  let zero_map =
+    BatArray.fold_lefti (fun ideal i p ->
+        let i_monomial = Monomial.singleton i 1 in
+        Rewrite.add_saturate
+          ideal
+          (QQXs.add_term (QQ.of_int (-1)) i_monomial (shift p)))
+      shift_zero
+      map
+  in
+  let pc_map =
+    make_cone zero_map (List.map shift pc.positive)
+  in
+  restrict (monomial_over (fun d ->  d < dim)) pc_map

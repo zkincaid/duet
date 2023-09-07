@@ -236,10 +236,10 @@ let recursive () =
   assert_post (TS.path_weight query 2) (x + y = (int 100));
   assert_not_post (TS.path_weight query 2) (y <= (int 99))
 
-module D = Abstract.MakeAbstractRSY(Ctx)
-
 let affine_invariants =
-  TS.forward_invariants (module TS.LiftIncr(D.AffineRelation))
+  TS.forward_invariants TS.affine_relation
+
+let affine_formula = TS.affine_relation.formula_of
 
 let aff_eq1 () =
   let open Infix in
@@ -252,8 +252,8 @@ let aff_eq1 () =
       []
   in
   let inv = affine_invariants ts 0 in
-  assert_equiv_formula (y - x = (int 10)) (SrkApron.formula_of_property (inv 1));
-  assert_equiv_formula (y - x = (int 9)) (SrkApron.formula_of_property (inv 3))
+  assert_equiv_formula (y - x = (int 10)) (affine_formula (inv 1));
+  assert_equiv_formula (y - x = (int 9)) (affine_formula (inv 3))
 
 let aff_collatz () =
   let open Infix in
@@ -277,7 +277,7 @@ let aff_collatz () =
       []
   in
   let inv = affine_invariants ts 0 in
-  assert_equiv_formula (x = y) (SrkApron.formula_of_property (inv 1))
+  assert_equiv_formula (x = y) (affine_formula (inv 1))
 
 let aff_karr_fig4 () =
   let open Infix in
@@ -292,8 +292,8 @@ let aff_karr_fig4 () =
       []
   in
   let inv = affine_invariants ts 0 in
-  assert_equiv_formula (x = y + (int 1)) (SrkApron.formula_of_property (inv 1));
-  assert_equiv_formula (x = y - (int 1)) (SrkApron.formula_of_property (inv 2))
+  assert_equiv_formula (x = y + (int 1)) (affine_formula (inv 1));
+  assert_equiv_formula (x = y - (int 1)) (affine_formula (inv 2))
 
 let aff_karr_fig5 () =
   let open Infix in
@@ -314,7 +314,7 @@ let aff_karr_fig5 () =
   let inv = affine_invariants ts 0 in
   assert_equiv_formula
     ((int 3)*x - y + z = (int 1))
-    (SrkApron.formula_of_property (inv 1))
+    (affine_formula (inv 1))
 
 module G = Graph.Persistent.Digraph.ConcreteBidirectional(SrkUtil.Int)
 module ISet = struct
@@ -393,6 +393,10 @@ let suite = "WeightedGraph" >::: [
     "aff_collatz" >:: aff_collatz;
     "aff_karr_fig4" >:: aff_karr_fig4;
     "aff_karr_fig5" >:: aff_karr_fig5;
+    "aff_eq1_lirr" >:: with_theory `LIRR aff_eq1;
+    "aff_collatz_lirr" >:: with_theory `LIRR aff_collatz;
+    "aff_karr_fig4_lirr" >:: with_theory `LIRR aff_karr_fig4;
+    "aff_karr_fig5_lirr" >:: with_theory `LIRR aff_karr_fig5;
 
     "msat1" >:: (fun () ->
       let g =

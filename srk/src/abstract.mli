@@ -37,67 +37,95 @@ val abstract : ?exists:(symbol -> bool) ->
                'a formula ->
                ('a,'abs) SrkApron.property
 
+
+type 'a smt_model =
+  [ `LIRA of 'a Interpretation.interpretation
+  | `LIRR of LirrSolver.Model.t ]
+
+type ('a, 'b) domain =
+  { join : 'b -> 'b -> 'b
+  ; of_model : 'a smt_model -> 'b
+  ; formula_of : 'b -> 'a formula
+  ; top : 'b
+  ; bottom : 'b }
+  
+(** An solver contains a single formula that can be abstracted in various ways
+   (convex hull, affine hull, sign analysis, ...); the solver allows different
+   abstraction routines to share the work of computing a diverse set of models
+    of the formula *)
+module Solver : sig
+  type 'a t
+
+  (** Allocate a new solver. *)
+  val make : 'a context -> ?theory:[`LIRR | `LIRA ] -> 'a formula -> 'a t
+
+  (** Symbolic abstraction as described in Reps, Sagiv, Yorsh---"Symbolic
+     implementation of the best transformer", VMCAI 2004. *)
+  val abstract : 'a t -> ('a, 'b) domain -> 'b
+
+  (** Retrieve the formula associated with a solver. *)
+  val get_formula : 'a t -> 'a formula
+
+  (** Retrieve a model of the formula that not satisfy any blocking clause, if
+     possible.  *)
+  val get_model : 'a t -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
+
+  (** [with_blocking s f x] executed [f x] under a new blocking level.  All
+     formulas added to the solver using [block s phi] are forgotten. *)
+  val with_blocking : 'a t -> ('c -> 'b) -> 'c -> 'b
+
+  (** [block s phi] adds [phi] as a blocking clause (i.e., [get_model s] may
+     no longer return a model that satisfies [phi]).  [block] should only be
+     called within a procedure that passed to [with_blocking], to ensure that
+     blocking clauses are removed.  *)
+  val block : 'a t -> 'a formula -> unit
+end
+
+(** The sign domain represents formulas of the form (/\ t <> 0), where t
+   belongs to some fixed set of terms and [<>] is one of [{<,>,=,<=,>=}].  *)
 module Sign : sig
   type 'a t
-  val abstract : 'a context -> 'a formula -> 'a arith_term list -> 'a t
   val formula_of : 'a context -> 'a t -> 'a formula
   val join : 'a t -> 'a t -> 'a t
   val equal : 'a t -> 'a t -> bool
   val bottom : 'a t
   val top : 'a t
   val exists : (symbol -> bool) -> 'a t -> 'a t
+  val abstract : 'a Solver.t -> ?bottom:('a t) -> 'a arith_term list -> 'a t
 end
 
-(** Symbolic abstraction as described in Reps, Sagiv,
-   Yorsh---"Symbolic implementation of the best transformer", VMCAI
-   2004. *)
-module MakeAbstractRSY
-    (C : sig
-       type t
-       val context : t context
-     end) : sig
+(** Finite conjunctions of predicates drawn from some fixed set *)
+module PredicateAbs : sig
+  type 'a t = ('a, typ_bool) Expr.Set.t
+  val formula_of : 'a context -> 'a t -> 'a formula
+  val join : 'a t -> 'a t -> 'a t
+  val equal : 'a t -> 'a t -> bool
+  val top : 'a t
+  val exists : (symbol -> bool) -> 'a t -> 'a t
 
-  (** Domains must satisfy the ascending chain condition, and are
-     equipped with a function [of_model] that computes the best
-     abstraction of a single model. *)
-  module type Domain = sig
-    type t
-    val top : t
-    val bottom : t
+  (** Given a set of predicates, find the subset that is entailed by the
+     formula associated with the given solver. *)
+  val abstract : 'a Solver.t -> 'a t -> 'a t
+end
 
-    (** Project property onto the symbols that satisfy the given
-       predicate *)
-    val exists : (symbol -> bool) -> t -> t
+(** Domain of linear equations over a fixed set of terms *)
+module LinearSpan : sig
+  type t = Linear.QQVectorSpace.t
+  val abstract : 'a Solver.t -> ?bottom:(t option) -> 'a arith_term array -> t
 
-    val join : t -> t -> t
-    val equal : t -> t -> bool
+  (** [affine_hull solver symbols] computes a basis for the space of all
+     implied affine equations a*symbols = b entailed by the formula associated
+     with [solver].  The affine equations are represented w.r.t. the basis
+     defined by [Syntax.symbol_of_int / Syntax.int_of_symbol].  *)
+  val affine_hull : 'a Solver.t -> ?bottom:t -> symbol list -> t
+end
 
-    (** Best abstraction of a model, restricted to the symbols in the
-       given list.  *)
-    val of_model : C.t Interpretation.interpretation -> symbol list -> t
-
-    val formula_of : t -> C.t formula
-  end
-
-  (** Sign analysis determines whether each variables is positive,
-     nonnegative, zero, nonpositive, negative, or unknown. *)
-  module Sign : Domain
-
-  (** Domain of affine equalities *)
-  module AffineRelation : Domain
-    with type t = (C.t, Polka.equalities Polka.t) SrkApron.property
-
-  (** Predicate abstraction *)
-  module PredicateAbs (U : sig val universe : C.t formula list end) : Domain
-
-  (** Reduced product of abstract domains *)
-  module Product (A : Domain) (B : Domain) : Domain with type  t = A.t * B.t
-
-  (** Compute the best abstraction of a formula within a given domain.
-     For a formula [phi], this is an element of the abstract domain
-     [elt] such that: (1) [phi |= formula_of elt], (2) [elt] is
-     expressed only over the symbols that satisy the [exists]
-     predicate, and (3) for any [elt'] satisfying (1) and (2), we have
-     [elt <= elt'].  *)
-  val abstract : ?exists:(symbol -> bool) -> (module Domain with type t = 'a) -> C.t formula -> 'a
+(** Domain of affine inequations over a fixed set of terms *)
+module ConvexHull : sig
+  type t = DD.closed DD.t
+  val abstract : 'a Solver.t ->
+    ?man:(DD.closed Apron.Manager.t) ->
+    ?bottom:(t option) ->
+    'a arith_term array ->
+    t
 end

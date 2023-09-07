@@ -9,6 +9,16 @@ type 'a context
 (** takes a context and outputs a tuple containing the (# of sexprs, # of symbols, # of named symbols) *)
 val context_stats : 'a context -> (int * int * int)
 
+(** Supported arithmetic theories: Linear Integer/Real Arithmetic, and Linear
+   Integer/Real Rings *)
+type theory = [ `LIRA | `LIRR ]
+
+(** Get default theory of a context *)
+val get_theory : 'a context -> theory
+
+(** Set default theory of a context *)
+val set_theory : 'a context -> theory -> unit
+
 (** Environments are maps whose domain is a set of free variable symbols.
     Typically used to travese quantified formulas. *)
 module Env : sig

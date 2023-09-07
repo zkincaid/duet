@@ -97,27 +97,23 @@ module Make
      body of the associated loop *)
   val loop_headers_live : t -> (int * VarSet.t) list
 
-  module type AbstractDomain = Abstract.MakeAbstractRSY(C).Domain
+  type 'a abstract_domain =
+    { abstract : C.t Abstract.Solver.t -> symbol list -> 'a -> 'a
+    ; bottom : 'a
+    ; top : 'a
+    ; join : 'a -> 'a -> 'a
+    ; formula_of : 'a -> C.t formula
+    ; exists : (symbol -> bool) -> 'a -> 'a
+    ; equal : 'a -> 'a -> bool }
 
-  module type IncrAbstractDomain = sig
-    include AbstractDomain
-    val incr_abstract : C.t Interpretation.interpretation list ->
-                        symbol list ->
-                        C.t Smt.Solver.t
-                        ->
-                        t ->
-                        (t * C.t Interpretation.interpretation list)
-  end
-
-  module LiftIncr (A : AbstractDomain) : IncrAbstractDomain with type t = A.t
-
-  module ProductIncr
-           (A : IncrAbstractDomain)
-           (B : IncrAbstractDomain) : IncrAbstractDomain with type t = A.t * B.t
+  val product : 'a abstract_domain -> 'b abstract_domain -> ('a * 'b) abstract_domain
+  val predicate_abs : C.t formula list -> (C.t Abstract.PredicateAbs.t) abstract_domain
+  val affine_relation : Abstract.LinearSpan.t abstract_domain
+  val sign : (C.t Abstract.Sign.t) abstract_domain
 
   (** [forward_invariants d ts entry] computes invariants for [ts]
      starting from the node [entry] using the abstract domain [d] *)
-  val forward_invariants : (module IncrAbstractDomain with type t = 'a) ->
+  val forward_invariants : 'a abstract_domain ->
                            t ->
                            vertex ->
                            (vertex -> 'a)

@@ -1,6 +1,8 @@
 open BatPervasives
 open BatHashcons
 
+type theory = [ `LIRA | `LIRR ]
+
 type typ_fo = [ `TyInt | `TyReal | `TyBool  | `TyArr ] [@@ deriving ord]
 
 type typ = [
@@ -267,9 +269,13 @@ type 'a context =
     symbols : (string * typ) DynArray.t;
     named_symbols : (string,int) Hashtbl.t;
     mk : label -> (sexpr hobj) list -> sexpr hobj;
+    mutable theory : theory;
     id : int }
 
 let context_stats srk = (HC.count srk.hashcons, DynArray.length srk.symbols, Hashtbl.length srk.named_symbols)
+
+let get_theory srk = srk.theory
+let set_theory srk th = srk.theory <- th
 
 let fresh_id =
   let max_id = ref (-1) in
@@ -2084,7 +2090,7 @@ struct
     in
     let named_symbols = Hashtbl.create 991 in
     let id = fresh_id () in
-    { hashcons; symbols; named_symbols; mk; id }
+    { hashcons; symbols; named_symbols; mk; id; theory = `LIRA }
 
   include ImplicitContext(struct
       type t = unit
@@ -2236,7 +2242,7 @@ struct
       | _, _ -> hc label children
     in
     let id = fresh_id () in
-    { hashcons; symbols; named_symbols; mk; id }
+    { hashcons; symbols; named_symbols; mk; id ; theory = `LIRA }
 
   include ImplicitContext(struct
       type t = unit
