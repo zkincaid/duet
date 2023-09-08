@@ -171,7 +171,7 @@ module K = struct
         (transform x)
     in
     let guard = mk_and srk guard in
-    let solver = LirrSolver.Solver.mk_solver srk in
+    let solver = LirrSolver.Solver.make srk in
     let project x =
       match V.of_symbol x with
       | Some _ -> true
@@ -1326,7 +1326,6 @@ let _ =
          let open Iteration in
          monotone := true;
          K.domain := (module Product(Product(SolvablePolynomial.SolvablePolynomialLIRR)(LIRRGuard))(LIRR))),
-         (*K.domain := (module SolvablePolynomial.SolvablePolynomialLIRR)),*)
      " Use weak arithmetic theory with solvable polynomial maps");
   CmdLine.register_config
     ("-lirr-usp",
