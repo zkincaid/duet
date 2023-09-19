@@ -231,10 +231,11 @@ let project_dnf srk exists phi =
     rewrite srk ~down:(pos_rewriter srk) phi
     |> SrkSimplify.simplify_terms srk
   in
-  let solver = Smt.mk_solver srk in
-  Smt.Solver.add solver [phi];
+  let module Solver = Smt.StdSolver in
+  let solver = Solver.make srk in
+  Solver.add solver [phi];
   let rec go cubes =
-    match Smt.Solver.get_model solver with
+    match Solver.get_model solver with
     | `Unsat -> cubes
     | `Unknown -> assert false
     | `Sat m ->
@@ -246,7 +247,7 @@ let project_dnf srk exists phi =
           |> SrkSimplify.simplify_conjunction srk
           |> mk_and srk
         in
-        Smt.Solver.add solver [mk_not srk cube];
+        Solver.add solver [mk_not srk cube];
         go (cube :: cubes)
   in
   go []
@@ -257,10 +258,10 @@ let get_largest_polyhedrons srk control_states =
     match unchecked with
     | [] -> non_intersect, ele, changed
     | hd :: tl ->
-      let solver = Smt.mk_solver srk in
+      let solver = Smt.StdSolver.make srk in
       let phi = (rewrite srk ~down:(pos_rewriter srk) (mk_and srk [ele; hd])) in 
-      Smt.Solver.add solver [phi];
-      match Smt.Solver.get_model solver with
+      Smt.StdSolver.add solver [phi];
+      match Smt.StdSolver.get_model solver with
       | `Unsat -> intersect_ele (hd :: non_intersect) ele tl changed
       | `Unknown -> assert false
       | `Sat _ -> intersect_ele non_intersect (mk_or srk [ele; hd]) tl true

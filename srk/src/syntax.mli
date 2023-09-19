@@ -500,14 +500,36 @@ val mk_arr_eq : 'a context -> 'a arr_term -> 'a arr_term -> 'a formula
 val mk_compare : [ `Eq | `Leq | `Lt ] -> 'a context -> 'a arith_term -> 
   'a arith_term -> 'a formula
 
-(** Given a formula [phi], compute an equivalent formula without
-   if-then-else terms.  [eliminate-ite] does not introduce new
-   symbols or quantifiers. *)
+(** Purify all sub-expressions that match the given predicate, i.e., replace
+   each matching expression with a fresh constant of the same type, and return
+   the substitution map sending each such constant to the original
+   expression. Sub-expressions that are equal are associated with the same
+   constant.  *)
+val purify_expr : 'a context ->
+  (('a, 'b) expr -> bool) ->
+  ?label:(('a, 'b) expr -> string) ->
+  ('a, 'c) expr ->
+  (('a, 'c) expr * (('a, 'b) expr) Symbol.Map.t)
+
+(** Given a formula [phi], compute a formula without if-then-else terms that
+   is equivalent to [phi] when projected on to the symbols of [phi].  If an
+   *equivalent* ite-free formula is required, then use [lift_ite]. *)
 val eliminate_ite : 'a context -> 'a formula -> 'a formula
+
+(** Given a formula [phi], compute an equivalent formula without if-then-else
+   terms.  [lift-ite] does not introduce new symbols or quantifiers.
+   [eliminate_ite] should generally be preferred over [lift_ite] in cases
+   where either procedure suffices. *)
+val lift_ite : 'a context -> 'a formula -> 'a formula
 
 (** Given a formula [phi], compute an equivalent formula without
    arr_eq terms. *)
 val eliminate_arr_eq : 'a context -> 'a formula -> 'a formula
+
+(** Given a formula [phi], compute an equivalent formula without floor, mod,
+   or div terms that is equivalent to [phi] when projected on to the symbols
+   of [phi]. *)
+val eliminate_floor_mod_div : 'a context -> 'a formula -> 'a formula
 
 (** Print a formula as a satisfiability query in SMTLIB2 format.
     The query includes function declarations and (check-sat).

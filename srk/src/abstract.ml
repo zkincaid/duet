@@ -53,7 +53,8 @@ let boxify srk phi terms =
   | `Unknown -> assert false
 
 let abstract ?exists:(p=fun _ -> true) srk man phi =
-  let solver = Smt.mk_solver srk in
+  let module Solver = Smt.StdSolver in
+  let solver = Solver.make srk in
   let phi_symbols = symbols phi in
   let symbol_list = Symbol.Set.elements phi_symbols in
   let env_proj = SrkApron.Env.of_set srk (Symbol.Set.filter p phi_symbols) in
@@ -61,9 +62,9 @@ let abstract ?exists:(p=fun _ -> true) srk man phi =
 
   let disjuncts = ref 0 in
   let rec go prop =
-    Smt.Solver.add solver [mk_not srk (SrkApron.formula_of_property prop)];
+    Solver.add solver [mk_not srk (SrkApron.formula_of_property prop)];
     let result =
-      Log.time "lazy_dnf/sat" (Smt.Solver.get_concrete_model solver) symbol_list
+      Log.time "lazy_dnf/sat" (Solver.get_concrete_model solver) symbol_list
     in
     match result with
     | `Unsat -> prop
@@ -111,7 +112,7 @@ let abstract ?exists:(p=fun _ -> true) srk man phi =
         end
       end
   in
-  Smt.Solver.add solver [phi];
+  Solver.add solver [phi];
   Log.time "Abstraction" go (SrkApron.bottom man env_proj)
 
 type 'a smt_model =
@@ -127,7 +128,7 @@ type ('a, 'b) domain =
 
 module Solver = struct
   type 'a smt_solver =
-    [ `LIRA of 'a Smt.Solver.t
+    [ `LIRA of 'a Smt.StdSolver.t
     | `LIRR of 'a LirrSolver.Solver.t ]
 
   type 'a t =
@@ -144,8 +145,8 @@ module Solver = struct
         LirrSolver.Solver.add s [formula];
         `LIRR s
       | `LIRA ->
-        let s = Smt.Solver.make srk in
-        Smt.Solver.add s [formula];
+        let s = Smt.StdSolver.make srk in
+        Smt.StdSolver.add s [formula];
         `LIRA s
     in
     { solver = solver
@@ -159,9 +160,9 @@ module Solver = struct
   let with_blocking s f x =
     match s.solver with
     | `LIRA s ->
-      Smt.Solver.push s;
+      Smt.StdSolver.push s;
       let result = f x in
-      Smt.Solver.pop s 1;
+      Smt.StdSolver.pop s 1;
       result
     | `LIRR s ->
       LirrSolver.Solver.push s;
@@ -172,13 +173,13 @@ module Solver = struct
   let block s phi =
     let not_phi = mk_not (get_context s) phi in
     match s.solver with
-    | `LIRA s -> Smt.Solver.add s [not_phi]
+    | `LIRA s -> Smt.StdSolver.add s [not_phi]
     | `LIRR s -> LirrSolver.Solver.add s [not_phi]
 
   let get_model s =
     match s.solver with
     | `LIRA smt_solver ->
-      begin match Smt.Solver.get_model smt_solver with
+      begin match Smt.StdSolver.get_model smt_solver with
         | `Unsat -> `Unsat
         | `Unknown -> `Unknown
         | `Sat m ->
@@ -426,25 +427,25 @@ module LinearSpan = struct
         match Linear.solve mat' (QQVector.of_term QQ.one row_num) with
         | None -> go vanishing_fns mat (dim - 1)
         | Some candidate ->
-          Smt.Solver.push smt_solver;
+          Smt.StdSolver.push smt_solver;
           let candidate_term =
             Linear.term_of_vec srk (fun i -> terms.(i)) candidate
           in
-          Smt.Solver.add smt_solver [
+          Smt.StdSolver.add smt_solver [
             mk_not srk (mk_eq srk candidate_term zero)
           ];
-          match Smt.Solver.get_model smt_solver with
+          match Smt.StdSolver.get_model smt_solver with
           | `Unknown -> (* give up; return the functions we have so far *)
-            Smt.Solver.pop smt_solver 1;
+            Smt.StdSolver.pop smt_solver 1;
             logf ~level:`warn
               "vanishing_space timed out (%d functions)"
               (List.length vanishing_fns);
             vanishing_fns
           | `Unsat -> (* candidate vanishes on phi *)
-            Smt.Solver.pop smt_solver 1;
+            Smt.StdSolver.pop smt_solver 1;
             go (candidate::vanishing_fns) mat' (dim - 1)
           | `Sat point -> (* candidate is non-zero at point *)
-            Smt.Solver.pop smt_solver 1;
+            Smt.StdSolver.pop smt_solver 1;
             let point_row =
               BatArray.fold_lefti (fun row i t ->
                   QQVector.add_term (Interpretation.evaluate_term point t) i row)

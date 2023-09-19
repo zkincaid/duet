@@ -13,6 +13,7 @@ module VS = BatSet.Make(Linear.QQVector)
 module VM = BatMap.Make(Linear.QQVector)
 module ZZVector = Linear.ZZVector
 module IntSet = SrkUtil.Int.Set
+module Solver = Smt.StdSolver
 
 let substitute_const srk sigma expr =
   let simplify t = of_linterm srk (linterm_of srk t) in
@@ -1046,12 +1047,12 @@ module CSS = struct
       (* solver for the *negation* of the winning formula for skeleton (unsat
          iff there is a winning SAT strategy for formula which conforms to
          skeleton) *)
-      solver : 'a Smt.Solver.t;
+      solver : 'a Solver.t;
       srk : 'a context;
     }
 
   let reset ctx =
-    Smt.Solver.reset ctx.solver;
+    Solver.reset ctx.solver;
     ctx.skeleton <- Skeleton.SEmpty
 
   let add_path ctx path =
@@ -1061,7 +1062,7 @@ module CSS = struct
       let win =
         Skeleton.path_winning_formula srk path ctx.skeleton ctx.formula
       in
-      Smt.Solver.add ctx.solver [mk_not srk win]
+      Solver.add ctx.solver [mk_not srk win]
     with Redundant_path -> ()
 
   (* Check if a given skeleton is winning.  If not, synthesize a
@@ -1073,7 +1074,7 @@ module CSS = struct
       | Some p -> p
       | None   -> Interpretation.empty ctx.srk
     in
-    match Smt.Solver.get_model ctx.solver with
+    match Solver.get_model ctx.solver with
     | `Unsat ->
       logf "Winning formula is valid";
       `Unsat
@@ -1191,8 +1192,8 @@ module CSS = struct
         let win =
           Skeleton.path_winning_formula srk sat_path skeleton phi
         in
-        let solver = Smt.mk_solver srk in
-        Smt.Solver.add solver [mk_not srk win];
+        let solver = Solver.make srk in
+        Solver.add solver [mk_not srk win];
         { formula = phi;
           not_formula = not_phi;
           skeleton = skeleton;
@@ -1204,8 +1205,8 @@ module CSS = struct
         let win =
           Skeleton.path_winning_formula srk unsat_path skeleton not_phi
         in
-        let solver = Smt.mk_solver srk in
-        Smt.Solver.add solver [mk_not srk win];
+        let solver = Solver.make srk in
+        Solver.add solver [mk_not srk win];
         { formula = not_phi;
           not_formula = phi;
           skeleton = skeleton;
@@ -1297,7 +1298,7 @@ module CSS = struct
       is_sat ()
 
   let _minimize_skeleton param_interp ctx =
-    let solver = Smt.mk_solver ctx.srk in
+    let solver = Solver.make ctx.srk in
     let paths = Skeleton.paths ctx.skeleton in
     let path_guards =
       List.map (fun _ -> mk_const ctx.srk (mk_symbol ctx.srk `TyBool)) paths
@@ -1324,8 +1325,8 @@ module CSS = struct
           | Some x -> x
           | None -> assert false)
     in
-    Smt.Solver.add solver psis;
-    match Smt.Solver.get_unsat_core solver path_guards with
+    Solver.add solver psis;
+    match Solver.get_unsat_core solver path_guards with
     | `Sat -> assert false
     | `Unknown -> assert false
     | `Unsat core ->
@@ -1396,12 +1397,12 @@ let simsat_forward_core srk qf_pre phi =
       let open CSS in
       BatEnum.iter (function
           | (k, `Real qv) ->
-            Smt.Solver.add ctx.solver
+            Solver.add ctx.solver
               [mk_eq srk (mk_const srk k) (mk_real srk qv)]
           | (k, `Bool false) ->
-            Smt.Solver.add ctx.solver [mk_not srk (mk_const srk k)]
+            Solver.add ctx.solver [mk_not srk (mk_const srk k)]
           | (k, `Bool true) ->
-            Smt.Solver.add ctx.solver [mk_const srk k]
+            Solver.add ctx.solver [mk_const srk k]
           | (_, `Fun _) -> ())
         (Interpretation.enum parameter_interp)
     in
@@ -1415,10 +1416,10 @@ let simsat_forward_core srk qf_pre phi =
         { formula = phi;
           not_formula = not_phi;
           skeleton = skeleton;
-          solver = Smt.mk_solver srk;
+          solver = Solver.make srk;
           srk = srk }
       in
-      Smt.Solver.add ctx.solver [mk_not srk win];
+      Solver.add ctx.solver [mk_not srk win];
       assert_param_constraints ctx parameter_interp;
       ctx
     in
@@ -1432,10 +1433,10 @@ let simsat_forward_core srk qf_pre phi =
         { formula = not_phi;
           not_formula = phi;
           skeleton = skeleton;
-          solver = Smt.mk_solver srk;
+          solver = Solver.make srk;
           srk = srk }
       in
-      Smt.Solver.add ctx.solver [mk_not srk win];
+      Solver.add ctx.solver [mk_not srk win];
       assert_param_constraints ctx parameter_interp;
       ctx
     in
@@ -1538,7 +1539,7 @@ let simsat_forward_core srk qf_pre phi =
                 Skeleton.path_winning_formula srk path ctx.skeleton ctx.formula
                 |> Interpretation.substitute param_interp
               in
-              Smt.Solver.add ctx.solver [mk_not srk win]
+              Solver.add ctx.solver [mk_not srk win]
             with Redundant_path -> ()
           in
           List.iter add_path (Skeleton.paths skeleton');
@@ -1643,7 +1644,7 @@ let maximize_feasible srk phi t =
         | None -> ()
         | Some b ->
           CSS.reset unsat_ctx;
-          Smt.Solver.add sat_ctx.CSS.solver [
+          Solver.add sat_ctx.CSS.solver [
             mk_lt srk (mk_const srk objective_skolem) (mk_real srk b)
           ]
       end;
@@ -1735,12 +1736,12 @@ let maximize srk phi t =
 exception Unknown
 let qe_mbp srk phi =
   let (qf_pre, phi) = normalize srk phi in
-  let phi = eliminate_ite srk phi in
+  let phi = lift_ite srk phi in
   let exists x phi =
-    let solver = Smt.mk_solver srk in
+    let solver = Solver.make srk in
     let disjuncts = ref [] in
     let rec loop () =
-      match Smt.Solver.get_model solver with
+      match Solver.get_model solver with
       | `Sat m ->
         let implicant =
           match select_implicant srk m phi with
@@ -1751,12 +1752,12 @@ let qe_mbp srk phi =
         let vt = mbp_virtual_term srk m x implicant in
         let psi = virtual_substitution srk x vt phi in
         disjuncts := psi::(!disjuncts);
-        Smt.Solver.add solver [mk_not srk psi];
+        Solver.add solver [mk_not srk psi];
         loop ()
       | `Unsat -> mk_or srk (!disjuncts)
       | `Unknown -> raise Unknown
     in
-    Smt.Solver.add solver [phi];
+    Solver.add solver [phi];
     loop ()
   in
   List.fold_right
@@ -1844,7 +1845,7 @@ let _orient project eqs =
 
 let mbp ?(dnf=false) srk exists phi =
   let phi =
-    eliminate_ite srk phi
+    lift_ite srk phi
     |> rewrite srk
          ~down:(pos_rewriter srk)
          ~up:(SrkSimplify.simplify_terms_rewriter srk)
@@ -1858,7 +1859,7 @@ let mbp ?(dnf=false) srk exists phi =
       project
       IntSet.empty
   in
-  let solver = Smt.mk_solver ~theory:"QF_LIA" srk in
+  let solver = Solver.make ~theory:"QF_LIA" srk in
   let disjuncts = ref [] in
   let is_true phi =
     match Formula.destruct srk phi with
@@ -1874,7 +1875,7 @@ let mbp ?(dnf=false) srk exists phi =
     Symbol.Map.add symbol term (Symbol.Map.map subst_symbol subst)
   in
   let rec loop () =
-    match Smt.Solver.get_model solver with
+    match Solver.get_model solver with
     | `Sat interp ->
        let implicant =
          match select_implicant srk interp phi with
@@ -1985,12 +1986,12 @@ let mbp ?(dnf=false) srk exists phi =
          |> SrkSimplify.simplify_terms srk
        in
        disjuncts := disjunct::(!disjuncts);
-       Smt.Solver.add solver [mk_not srk disjunct];
+       Solver.add solver [mk_not srk disjunct];
        loop ()
     | `Unsat -> mk_or srk (!disjuncts)
     | `Unknown -> raise Unknown
   in
-  Smt.Solver.add solver [phi];
+  Solver.add solver [phi];
   loop ()
 
 let easy_sat srk phi =
@@ -2259,16 +2260,15 @@ let cover_virtual_substitution srk x virtual_term phi =
     map_arith_atoms srk replace_atom phi
 
 let mbp_cover ?(dnf=true) srk exists phi =
-  let phi = eliminate_ite srk phi in
+  let phi = lift_ite srk phi in
   let phi = rewrite srk ~down:(pos_rewriter srk) phi in
   let project =
     Symbol.Set.filter (not % exists) (symbols phi)
   in
-  let phi = eliminate_ite srk phi in
-  let solver = Smt.mk_solver srk in
+  let solver = Solver.make srk in
   let disjuncts = ref [] in
   let rec loop () =
-    match Smt.Solver.get_model solver with
+    match Solver.get_model solver with
     | `Sat m ->
       let implicant =
         match select_implicant srk m phi with
@@ -2289,12 +2289,12 @@ let mbp_cover ?(dnf=true) srk exists phi =
       in
 
       disjuncts := psi::(!disjuncts);
-      Smt.Solver.add solver [mk_not srk psi];
+      Solver.add solver [mk_not srk psi];
       loop ()
     | `Unsat -> mk_or srk (!disjuncts)
     | `Unknown -> raise Unknown
   in
-  Smt.Solver.add solver [phi];
+  Solver.add solver [phi];
   loop ()
 
 let local_project_cube srk exists model cube =

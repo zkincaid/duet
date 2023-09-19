@@ -315,7 +315,7 @@ let isolate_linear srk x term =
   with Nonlinear -> None
 
 let simplify_dda srk phi =
-  let solver = Smt.mk_solver srk in
+  let solver = Smt.Solver.make srk in
   let rec simplify_children star children =
     let changed = ref false in
     let rec go simplified = function
@@ -593,98 +593,3 @@ let propositionalize srk =
       | `Atom _atom -> true
       | _ -> false)
     ~label:(fun _ -> "prop_atom")
-
-let eliminate_term srk filter ?(label=fun _ -> "") gen_equiv (qf_phi : 'a formula) =
-  let (phi', map) =
-    purify_expr srk filter ~label qf_phi
-  in
-  let equivalences =
-    Symbol.Map.fold
-      (fun sym expr equivalences -> gen_equiv sym expr @ equivalences)
-      map []
-  in
-  mk_and srk (phi' :: equivalences)
-
-let eliminate_ite srk phi =
-  let filter expr =
-    match destruct srk expr with
-    | `Ite (_, _, _) -> true
-    | _ -> false
-  in
-  let label _ = "ite" in
-  let gen_equiv sym expr =
-    match destruct srk expr with
-    | `Ite (cond, bthen, belse) ->
-      let mk_eq a b =
-        match Expr.refine srk a, Expr.refine srk b with
-        | `Formula p, `Formula q -> mk_iff srk p q
-        | `ArithTerm s, `ArithTerm t -> mk_eq srk s t
-        | `ArrTerm s, `ArrTerm t -> mk_arr_eq srk s t
-        | _, _ -> assert false
-      in
-      let k = mk_const srk sym in
-      [mk_or srk [mk_and srk [cond; mk_eq k bthen]
-                 ; mk_and srk [mk_not srk cond; mk_eq k belse]]]
-    | _ -> assert false
-  in
-  eliminate_term srk filter ~label gen_equiv phi
-
-let eliminate_floor_mod_div srk phi =
-  let filter expr =
-    match destruct srk expr with
-    | `Unop (`Floor, _t) -> true
-    | `Binop (`Mod, _s, _t) -> true
-    | `Binop (`Div, _s, _t) -> true
-    | _ -> false in
-  let label expr =
-    match destruct srk expr with
-    | `Unop (`Floor, _t) -> "floor"
-    | `Binop (`Mod, _s, _t) -> "remainder"
-    | `Binop (`Div, _s, _t) -> "quotient"
-    | _ -> ""
-  in
-  let gen_equiv sym expr =
-    let constraints_for_rem r t integral =
-      (* 0 <= r < |t| <=> 0 <= r /\ (r < t \/ r < -t) *)
-      let r_nonneg = mk_leq srk (mk_int srk 0) r in
-      let t_bound =
-        if integral then
-          mk_or srk [ mk_leq srk r (mk_add srk [t; mk_int srk (-1)])
-                    ; mk_leq srk r (mk_add srk [mk_neg srk t ; mk_int srk (-1)])]
-        else
-          mk_or srk [ mk_lt srk r t
-                    ; mk_lt srk r (mk_neg srk t)]
-      in
-      [r_nonneg ; t_bound]
-    in
-    begin
-      match destruct srk expr with
-      | `Unop (`Floor, t) ->
-         (* floor(t) --> [s = floor(t)] ; s : Int, s* : Real ; t = s + s* /\ 0 <= s* < 1 *)
-         let fractional_part = mk_symbol srk ~name:"fraction" `TyReal
-                               |> mk_const srk in
-         let integer_part = mk_const srk sym in
-         let sum = mk_add srk [integer_part ; fractional_part] in
-         let lower_bound = mk_leq srk (mk_real srk QQ.zero) fractional_part in
-         let upper_bound = mk_lt srk fractional_part (mk_real srk QQ.one) in
-         [mk_eq srk t sum; lower_bound; upper_bound]
-      | `Binop (`Mod, s, t) ->
-         let quotient = mk_symbol srk ~name:"quotient" `TyInt
-                        |> mk_const srk in
-         let rem = mk_const srk sym in
-         let sum = mk_add srk [mk_mul srk [quotient ; t] ; rem] in
-         let integral = (expr_typ srk s = `TyInt) && (expr_typ srk t = `TyInt) in
-         [mk_or srk
-            [ mk_eq srk t (mk_int srk 0) (* t = 0 *)
-            (* or s = qt + r and 0 <= r < |t| *)
-            ; mk_and srk (mk_eq srk s sum :: (constraints_for_rem rem t integral))
-            ]
-         ]
-      | `Binop (`Div, s, t) ->
-        [mk_or srk
-           [ mk_eq srk t (mk_int srk 0)
-           ; mk_eq srk s (mk_mul srk [mk_const srk sym ; t])]]
-      | _ -> []
-    end
-  in
-  eliminate_term srk filter ~label gen_equiv phi

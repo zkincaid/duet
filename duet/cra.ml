@@ -150,7 +150,7 @@ module K = struct
   module CRARefinement = Refinement.DomainRefinement
       (struct
         include Tr
-        let is_zero a = ((LirrSolver.is_sat srk (guard a)) == `Unsat)
+        let is_zero a = ((Smt.is_sat srk (guard a)) == `Unsat)
       end)
 
   let to_dnf x =
@@ -880,15 +880,15 @@ let analyze file =
           dump_goal loc path_condition;
           if !monotone then
             begin
-            match LirrSolver.is_sat Ctx.context path_condition with
+              match Smt.is_sat Ctx.context path_condition with
               | `Sat -> Report.log_error loc msg
-          | `Unsat -> Report.log_safe ()
-          | `Unknown ->
-            logf ~level:`warn "Z3 inconclusive";
-            Report.log_error loc msg;
-          end
+              | `Unsat -> Report.log_safe ()
+              | `Unknown ->
+                logf ~level:`warn "Z3 inconclusive";
+                Report.log_error loc msg;
+            end
           else
-              begin
+            begin
               match Wedge.is_sat Ctx.context path_condition with
               | `Sat -> Report.log_error loc msg
               | `Unsat -> Report.log_safe ()

@@ -81,7 +81,7 @@ let find_inv_functionals dx_dims implied_ideal =
     null_space
 
 let compute_LIRR_invariants srk tr_symbols loop_counter tf =
-  let tf = TF.map_formula (SrkSimplify.eliminate_floor_mod_div srk) tf in
+  let tf = TF.map_formula (Syntax.eliminate_floor_mod_div srk) tf in
   (* For each variable x, create a symbol d_x representing x' - x *)
   let (dx_subst_diff, dx_subst_x, dx_defs) =
     List.fold_left

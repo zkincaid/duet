@@ -500,10 +500,11 @@ let abstract srk tf =
     |> Nonlinear.linearize srk
   in
   let tr_symbols = TF.symbols tf in
-  let solver = Smt.mk_solver srk in
+  let module Solver = Smt.StdSolver in
+  let solver = Solver.make srk in
   let rec go vas =
-    Smt.Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
-    match Smt.Solver.get_model solver with
+    Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
+    match Solver.get_model solver with
     | `Unsat -> vas
     | `Unknown -> assert false
     | `Sat m ->
@@ -513,7 +514,7 @@ let abstract srk tf =
         let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols in
         go (coproduct vas sing_transformer_vas)
   in
-  Smt.Solver.add solver [phi];
+  Solver.add solver [phi];
   let {v;s_lst} = go (mk_bottom tr_symbols) in
   let result = {v;s_lst} in
   result
@@ -530,7 +531,7 @@ module Monotone = struct
       |> Nonlinear.linearize srk
     in
     let tr_symbols = TF.symbols tf in
-    let solver = Smt.mk_solver srk in
+    let solver = Smt.Solver.make srk in
     let rec go vas =
       Smt.Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
       match Smt.Solver.get_model solver with
@@ -540,17 +541,15 @@ module Monotone = struct
          (* The cell of m consists of all transitions of phi in which
             each variable is directed the same way that it's directed
             in m (increasing, decreasing, stable). *)
+         let zero = mk_zero srk in
          let cell =
-           List.map (fun (x, x') ->
-               let cmp =
-                 QQ.compare (Interpretation.real m x) (Interpretation.real m x')
-               in
-               if cmp < 0 then
-                 mk_lt srk (mk_const srk x) (mk_const srk x')
-               else if cmp > 0 then
-                 mk_lt srk (mk_const srk x') (mk_const srk x)
-               else
-                 mk_eq srk (mk_const srk x) (mk_const srk x'))
+           List.filter_map (fun (x, x') ->
+               let delta_x = (mk_sub srk (mk_const srk x') (mk_const srk x)) in
+               match Smt.Model.sign m delta_x with
+               | `Zero -> Some (mk_eq srk zero delta_x)
+               | `Pos -> Some (mk_lt srk zero delta_x)
+               | `Neg -> Some (mk_lt srk delta_x zero)
+               | `Unknown -> None)
              tr_symbols
          in
          let cell_vas = alpha_hat srk (mk_and srk (phi::cell)) tr_symbols in

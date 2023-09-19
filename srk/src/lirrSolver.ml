@@ -227,8 +227,8 @@ module Solver = struct
 
   let propositionalize solver phi =
     let srk = solver.srk in
-    SrkSimplify.eliminate_ite srk phi
-    |> SrkSimplify.eliminate_floor_mod_div srk
+    eliminate_ite srk phi
+    |> eliminate_floor_mod_div srk
     |> rewrite srk ~down:(nnf_rewriter srk % lt_rewriter srk) ~up:(prop_rewriter solver)
 
 

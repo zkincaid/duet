@@ -312,13 +312,13 @@ let mk_sign_axioms srk =
 (* Does a given wedge entail a formula modulo LIRA + sign axioms? *)
 let wedge_entails wedge phi =
   let srk = wedge.srk in
-  let s = Smt.mk_solver srk in
-  Smt.Solver.add s [
+  let s = Smt.StdSolver.make srk in
+  Smt.StdSolver.add s [
     Nonlinear.uninterpret srk (to_formula wedge);
     Nonlinear.uninterpret srk (mk_not srk phi);
     mk_sign_axioms srk
   ];
-  match Smt.Solver.check s with
+  match Smt.StdSolver.check s with
   | `Sat | `Unknown -> false
   | `Unsat -> true
 
@@ -1961,7 +1961,7 @@ let is_sat srk phi =
   let phi =
     SrkSimplify.simplify_terms srk phi
   in
-  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
+  let solver = Smt.StdSolver.make ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
       ~down:(pos_rewriter srk)
@@ -1994,13 +1994,13 @@ let is_sat srk phi =
          try replace_defs_term (Symbol.Map.find x nonlinear)
          with Not_found -> mk_const srk x)
   in
-  Smt.Solver.add solver [lin_phi];
-  Smt.Solver.add solver nonlinear_defs;
+  Smt.StdSolver.add solver [lin_phi];
+  Smt.StdSolver.add solver nonlinear_defs;
   let lemma psi =
-    Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
+    Smt.StdSolver.add solver [Nonlinear.uninterpret srk psi]
   in
   let rec go () =
-    match Smt.Solver.get_model solver with
+    match Smt.StdSolver.get_model solver with
     | `Unsat -> `Unsat
     | `Unknown -> `Unknown
     | `Sat model ->
@@ -2027,7 +2027,7 @@ let is_sat srk phi =
           go ()
   in
   if Symbol.Map.is_empty nonlinear then
-    Smt.Solver.check solver
+    Smt.StdSolver.check solver
   else
     go ()
 
@@ -2074,11 +2074,11 @@ type ('a, 'b) subwedge =
     to_formula : 'b -> 'a formula }
 
 let abstract_subwedge subwedge ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true) srk phi =
-  let phi = eliminate_ite srk phi in
+  let phi = lift_ite srk phi in
   let phi = SrkSimplify.simplify_terms srk phi in
   logf "Abstracting formula@\n%a"
     (Formula.pp srk) phi;
-  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
+  let solver = Smt.StdSolver.make ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
       ~down:(pos_rewriter srk)
@@ -2112,11 +2112,11 @@ let abstract_subwedge subwedge ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true
          try replace_defs_term (Symbol.Map.find x nonlinear)
          with Not_found -> mk_const srk x)
   in
-  Smt.Solver.add solver [mk_sign_axioms srk];
-  Smt.Solver.add solver [lin_phi];
-  Smt.Solver.add solver [nonlinear_defs];
+  Smt.StdSolver.add solver [mk_sign_axioms srk];
+  Smt.StdSolver.add solver [lin_phi];
+  Smt.StdSolver.add solver [nonlinear_defs];
   let lemma psi =
-    Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
+    Smt.StdSolver.add solver [Nonlinear.uninterpret srk psi]
   in
   let rec go prop =
     let blocking_clause =
@@ -2125,8 +2125,8 @@ let abstract_subwedge subwedge ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true
       |> mk_not srk
     in
     logf ~level:`trace "Blocking clause %a" (Formula.pp srk) blocking_clause;
-    Smt.Solver.add solver [blocking_clause];
-    match Smt.Solver.get_model solver with
+    Smt.StdSolver.add solver [blocking_clause];
+    match Smt.StdSolver.get_model solver with
     | `Unsat -> prop
     | `Unknown ->
       logf ~level:`warn "Symbolic abstraction failed; returning top";
@@ -2155,11 +2155,11 @@ let abstract_subwedge subwedge ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true
   result
 
 let abstract_subwedge_weak subwedge srk phi =
-  let phi = eliminate_ite srk phi in
+  let phi = lift_ite srk phi in
   let phi = SrkSimplify.simplify_terms srk phi in
   logf "Abstracting formula@\n%a"
     (Formula.pp srk) phi;
-  let solver = Smt.mk_solver ~theory:"QF_LIRA" srk in
+  let solver = Smt.StdSolver.make ~theory:"QF_LIRA" srk in
   let uninterp_phi =
     rewrite srk
       ~down:(pos_rewriter srk)
@@ -2193,11 +2193,11 @@ let abstract_subwedge_weak subwedge srk phi =
          try replace_defs_term (Symbol.Map.find x nonlinear)
          with Not_found -> mk_const srk x)
   in
-  Smt.Solver.add solver [mk_sign_axioms srk];
-  Smt.Solver.add solver [lin_phi];
-  Smt.Solver.add solver [nonlinear_defs];
+  Smt.StdSolver.add solver [mk_sign_axioms srk];
+  Smt.StdSolver.add solver [lin_phi];
+  Smt.StdSolver.add solver [nonlinear_defs];
   let lemma psi =
-    Smt.Solver.add solver [Nonlinear.uninterpret srk psi]
+    Smt.StdSolver.add solver [Nonlinear.uninterpret srk psi]
   in
   let rec go prop =
     let blocking_clause =
@@ -2206,8 +2206,8 @@ let abstract_subwedge_weak subwedge srk phi =
       |> mk_not srk
     in
     logf ~level:`trace "Blocking clause %a" (Formula.pp srk) blocking_clause;
-    Smt.Solver.add solver [blocking_clause];
-    match Smt.Solver.get_model solver with
+    Smt.StdSolver.add solver [blocking_clause];
+    match Smt.StdSolver.get_model solver with
     | `Unsat -> prop
     | `Unknown ->
       logf ~level:`warn "Symbolic abstraction failed; returning top";

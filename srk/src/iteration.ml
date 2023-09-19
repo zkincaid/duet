@@ -695,18 +695,18 @@ module Split (Iter : PreDomain) = struct
         ~up:(Nonlinear.uninterpret_rewriter srk)
         body
     in
-    let solver = Smt.mk_solver srk in
-    Smt.Solver.add solver [uninterp_body];
+    let solver = Smt.StdSolver.make srk in
+    Smt.StdSolver.add solver [uninterp_body];
     let sat_modulo_body psi =
       let psi =
         rewrite srk
           ~up:(Nonlinear.uninterpret_rewriter srk)
           psi
       in
-      Smt.Solver.push solver;
-      Smt.Solver.add solver [psi];
-      let result = Smt.Solver.check solver in
-      Smt.Solver.pop solver 1;
+      Smt.StdSolver.push solver;
+      Smt.StdSolver.add solver [psi];
+      let result = Smt.StdSolver.check solver in
+      Smt.StdSolver.pop solver 1;
       result
     in
     let is_split_predicate psi =
@@ -862,12 +862,12 @@ let invariant_transition_predicates srk tf predicates =
     mk_and srk [substitute_const srk subst1 (TF.formula tf);
                 substitute_map srk map (TF.formula tf)]
   in
-  let solver = Smt.mk_solver srk in
+  let solver = Smt.Solver.make srk in
   let models = ref [] in
   Smt.Solver.add solver [seq];
   let is_invariant p =
     let inv = mk_if srk (substitute_map srk map' p) (substitute_map srk map p) in
-    List.for_all (fun m -> Interpretation.evaluate_formula m inv) !models && begin
+    List.for_all (fun m -> Smt.Model.sat m inv) !models && begin
         Smt.Solver.push solver;
         Smt.Solver.add solver [mk_not srk inv];
         match Smt.Solver.get_model solver with
@@ -896,7 +896,7 @@ let invariant_partition srk candidates tf =
       invariant_transition_predicates srk tf candidates
       |> BatArray.of_list
     in
-    let solver = Smt.mk_solver srk in
+    let solver = Smt.Solver.make srk in
     Smt.Solver.add solver [TF.formula tf];
     (* The predicate induce a parition of the transitions of T by
        their valuation of the predicates; find the cells of this
@@ -907,7 +907,7 @@ let invariant_partition srk candidates tf =
       | `Sat m ->
         logf "transition formula SAT, finding cell";
          let cell =
-           Array.map (Interpretation.evaluate_formula m) predicates
+           Array.map (Smt.Model.sat m) predicates
          in
          let new_cell =
           BatList.fold_lefti (
@@ -979,7 +979,7 @@ let phase_graph srk tf candidates algebra =
     mk_and srk [substitute_const srk subst1 (TF.formula tf);
                 substitute_map srk map (TF.formula tf)]
   in
-  let solver = Smt.mk_solver srk in
+  let solver = Smt.Solver.make srk in
   Smt.Solver.add solver [seq];
   let indicators =
     BatArray.mapi (fun ind predicate ->
@@ -1130,7 +1130,7 @@ module InvariantDirection (Iter : PreDomain) = struct
       |> invariant_transition_predicates srk tf
       |> BatArray.of_list
     in
-    let solver = Smt.mk_solver srk in
+    let solver = Smt.Solver.make srk in
     Smt.Solver.add solver [TF.formula tf];
     (* The predicate induce a parition of the transitions of T by
        their valuation of the predicates; find the cells of this
@@ -1140,7 +1140,7 @@ module InvariantDirection (Iter : PreDomain) = struct
       match Smt.Solver.get_model solver with
       | `Sat m ->
          let cell =
-           Array.map (Interpretation.evaluate_formula m) predicates
+           Array.map (Smt.Model.sat m) predicates
          in
          let cell_formula =
            List.mapi (fun i sat ->
