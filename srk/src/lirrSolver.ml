@@ -94,6 +94,16 @@ module Model = struct
     Polynomial.Rewrite.reduce (PolynomialCone.get_ideal m.cone) p
     |> P.equal P.zero
 
+  let sign srk m term =
+    let p =
+      P.of_term srk term
+      |> Polynomial.Rewrite.reduce (PolynomialCone.get_ideal m.cone)
+    in
+    if P.equal p P.zero then `Zero
+    else if PolynomialCone.mem p m.cone then `Pos
+    else if PolynomialCone.mem (P.negate p) m.cone then `Neg
+    else `Unknown
+
   let is_true_prop m k = Symbol.Set.mem k m.pos
 
   (* Determine whether a formula holds in a given model *)
@@ -135,7 +145,7 @@ module Solver = struct
   type 'a t =
     {
       (* (Propositional) sat solver *)
-      sat : 'a Smt.Solver.t
+      sat : 'a SrkZ3.Solver.t
     ; srk : 'a context
 
     (* Map atomic formulae to propositional variables *)
@@ -149,14 +159,14 @@ module Solver = struct
 
     (* Propositional skeletons of asserted formulae.  Not necessarily in same
        order they are asserted. *)
-    ; mutable asserts : 'a formula list }
+    ; mutable asserts : (('a formula) list) list }
 
-  let mk_solver srk =
-    { sat = Smt.mk_solver srk
+  let make srk =
+    { sat = SrkZ3.Solver.make srk
     ; srk = srk
     ; prop = Expr.HT.create 991
     ; unprop = Hashtbl.create 991
-    ; asserts = [] }
+    ; asserts = [[]] }
 
   (* Replace atoms with boolean proposition.  If an atom is *already* an
      boolean proposition, do nothing.  *)
@@ -217,8 +227,8 @@ module Solver = struct
 
   let propositionalize solver phi =
     let srk = solver.srk in
-    Nonlinear.eliminate_ite srk phi
-    |> Nonlinear.eliminate_floor_mod_div srk
+    eliminate_ite srk phi
+    |> eliminate_floor_mod_div srk
     |> rewrite srk ~down:(nnf_rewriter srk % lt_rewriter srk) ~up:(prop_rewriter solver)
 
 
@@ -236,8 +246,11 @@ module Solver = struct
 
   let add solver phis =
     let propped = List.map (propositionalize solver) phis in
-    Smt.Solver.add solver.sat propped;
-    solver.asserts <- List.rev_append propped solver.asserts
+    SrkZ3.Solver.add solver.sat propped;
+    match solver.asserts with
+    | [] -> assert false
+    | (hd::tl) ->
+      solver.asserts <- (List.rev_append propped hd)::tl
 
   let ( let* ) o f =
     match o with
@@ -342,9 +355,9 @@ module Solver = struct
               let line_prop_id =
                 int_of_symbol (destruct_prop_literal srk line_prop).atom
               in
-              Smt.Solver.add solver.sat [mk_if srk
-                                           (mk_and srk (core_of_witness srk witness))
-                                           line_prop];
+              SrkZ3.Solver.add solver.sat [mk_if srk
+                                             (mk_and srk (core_of_witness srk witness))
+                                             line_prop];
               `Sat (PV.sparsify ctx line, W.of_list [(P.one, line_prop_id)])
           | _, _ -> assert false)
     in
@@ -511,21 +524,25 @@ module Solver = struct
     else
       `Unsat positive_atoms
 
-  let get_model solver =
+  let get_model ?(assumptions=[]) solver =
     logf "Getting model...";
     let srk = solver.srk in
+    let assumptions = List.map (propositionalize solver) assumptions in
     let rec go () =
-      match Log.time "SAT solving" Smt.Solver.get_model solver.sat with
+      match Log.time "SAT solving" (SrkZ3.Solver.get_model ~assumptions) solver.sat with
       | `Unsat -> `Unsat
       | `Unknown -> `Unknown
       | `Sat model ->
         (* Select a cube of the propositional skeleton *)
         let prop_implicant =
-          List.fold_left
-            (fun implicant phi ->
-               match Interpretation.select_implicant model phi with
-               | Some xs -> List.rev_append xs implicant
-               | None -> assert false)
+          List.fold_left (fun implicant asserts ->
+              List.fold_left
+                (fun implicant phi ->
+                   match Interpretation.select_implicant model phi with
+                   | Some xs -> List.rev_append xs implicant
+                   | None -> assert false)
+                implicant
+                asserts)
             []
             solver.asserts
         in
@@ -538,15 +555,26 @@ module Solver = struct
                     unpropositionalize solver p
                     |> Formula.pp srk formatter))
               (BatList.enum cube);
-            Smt.Solver.add solver.sat [mk_not srk (mk_and srk cube)];
+            SrkZ3.Solver.add solver.sat [mk_not srk (mk_and srk cube)];
             go ()
           end
     in
     go ()
+
+  let push solver =
+    SrkZ3.Solver.push solver.sat;
+    solver.asserts <- ([]::solver.asserts)
+
+  let pop solver n =
+    assert (n >= 0);
+    SrkZ3.Solver.pop solver.sat n;
+    match BatList.drop n solver.asserts with
+    | [] -> failwith "LIRRSolver.pop: empty stack"
+    | asserts -> solver.asserts <- asserts
 end
 
 let get_model srk phi =
-  let solver = Solver.mk_solver srk in
+  let solver = Solver.make srk in
   Solver.add solver [phi];
   Solver.get_model solver
 
@@ -568,7 +596,7 @@ let abstract srk cl phi =
   let quantifiers, phi = get_quantifiers srk Env.empty phi in
   let term_of_dim dim = mk_const srk (symbol_of_int dim) in
   assert (BatList.for_all (fun (quant, _) -> quant == `Exists) quantifiers);
-  let solver = Solver.mk_solver srk in
+  let solver = Solver.make srk in
   let block pc =
     let blocking_clause =
       PolynomialCone.to_formula srk term_of_dim pc

@@ -128,27 +128,27 @@ let nnf () =
   assert_equal_formula (negate (negate phi)) phi;
   assert_equal_formula (negate' (negate' phi)) phi
 
-let elim_ite1 () =
+let lift_ite1 () =
   let phi =
     let open Infix in
     (int 0) <= (Ctx.mk_ite (x < y) x y)
   in
-  assert_equiv_formula (eliminate_ite srk phi) phi
+  assert_equiv_formula (lift_ite srk phi) phi
 
-let elim_ite2 () =
+let lift_ite2 () =
   let phi =
     let open Infix in
     x + (Ctx.mk_ite (x < z) x z)
     <= (Ctx.mk_ite (x < y) x y) + (Ctx.mk_ite (y < z) y z)
   in
-  assert_equiv_formula (eliminate_ite srk phi) phi
+  assert_equiv_formula (lift_ite srk phi) phi
 
-let elim_ite3 () =
+let lift_ite3 () =
   let phi =
     let open Infix in
     (int 0) <= x + (Ctx.mk_ite ((Ctx.mk_ite (x < z) x z) < z) x y)
   in
-  assert_equiv_formula (eliminate_ite srk phi) phi
+  assert_equiv_formula (lift_ite srk phi) phi
 
 let suite = "Syntax" >:::
   [
@@ -159,9 +159,9 @@ let suite = "Syntax" >:::
     "existential_closure2" >:: existential_closure2;
     "prenex" >:: prenex;
     "nnf" >:: nnf;
-    "elim_ite1" >:: elim_ite1;
-    "elim_ite2" >:: elim_ite2;
-    "elim_ite3" >:: elim_ite3;
+    "lift_ite1" >:: lift_ite1;
+    "lift_ite2" >:: lift_ite2;
+    "lift_ite3" >:: lift_ite3;
     "env1" >:: (fun () ->
       let e = List.fold_right Env.push [1;2;3;4;5] Env.empty in
       (0 -- 4) |> BatEnum.iter (fun i ->

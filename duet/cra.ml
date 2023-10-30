@@ -150,7 +150,7 @@ module K = struct
   module CRARefinement = Refinement.DomainRefinement
       (struct
         include Tr
-        let is_zero a = ((LirrSolver.is_sat srk (guard a)) == `Unsat)
+        let is_zero a = ((Smt.is_sat srk (guard a)) == `Unsat)
       end)
 
   let to_dnf x =
@@ -171,7 +171,7 @@ module K = struct
         (transform x)
     in
     let guard = mk_and srk guard in
-    let solver = LirrSolver.Solver.mk_solver srk in
+    let solver = LirrSolver.Solver.make srk in
     let project x =
       match V.of_symbol x with
       | Some _ -> true
@@ -642,9 +642,10 @@ module MonotoneDom = struct
 
   let abstract tr =
     let tf = TF.linearize srk (K.to_transition_formula tr) in
+    let abs_solver = Abstract.Solver.make srk (TF.formula tf) in
     let coordinates = coordinates_of (TF.symbols tf) in
     let aff =
-      Abstract.vanishing_space srk (TF.formula tf) coordinates
+      Abstract.LinearSpan.abstract abs_solver coordinates
     in
     let signs =
       let deltas =
@@ -654,7 +655,7 @@ module MonotoneDom = struct
           (TF.symbols tf)
       in
       let vars = BatArray.to_list coordinates in
-      Sign.abstract srk (TF.formula tf) (vars@deltas)
+      Abstract.Sign.abstract abs_solver (vars@deltas)
     in
     (TF.symbols tf, signs, aff)
 
@@ -735,15 +736,13 @@ module TSDisplay = ExtGraph.Display.MakeLabeled
         | Call (s,t) -> Format.fprintf formatter "call(%d, %d)" s t
     end)
 
-module SA = Abstract.MakeAbstractRSY(Ctx)
-
 let decorate_transition_system predicates ts entry =
-  let module AbsDom =
-    TS.ProductIncr
-      (TS.ProductIncr(TS.LiftIncr(SA.Sign))(TS.LiftIncr(SA.AffineRelation)))
-      (TS.LiftIncr(SA.PredicateAbs(struct let universe = predicates end)))
+  let abstract_domain =
+    TS.product
+      (TS.product TS.sign TS.affine_relation)
+      (TS.predicate_abs predicates)
   in
-  let inv = TS.forward_invariants (module AbsDom) ts entry in
+  let inv = TS.forward_invariants abstract_domain ts entry in
   let member varset sym =
     match V.of_symbol sym with
     | Some v -> TS.VarSet.mem v varset
@@ -752,7 +751,9 @@ let decorate_transition_system predicates ts entry =
   TS.loop_headers_live ts
   |> List.fold_left (fun ts (v, live) ->
       let fresh_id = (Def.mk (Assume Bexpr.ktrue)).did in
-      let invariant = AbsDom.formula_of (AbsDom.exists (member live) (inv v)) in
+      let invariant =
+        abstract_domain.formula_of (abstract_domain.exists (member live) (inv v))
+      in
       logf "Found invariant at %d:@;%a" v (Syntax.Formula.pp srk) invariant;
       WG.split_vertex ts v (Weight (K.assume invariant)) fresh_id)
     ts
@@ -879,15 +880,15 @@ let analyze file =
           dump_goal loc path_condition;
           if !monotone then
             begin
-            match LirrSolver.is_sat Ctx.context path_condition with
+              match Smt.is_sat Ctx.context path_condition with
               | `Sat -> Report.log_error loc msg
-          | `Unsat -> Report.log_safe ()
-          | `Unknown ->
-            logf ~level:`warn "Z3 inconclusive";
-            Report.log_error loc msg;
-          end
+              | `Unsat -> Report.log_safe ()
+              | `Unknown ->
+                logf ~level:`warn "Z3 inconclusive";
+                Report.log_error loc msg;
+            end
           else
-              begin
+            begin
               match Wedge.is_sat Ctx.context path_condition with
               | `Sat -> Report.log_error loc msg
               | `Unsat -> Report.log_safe ()
@@ -1325,7 +1326,6 @@ let _ =
          let open Iteration in
          monotone := true;
          K.domain := (module Product(Product(SolvablePolynomial.SolvablePolynomialLIRR)(LIRRGuard))(LIRR))),
-         (*K.domain := (module SolvablePolynomial.SolvablePolynomialLIRR)),*)
      " Use weak arithmetic theory with solvable polynomial maps");
   CmdLine.register_config
     ("-lirr-usp",
@@ -1370,10 +1370,19 @@ let _ =
      Arg.Clear precondition,
      " Synthesize mortal preconditions");
   CmdLine.register_config
+<<<<<<< HEAD
     ("-no-fgb",
      Arg.Clear Polynomial.FGb.use_fgb,
      " Do not use fgb in any Grobner basis computation"
     )
+=======
+    ("-theory",
+     Arg.String (function
+         | "LIRA" -> Syntax.set_theory srk `LIRA;
+         | "LIRR" -> Syntax.set_theory srk `LIRR
+         | th -> failwith ("Unrecognized theory: " ^ th)),
+     " Set background theory (LIRA, LIRR)")
+>>>>>>> modern
 
 let _ =
   CmdLine.register_pass

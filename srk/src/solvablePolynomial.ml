@@ -817,12 +817,12 @@ let _extract_matrix_leq srk wedge tr_symbols term_of_id =
                       (mk_real srk (V.coeff pre (DArray.get constraints i))))
                 |> BatList.of_enum
               in
-              let s = Smt.mk_solver srk in
-              Smt.Solver.add s pos_constraints;
-              Smt.Solver.add s row_constraints;
+              let s = Smt.StdSolver.make srk in
+              Smt.StdSolver.add s pos_constraints;
+              Smt.StdSolver.add s row_constraints;
               let model =
                 (* First try for a simple recurrence, then fall back *)
-                Smt.Solver.push s;
+                Smt.StdSolver.push s;
                 (0 -- (Array.length m_entries - 1))
                 /@ (fun j ->
                     if i = j then
@@ -832,12 +832,12 @@ let _extract_matrix_leq srk wedge tr_symbols term_of_id =
                         (mk_const srk m_entries.(j))
                         (mk_real srk QQ.zero))
                 |> BatList.of_enum
-                |> Smt.Solver.add s;
-                match Smt.Solver.get_model s with
+                |> Smt.StdSolver.add s;
+                match Smt.StdSolver.get_model s with
                 | `Sat model -> model
                 | _ ->
-                  Smt.Solver.pop s 1;
-                  match Smt.Solver.get_model s with
+                  Smt.StdSolver.pop s 1;
+                  match Smt.StdSolver.get_model s with
                   | `Sat model -> model
                   | _ -> assert false
               in
@@ -1487,7 +1487,7 @@ module PresburgerGuard = struct
       pos_rewriter srk expr(*(SrkSimplify.simplify_terms_rewriter srk expr)*)
     in
     rewrite srk ~up:(idiv_to_ite srk) phi
-    |> eliminate_ite srk
+    |> lift_ite srk
     |> rewrite srk ~down:pos_simplify ~up:(abstract_presburger_rewriter srk)
 
   let exp srk tr_symbols loop_counter (sp, guard) =

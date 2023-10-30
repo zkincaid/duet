@@ -38,6 +38,11 @@ val inverse_homomorphism : t -> (Monomial.dim * QQXs.t) list -> t
 *)
 val inverse_linear_map : t -> (Monomial.dim * QQXs.t) list -> (QQXs.t list * QQXs.t list)
 
+(** [inverse_image C f] computes [f^{-1}(C)], where the array [f =
+   [f_0,...,f_n]] is regarded as the homomorphism Q[x_0,...,x_n] -> Q[X] that
+   sends [x_i -> f_i]. *)
+val inverse_image : t -> QQXs.t array -> t
+
 (** Get the ideal part of a polynomial cone. *)
 val get_ideal : t -> Rewrite.t
 

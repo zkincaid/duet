@@ -2,15 +2,17 @@
 open Syntax
 open Interpretation
 
-module Solver : sig
+module StdSolver : sig
   type 'a t
+  val make : ?context:SrkZ3.z3_context -> ?theory:string -> 'a context -> 'a t
   val add : 'a t -> ('a formula) list -> unit
   val push : 'a t -> unit
   val pop : 'a t -> int -> unit
   val reset : 'a t -> unit
-  val check : 'a t -> ('a formula) list -> [ `Sat | `Unsat | `Unknown ]
+  val check : ?assumptions:('a formula list) -> 'a t -> [ `Sat | `Unsat | `Unknown ]
   val to_string : 'a t -> string
   val get_model : ?symbols:(symbol list) ->
+    ?assumptions:('a formula list) ->
     'a t ->
     [ `Sat of 'a interpretation
     | `Unsat
@@ -25,7 +27,21 @@ module Solver : sig
     [ `Sat | `Unsat of ('a formula) list | `Unknown ]
 end
 
-val mk_solver : ?theory:string -> 'a context -> 'a Solver.t
+module Model : sig
+  type 'a t
+  val sat : 'a t -> 'a formula -> bool
+  val sign : 'a t -> 'a arith_term -> [ `Zero | `Pos | `Neg | `Unknown ]
+end
+
+module Solver : sig
+  type 'a t
+  val make : 'a context -> 'a t
+  val add : 'a t -> 'a formula list -> unit
+  val check : ?assumptions:('a formula list) -> 'a t -> [ `Sat | `Unsat | `Unknown ]
+  val get_model : 'a t -> [ `Sat of 'a Model.t | `Unsat | `Unknown ]
+  val push : 'a t -> unit
+  val pop : 'a t -> int -> unit
+end
 
 (** Compute a model of a formula.  The model is abstract -- it can be used to
     evaluate terms, but its bindings may not be enumerated (see

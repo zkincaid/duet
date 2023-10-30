@@ -35,10 +35,10 @@ mult: duet.exe -cra-no-forward-inv -cra @code/mult.c
 mult-rec: duet.exe -cra-no-forward-inv -cra @code/mult-rec.c
 exponential: duet.exe -cra-no-forward-inv -cra @code/exponential.c
 gauss_sum: duet.exe -cra-no-forward-inv -cra @code/gauss_sum.c
-degree3_monomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degree3_monomial.c
-degree3_binomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degree3_binomial.c
-degree4_monomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degree4_monomial.c
-degree4_binomial: duet.exe -cra-split-loops -cra-no-forward-inv -cra @code/degree4_binomial.c
+degree3_monomial: duet.exe -theory LIRR -lirr-sp -cra @code/degree3_monomial.c
+degree3_binomial: duet.exe -theory LIRR -lirr-sp -cra @code/degree3_binomial.c
+degree4_monomial: duet.exe -theory LIRR -lirr-sp -cra @code/degree4_monomial.c
+degree4_binomial: duet.exe -theory LIRR -lirr-sp -cra @code/degree4_binomial.c
 power_log: duet.exe -cra @code/power_log.c
 fib_secure: duet.exe -cra @code/fib_secure.c
 div_mod_sanity: duet.exe -cra -cra-no-forward-inv -lirr @code/fib_secure.c

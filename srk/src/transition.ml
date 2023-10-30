@@ -398,13 +398,14 @@ struct
       List.iter (fun (k, v) -> Hashtbl.add subscript_tbl k v) ss;
       mk_and srk phis
     in
-    let solver = Smt.mk_solver srk in
+    let module Solver = Smt.StdSolver in
+    let solver = Solver.make srk in
     List.iter2 (fun tr guard ->
-        Smt.Solver.add solver [to_ss_formula tr guard])
+        Solver.add solver [to_ss_formula tr guard])
       trs
       guards;
-    Smt.Solver.add solver [substitute_const srk subscript (mk_not srk post)];
-    match Smt.Solver.get_unsat_core solver indicators with
+    Solver.add solver [substitute_const srk subscript (mk_not srk post)];
+    match Solver.get_unsat_core solver indicators with
     | `Sat -> `Invalid
     | `Unknown -> `Unknown
     | `Unsat core ->

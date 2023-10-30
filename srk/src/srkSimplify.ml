@@ -231,7 +231,7 @@ let partition_implicant implicant =
 
 let simplify_conjunction srk cube =
   let cube = List.map (simplify_terms srk) cube in
-  let solver = SrkZ3.mk_solver srk in
+  let solver = SrkZ3.Solver.make srk in
   let indicator_map =
     List.fold_left (fun m prop ->
         Symbol.Map.add (mk_symbol srk `TyBool) prop m)
@@ -315,7 +315,7 @@ let isolate_linear srk x term =
   with Nonlinear -> None
 
 let simplify_dda srk phi =
-  let solver = Smt.mk_solver srk in
+  let solver = Smt.Solver.make srk in
   let rec simplify_children star children =
     let changed = ref false in
     let rec go simplified = function
@@ -346,14 +346,14 @@ let simplify_dda srk phi =
       Smt.Solver.push solver;
       Smt.Solver.add solver [phi];
       let simplified =
-        match Smt.Solver.check solver [] with
+        match Smt.Solver.check solver with
         | `Unknown -> phi
         | `Unsat -> mk_false srk
         | `Sat ->
           Smt.Solver.pop solver 1;
           Smt.Solver.push solver;
           Smt.Solver.add solver [mk_not srk phi];
-          match Smt.Solver.check solver [] with
+          match Smt.Solver.check solver with
           | `Unknown -> phi
           | `Unsat -> mk_true srk
           | `Sat -> phi

@@ -421,7 +421,7 @@ module Make
           let context = Z3.mk_context [("timeout", "100")] in
 
           let predicates' =
-            let solver = SrkZ3.mk_solver ~theory:"QF_LIRA" ~context srk in
+            let solver = SrkZ3.Solver.make ~theory:"QF_LIRA" ~context srk in
             let postify =
               substitute_const srk (fun sym ->
                   match Var.of_symbol sym with
@@ -486,7 +486,7 @@ module Make
                   end);
 
             List.fold_left2 (fun set predicate indicator ->
-                match SrkZ3.Solver.check solver [indicator] with
+                match SrkZ3.Solver.check ~assumptions:[indicator] solver  with
                 | `Unsat -> PS.add predicate set
                 | _ -> set)
               unmodified_predicates
@@ -714,52 +714,102 @@ module Make
     in
     List.fold_left live [] (L.loop_nest tg)
 
-  module type AbstractDomain = Abstract.MakeAbstractRSY(C).Domain
+  type 'a abstract_domain =
+    { abstract : C.t Abstract.Solver.t -> symbol list -> 'a -> 'a
+    ; bottom : 'a
+    ; top : 'a
+    ; join : 'a -> 'a -> 'a
+    ; formula_of : 'a -> C.t formula
+    ; exists : (symbol -> bool) -> 'a -> 'a
+    ; equal : 'a -> 'a -> bool }
 
-  module type IncrAbstractDomain = sig
-    include AbstractDomain
-    val incr_abstract : C.t Interpretation.interpretation list -> symbol list -> C.t Smt.Solver.t -> t -> (t * C.t Interpretation.interpretation list)
-  end
+  let product dA dB =
+    let abstract solver symbols (a, b) =
+      let a' = dA.abstract solver symbols a in
+      let b' = dB.abstract solver symbols b in
+      (a', b')
+    in
+    let bottom = (dA.bottom, dB.bottom) in
+    let top = (dA.top, dB.top) in
+    let formula_of (a, b) =
+      mk_and srk [dA.formula_of a; dB.formula_of b]
+    in
+    let exists p (a, b) = (dA.exists p a, dB.exists p b) in
+    let equal (a1, b1) (a2, b2) =
+      dA.equal a1 a2 && dB.equal b1 b2
+    in
+    let join (a1, b1) (a2, b2) =
+      (dA.join a1 a2, dB.join b1 b2)
+    in
+    { abstract; bottom; top; formula_of; exists; equal; join }
 
-  module LiftIncr (A : AbstractDomain) = struct
-    include A
-    let incr_abstract models symbols solver post =
-      let start =
-        List.fold_left (fun a m -> join a (of_model m symbols)) post models
+  let predicate_abs universe =
+    let abstract solver _ universe =
+      Abstract.PredicateAbs.abstract solver universe
+    in
+    let top = Expr.Set.empty in
+    let bottom = Expr.Set.of_list universe in
+    let formula_of = Abstract.PredicateAbs.formula_of srk in
+    let exists = Abstract.PredicateAbs.exists in
+    let equal = Expr.Set.equal in
+    let join = Abstract.PredicateAbs.join in
+    { abstract; bottom; top; formula_of; exists; equal; join }
+
+  let affine_relation =
+    let zero = mk_zero srk in
+    let trivial = Linear.QQVector.of_term QQ.one Linear.const_dim in
+    let formula_of relations =
+      List.map (fun vec -> mk_eq srk (Linear.of_linterm srk vec) zero) relations
+      |> mk_and srk
+    in
+    let project keep relations =
+      let keep_space =
+        Int.Set.fold (fun dim space ->
+            (Linear.QQVector.of_term QQ.one dim)::space)
+          keep
+          []
       in
-      let rec fix prop models =
-        Smt.Solver.add solver [mk_not srk (formula_of prop)];
-        match Smt.Solver.get_model solver with
-        | `Sat m ->
-          fix (join (of_model m symbols) prop) (m::models)
-        | `Unsat -> (prop, models)
-        | `Unknown ->
-          logf ~level:`warn "Unknown result in affine invariant update";
-          (top, models)
+      Linear.QQVectorSpace.intersect keep_space relations
+    in
+    let abstract solver symbols relations =
+      Abstract.LinearSpan.affine_hull solver ~bottom:relations symbols
+    in
+    let module IntSet = SrkUtil.Int.Set in
+    let exists p relations =
+      let keep =
+        List.fold_left (fun dimensions vec ->
+            BatEnum.fold (fun dimensions (_, dim) ->
+                if p (symbol_of_int dim) then
+                  IntSet.add dim dimensions
+                else
+                  dimensions)
+              dimensions
+              (Linear.QQVector.enum vec))
+          (IntSet.singleton Linear.const_dim)
+          relations
       in
-      Smt.Solver.push solver;
-      let result = fix start models in
-      Smt.Solver.pop solver 1;
-      result
-  end
+      project keep relations
+    in
+    let bottom = [trivial] in
+    let equal = Linear.QQVectorSpace.equal in
+    let join = Linear.QQVectorSpace.intersect in
+    let top = [] in
+    { abstract; top; bottom; formula_of; exists; equal; join }
 
-  module ProductIncr (A : IncrAbstractDomain)(B : IncrAbstractDomain) = struct
-    type t = A.t * B.t
-    let top = (A.top, B.top)
-    let bottom = (A.bottom, B.bottom)
-    let exists p (v1, v2) = (A.exists p v1, B.exists p v2)
-    let join (v1, v2) (v1', v2') = (A.join v1 v1', B.join v2 v2')
-    let equal (v1, v2) (v1', v2') = A.equal v1 v1' && B.equal v2 v2'
-    let of_model  m symbols = (A.of_model m symbols, B.of_model m symbols)
-    let formula_of  (v1, v2) = mk_and C.context [A.formula_of v1; B.formula_of v2]
+  let sign =
+    let abstract solver symbols bottom =
+      let terms = List.map (mk_const srk) symbols in
+      Abstract.Sign.abstract solver ~bottom terms
+    in
+    let top = Abstract.Sign.top in
+    let bottom = Abstract.Sign.bottom in
+    let formula_of = Abstract.Sign.formula_of srk in
+    let exists = Abstract.Sign.exists in
+    let equal = Abstract.Sign.equal in
+    let join = Abstract.Sign.join in
+    { abstract; top; bottom; formula_of; exists; equal; join }
 
-    let incr_abstract models symbols solver (post_a, post_b) =
-      let (a, models) = A.incr_abstract models symbols solver post_a in
-      let (b, models) = B.incr_abstract models symbols solver post_b in
-      ((a,b), models)
-  end
-
-  let forward_invariants (type a) (module D : IncrAbstractDomain with type t = a) tg entry =
+  let forward_invariants domain tg entry =
     let update ~pre weight ~post =
       match weight with
       | Weight tr ->
@@ -782,7 +832,7 @@ module Make
               mk_eq srk (mk_const srk (Var.symbol_of v)) (substitute_map srk subst t))
           |> BatList.of_enum
         in
-        let pre_formula = D.formula_of pre in
+        let pre_formula = domain.formula_of pre in
         let tf =
           mk_and srk (substitute_map srk subst (T.guard tr)
                       ::substitute_map srk subst pre_formula
@@ -799,10 +849,9 @@ module Make
                (symbols pre_formula))
           |> Symbol.Set.elements
         in
-        let solver = Smt.mk_solver srk in
-        Smt.Solver.add solver [tf];
-        let (post', _) = D.incr_abstract [] symbols solver post in
-        if D.equal post' post then
+        let solver = Abstract.Solver.make ~theory:`LIRA srk tf in
+        let post' = domain.abstract solver symbols post in
+        if domain.equal post' post then
           None
         else
           Some post'
@@ -813,17 +862,17 @@ module Make
           | None -> true
           | Some v -> not (Var.is_global v)
         in
-        let post' = D.exists is_local pre in
-        if D.equal post' post then
+        let post' = domain.exists is_local pre in
+        if domain.equal post' post then
           None
         else
-          Some (D.join post post')
+          Some (domain.join post post')
     in
     let init v =
       if v = entry then
-        D.top
+        domain.top
       else
-        D.bottom
+        domain.bottom
     in
     WG.forward_analysis tg ~entry ~update ~init
 end
