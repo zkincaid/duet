@@ -1370,19 +1370,16 @@ let _ =
      Arg.Clear precondition,
      " Synthesize mortal preconditions");
   CmdLine.register_config
-<<<<<<< HEAD
     ("-no-fgb",
      Arg.Clear Polynomial.FGb.use_fgb,
      " Do not use fgb in any Grobner basis computation"
-    )
-=======
+    );
     ("-theory",
      Arg.String (function
          | "LIRA" -> Syntax.set_theory srk `LIRA;
          | "LIRR" -> Syntax.set_theory srk `LIRR
          | th -> failwith ("Unrecognized theory: " ^ th)),
      " Set background theory (LIRA, LIRR)")
->>>>>>> modern
 
 let _ =
   CmdLine.register_pass
