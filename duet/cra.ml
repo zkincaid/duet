@@ -1368,7 +1368,12 @@ let _ =
   CmdLine.register_config
     ("-precondition",
      Arg.Clear precondition,
-     " Synthesize mortal preconditions")
+     " Synthesize mortal preconditions");
+  CmdLine.register_config
+    ("-no-fgb",
+     Arg.Clear Polynomial.FGb.use_fgb,
+     " Do not use fgb in any Grobner basis computation"
+    )
 
 let _ =
   CmdLine.register_pass

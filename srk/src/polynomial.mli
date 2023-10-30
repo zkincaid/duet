@@ -389,8 +389,6 @@ module Ideal : sig
 
   (** Make a rewrite system from the given ideal.*)
   val mk_rewrite : t -> Rewrite.t
-
-  val use_fgb : bool ref
 end
 
 (**Grobner basis computation using the FGb library.*)
@@ -406,6 +404,8 @@ module FGb : sig
   (**[get_mon_order block1 block2] should return the monomial ordering used in the Grobner basis computation [grobner_basis block1 block2 polys].*)
   val get_mon_order : Monomial.dim list -> Monomial.dim list -> Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt]
 
+  (**Use the FGb package when calling FGb.grobner_basis when set to true. Otherwise use Rewrite.grobner_basis.*)
+  val use_fgb : bool ref
 end
 
 
