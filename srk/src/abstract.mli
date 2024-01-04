@@ -70,6 +70,8 @@ module Solver : sig
      possible.  *)
   val get_model : 'a t -> [ `Sat of 'a smt_model | `Unsat | `Unknown ]
 
+  val get_context : 'a t -> 'a context
+
   (** [with_blocking s f x] executed [f x] under a new blocking level.  All
      formulas added to the solver using [block s phi] are forgotten. *)
   val with_blocking : 'a t -> ('c -> 'b) -> 'c -> 'b
@@ -128,4 +130,9 @@ module ConvexHull : sig
     ?bottom:(t option) ->
     'a arith_term array ->
     t
+end
+
+module PolynomialCone : sig
+  type t = PolynomialCone.t
+  val abstract : 'a Solver.t -> ?bottom:t -> 'a arith_term array -> t
 end

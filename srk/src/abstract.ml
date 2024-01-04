@@ -10,6 +10,7 @@ module LM = Linear.MakeLinearMap(QQ)(SrkUtil.Int)(V)(V)
 module QQXs = Polynomial.QQXs
 module I = Polynomial.Rewrite
 module Monomial = Polynomial.Monomial
+module PC = PolynomialCone
 
 let _pp_numeric_dim base formatter i =
   Format.fprintf formatter "%s_{%d}" base i
@@ -707,3 +708,49 @@ let affine_hull srk phi constants =
 let conv_hull ?(man=Polka.manager_alloc_loose ()) srk phi terms =
   let solver = Solver.make srk phi in
   ConvexHull.abstract solver ~man terms
+
+module PolynomialCone = struct
+  type t = PolynomialCone.t
+
+  let of_model_lira solver man terms model =
+    let polyhedron = ConvexHull.of_model_lira solver man terms model in
+    let (zero, pos) =
+      BatEnum.fold (fun (zero, pos) (kind, vec) ->
+          match kind with
+          | `Zero -> ((QQXs.of_vec vec)::zero, pos)
+          | `Nonneg | `Pos -> (zero, (QQXs.of_vec vec)::pos))
+        ([], [])
+        (DD.enum_constraints polyhedron)
+    in
+    PC.make_cone (I.mk_rewrite Monomial.degrevlex zero) pos
+
+  let of_model_lirr solver terms =
+    let srk = Solver.get_context solver in
+    let poly_terms = Array.map (QQXs.of_term srk) terms in
+    function
+    | `LIRA _ -> assert false
+    | `LIRR m ->
+      let cone = LirrSolver.Model.nonnegative_cone m in
+      PolynomialCone.inverse_image cone poly_terms
+
+  let abstract solver ?(bottom=PC.make_cone (I.mk_rewrite Monomial.degrevlex [QQXs.one]) []) terms =
+    let srk = Solver.get_context solver in
+    let zero = mk_zero srk in
+    let is_zero = mk_eq srk zero % QQXs.term_of srk (Array.get terms) in
+    let is_nonneg = mk_leq srk zero % QQXs.term_of srk (Array.get terms) in
+    let man = Polka.manager_alloc_loose () in
+    let formula_of prop =
+      mk_and srk ((List.map is_zero (I.generators (PC.get_ideal prop)))
+                  @ (List.map is_nonneg (PC.get_cone_generators prop)))
+    in
+    let of_model = match Solver.(solver.solver) with
+      | `LIRA _ -> of_model_lira solver man terms
+      | `LIRR _ -> of_model_lirr solver terms
+    in
+    let join = PC.intersection in
+    let top = PC.top in
+    let domain =
+      { join; top; of_model; bottom; formula_of }
+    in
+    Solver.abstract solver domain
+end
