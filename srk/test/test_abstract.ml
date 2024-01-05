@@ -1,9 +1,9 @@
 open Srk
 open OUnit
-open Abstract
 open Nonlinear
 open Test_pervasives
 
+let affine_hull = Abstract.affine_hull
 let hull_formula hull = Ctx.mk_and (List.map (Ctx.mk_eq (int 0)) hull)
 
 let affine_hull1 () =
@@ -345,6 +345,24 @@ let lt_abstract () =
   in
   assert_equiv_formula phi phi_abstract
 
+let abstract_pc () =
+  let phi =
+    let open Infix in
+    ((x = (int 1)) || ((x = y) && y <= (int 2)))
+    && (x*x <= z*z) && (z*z <= y)
+  in
+  let psi =
+    let open Infix in
+    x <= (int 2)
+    && x <= y && (x - (int 1))*(x - y) = (int 0)
+    && x*x <= x
+  in
+  let terms = [| x; y |] in
+  let solver = Abstract.Solver.make ~theory:`LIRR srk phi in
+  let cone = Abstract.PolynomialCone.abstract solver terms in
+  let abstract_phi = PolynomialCone.to_formula srk (Array.get terms) cone in
+  assert_equiv_formula psi abstract_phi
+
 let suite = "Abstract" >::: [
     "affine_hull1" >:: affine_hull1;
     "affine_hull2" >:: affine_hull2;
@@ -372,5 +390,6 @@ let suite = "Abstract" >::: [
     "nonlinear_abstract2" >:: nonlinear_abstract2;
     "mod_abstract" >:: mod_abstract;
     "degree3_abstract" >:: degree3_abstract;
-    "lt_abstract" >:: lt_abstract
+    "lt_abstract" >:: lt_abstract;
+    "abstract_pc" >:: abstract_pc
   ]

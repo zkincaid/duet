@@ -247,11 +247,11 @@ let inverse_image pc map =
   let elim_ord =
     let base_order = Rewrite.get_monomial_ordering pc.zero in
     let split m =
-      BatEnum.fold (fun (t,f) (dim, pow) ->
-          if dim >= dim then
-            (Monomial.mul_term (dim - 2*dim) pow t, f)
+      BatEnum.fold (fun (t,f) (cdim, pow) ->
+          if cdim >= dim then
+            (Monomial.mul_term (cdim - dim) pow t, f)
           else
-            (t, Monomial.mul_term dim pow f))
+            (t, Monomial.mul_term cdim pow f))
         (Monomial.one, Monomial.one)
         (Monomial.enum m)
     in
