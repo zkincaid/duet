@@ -239,7 +239,7 @@ let inverse_image pc map =
      are free to use *)
   let shift =
     QQXs.substitute (fun i ->
-        let i' = if i > 0 then i + dim else i in
+        let i' = if i >= 0 then i + dim else i in
         QQXs.of_dim i')
   in
   (* Elimination order that is compatible with the monomial order of pc; after
