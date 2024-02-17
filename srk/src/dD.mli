@@ -36,6 +36,9 @@ val of_constraints : ?man:(nnc Apron.Manager.t) ->
   int ->
   (constraint_kind * V.t) BatEnum.t -> nnc t
 
+(** The dimension of the ambient space that the polyhedron is in *)
+val ambient_dimension : 'a t -> int
+
 (** Enumerate the generators of a polyhedron. *)
 val enum_generators : 'a t -> (generator_kind * V.t) BatEnum.t
 
@@ -82,3 +85,5 @@ val lexpr_of_vec : V.t -> Linexpr0.t
    face is given by a point that it contains and the list of constraints
    active at that point (and all points on the minimal face).  *)
 val minimal_faces : 'a t -> (V.t * ((constraint_kind * V.t) list)) list
+
+val integer_hull : closed t -> closed t
