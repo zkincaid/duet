@@ -1341,7 +1341,9 @@ module FGb = struct
 
   let () = Faugere_zarith.Fgb_int_zarith.set_number_of_threads 2(*; Faugere_zarith.Fgb_int_zarith.set_fgb_verbosity 1*)
 
-  
+  let use_fgb = ref true
+
+
   let mon_to_fmon vs m = 
     List.map (
       fun v -> 
@@ -1409,10 +1411,12 @@ module FGb = struct
           raise (Faugere.FgbE s)
 
   let grobner_basis (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) (polys : QQXs.t list) = 
-    let fpolys = List.map (convert_to_faugere (blk1 @ blk2)) polys in
-    let gb = grobner_basis_fmon blk1 blk2 fpolys in
-    List.map (convert_from_faugere (blk1 @ blk2)) gb
-
+    if !use_fgb then
+      let fpolys = List.map (convert_to_faugere (blk1 @ blk2)) polys in
+      let gb = grobner_basis_fmon blk1 blk2 fpolys in
+      List.map (convert_from_faugere (blk1 @ blk2)) gb
+    else
+      Rewrite.generators (Rewrite.grobner_basis (Rewrite.mk_rewrite (get_mon_order blk1 blk2) polys))
 
 end
 
@@ -1607,10 +1611,9 @@ module Ideal = struct
   let pp pp_dim f i = 
     match i with | R id -> pp_r pp_dim f id | F id -> pp_f pp_dim f id
 
-  let use_fgb = ref true
 
   let make gs = 
-    if !use_fgb then F (make_f gs)
+    if !FGb.use_fgb then F (make_f gs)
     else R (make_r gs)
 
   let add_saturate i p = 

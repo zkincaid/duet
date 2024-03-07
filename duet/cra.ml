@@ -1370,6 +1370,10 @@ let _ =
      Arg.Clear precondition,
      " Synthesize mortal preconditions");
   CmdLine.register_config
+    ("-no-fgb",
+     Arg.Clear Polynomial.FGb.use_fgb,
+     " Do not use fgb in any Grobner basis computation"
+    );
     ("-theory",
      Arg.String (function
          | "LIRA" -> Syntax.set_theory srk `LIRA;
