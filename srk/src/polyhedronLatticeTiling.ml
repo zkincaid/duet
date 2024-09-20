@@ -1,10 +1,5 @@
 (**
    TODOs:
-   - Refactor full projection schemes for pure integer and pure LRA.
-
-   - Check LwCooper and MixedCooper: they determine if a variable is "integral"
-     by checking for occurrence in some IsInt; should this be restricted to only
-     positive IsInts?
 
    - Change signature of [abstract_to_plt] to output term definitions of new dimensions
      This helps debugging and local-global iteration at any point.
@@ -14,11 +9,6 @@
      new variables.
 
    - Run experiments to verify that everything is consistent.
-
-   - Lift single-point local abstraction to multiple-point local abstractions.
-
-   - Lift local abstraction to abstraction at any point in the composition.
-
  *)
 
 open Syntax
@@ -2402,15 +2392,23 @@ end = struct
       Plt.int_frac_layout ~num_terms:(Array.length terms)
     in
     let max_dim_in_projected = start_of_symbol_int_frac - 1 in
+    let convexify m plt =
+      ( Plt.polyhedron_of_far_lattice_points
+          ~man ~max_dim:max_dim_in_projected m plt
+      , fun m -> m)
+    in
     let local_abs =
       let open LocalAbstraction in
       Plt.abstract_to_intfrac_plt expand_mod_floor srk terms symbols
       |> compose
            (IntFracProjection.abstract_intfrac_plt
               ~elim:(fun dim -> dim > max_dim_in_projected))
+      (*
       |> compose
            (SubspaceCone.abstract_sc ~man ~max_dim_in_projected
               ~diversify_in_dd:false)
+       *)
+      |> compose { abstract = convexify }
       |> compose { abstract = map_intfrac }
     in
     local_abs
