@@ -1843,9 +1843,10 @@ let _orient project eqs =
   in
   go eqs []
 
-let mbp ?(dnf=false) srk exists phi =
+let exists_elim solver ?(dnf=false) exists =
+  let srk = Abstract.Solver.get_context solver in
   let phi =
-    lift_ite srk phi
+    lift_ite srk (Abstract.Solver.get_formula solver)
     |> rewrite srk
          ~down:(pos_rewriter srk)
          ~up:(SrkSimplify.simplify_terms_rewriter srk)
@@ -1859,7 +1860,6 @@ let mbp ?(dnf=false) srk exists phi =
       project
       IntSet.empty
   in
-  let solver = Solver.make ~theory:"QF_LIA" srk in
   let disjuncts = ref [] in
   let is_true phi =
     match Formula.destruct srk phi with
@@ -1875,8 +1875,9 @@ let mbp ?(dnf=false) srk exists phi =
     Symbol.Map.add symbol term (Symbol.Map.map subst_symbol subst)
   in
   let rec loop () =
-    match Solver.get_model solver with
-    | `Sat interp ->
+    match Abstract.Solver.get_model solver with
+    | `Sat (`LIRR _) -> invalid_arg "Quantifier.exists_elim does not support LIRR"
+    | `Sat (`LIRA interp) ->
        let implicant =
          match select_implicant srk interp phi with
          | Some x -> specialize_floor_cube srk interp x
@@ -1986,13 +1987,16 @@ let mbp ?(dnf=false) srk exists phi =
          |> SrkSimplify.simplify_terms srk
        in
        disjuncts := disjunct::(!disjuncts);
-       Solver.add solver [mk_not srk disjunct];
+       Abstract.Solver.block solver disjunct;
        loop ()
     | `Unsat -> mk_or srk (!disjuncts)
     | `Unknown -> raise Unknown
   in
-  Solver.add solver [phi];
-  loop ()
+  Abstract.Solver.with_blocking solver loop ()
+
+let mbp ?(dnf=false) srk exists phi =
+  let solver = Abstract.Solver.make srk phi in
+  exists_elim solver ~dnf exists
 
 let easy_sat srk phi =
   let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in

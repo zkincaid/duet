@@ -5,6 +5,7 @@ module M = Linear.QQMatrix
 module Z = Linear.ZZVector
 module H = Abstract
 module TF = TransitionFormula
+module IS = Iteration.Solver
 include Log.Make(struct let name = "srk.vas" end)
 
 (* A transformer defines an affine transition
@@ -337,7 +338,9 @@ let exp_base_helper srk (_ : (symbol * symbol) list) loop_counter s_lst transfor
 
 
 (*Compute closure*)
-let exp srk tr_symbols loop_counter vabs =
+let exp_t solver vabs loop_counter =
+  let srk = IS.get_context solver in
+  let tr_symbols = IS.get_symbols solver in
   let {v; s_lst} = vabs in
   (* if top*)  
   if(M.nb_rows (unify s_lst) = 0) 
@@ -349,7 +352,6 @@ let exp srk tr_symbols loop_counter vabs =
         (TSet.to_list v) kvarst ksumst (unify s_lst) tr_symbols in
     mk_and srk [formula; constr1]
   )
-
 
 (*Move matrix down by first_row rows*)
 let push_rows matrix first_row =
@@ -491,50 +493,44 @@ let alpha_hat srk imp tr_symbols =
   | false, false -> {v=TSet.singleton {a;b}; s_lst=[i;r]}
 
 (*TODO:Make a better pp function*)
-let pp srk syms formatter vas = Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
+let pp solver formatter vas =
+  let srk = IS.get_context solver in
+  let syms = IS.get_symbols solver in
+  Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
-let abstract srk tf =
-  let phi =
-    TF.formula tf
-    |> rewrite srk ~down:(pos_rewriter srk)
-    |> Nonlinear.linearize srk
-  in
-  let tr_symbols = TF.symbols tf in
-  let module Solver = Smt.StdSolver in
-  let solver = Solver.make srk in
+let abstract solver =
+  let srk = IS.get_context solver in
+  let tr_symbols = IS.get_symbols solver in
+  let abs_solver = IS.get_abstract_solver solver in
   let rec go vas =
-    Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
-    match Solver.get_model solver with
+    Abstract.Solver.block abs_solver (gamma srk vas tr_symbols);
+    match Abstract.Solver.get_model abs_solver with
     | `Unsat -> vas
-    | `Unknown -> assert false
-    | `Sat m ->
-      match Interpretation.select_implicant m phi with
+    | `Unknown | `Sat (`LIRR _) -> assert false
+    | `Sat (`LIRA m) ->
+      match Interpretation.select_implicant m (IS.get_formula solver) with
       | None -> assert false
       | Some imp ->
         let sing_transformer_vas = alpha_hat srk (mk_and srk imp) tr_symbols in
         go (coproduct vas sing_transformer_vas)
   in
-  Solver.add solver [phi];
-  let {v;s_lst} = go (mk_bottom tr_symbols) in
-  let result = {v;s_lst} in
-  result
+  Abstract.Solver.with_blocking abs_solver go (mk_bottom tr_symbols)
+
+let exp solver loop_counter = exp_t solver (abstract solver) loop_counter
 
 module Monotone = struct
   type nonrec 'a t = 'a t
   let pp = pp
-  let exp = exp
+  let exp_t = exp_t
 
-  let abstract srk tf =
-    let phi =
-      TF.formula tf
-      |> rewrite srk ~down:(pos_rewriter srk)
-      |> Nonlinear.linearize srk
-    in
-    let tr_symbols = TF.symbols tf in
-    let solver = Smt.Solver.make srk in
+  let abstract solver =
+    let srk = Iteration.Solver.get_context solver in
+    let tr_symbols = IS.get_symbols solver in
+    let phi = IS.get_formula solver in
+    let abs_solver = IS.get_abstract_solver solver in
     let rec go vas =
-      Smt.Solver.add solver [mk_not srk (gamma srk vas tr_symbols)];
-      match Smt.Solver.get_model solver with
+      Abstract.Solver.block abs_solver (gamma srk vas tr_symbols);
+      match Abstract.Solver.get_model abs_solver with
       | `Unsat -> vas
       | `Unknown -> assert false
       | `Sat m ->
@@ -545,7 +541,7 @@ module Monotone = struct
          let cell =
            List.filter_map (fun (x, x') ->
                let delta_x = (mk_sub srk (mk_const srk x') (mk_const srk x)) in
-               match Smt.Model.sign m delta_x with
+               match Abstract.Model.sign srk m delta_x with
                | `Zero -> Some (mk_eq srk zero delta_x)
                | `Pos -> Some (mk_lt srk zero delta_x)
                | `Neg -> Some (mk_lt srk delta_x zero)
@@ -554,8 +550,9 @@ module Monotone = struct
          in
          let cell_vas = alpha_hat srk (mk_and srk (phi::cell)) tr_symbols in
          go (coproduct vas cell_vas)
+
     in
-    Smt.Solver.add solver [phi];
-    let {v;s_lst} = go (mk_bottom tr_symbols) in
-    {v; s_lst}
+    Abstract.Solver.with_blocking abs_solver go (mk_bottom tr_symbols)
+
+  let exp solver loop_counter = exp_t solver (abstract solver) loop_counter
 end

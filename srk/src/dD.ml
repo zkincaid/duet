@@ -100,6 +100,7 @@ let is_bottom p = Abstract0.is_bottom (Abstract0.manager p) p
 let is_top p = Abstract0.is_top (Abstract0.manager p) p
 let equal p q = Abstract0.is_eq (Abstract0.manager p) p q
 let join p q = Abstract0.join (Abstract0.manager p) p q
+let widen p q = Abstract0.widening (Abstract0.manager p) p q
 let meet p q = Abstract0.meet (Abstract0.manager p) p q
 
 let of_generators ?(man=Polka.manager_alloc_loose ()) dim generators =

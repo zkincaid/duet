@@ -4,18 +4,24 @@ open OUnit
 open Test_pervasives
 open BatPervasives
 
+module TF = TransitionFormula
+
 let tr_symbols = [(wsym,wsym');(xsym,xsym');(ysym,ysym');(zsym,zsym')]
+
+let has_llrf tf =
+  TerminationLLRF.has_llrf (Iteration.Solver.make srk tf)
 
 let mp_exp =
   let all_sym = (List.map fst tr_symbols)@(List.map snd tr_symbols) in
   fun tr_symbols phi ->
   TerminationExp.mp
-    (module Iteration.LossyTranslation)
-    srk
-    (TransitionFormula.make
-       ~exists:(fun sym -> List.mem sym all_sym)
-       phi
-       tr_symbols)
+    Iteration.LossyTranslation.exp
+    (Iteration.Solver.make
+       srk
+       (TransitionFormula.make
+          ~exists:(fun sym -> List.mem sym all_sym)
+          phi
+          tr_symbols))
 
 let build_tf phi =
   let all_sym = (List.map fst tr_symbols)@(List.map snd tr_symbols) in
@@ -30,9 +36,9 @@ let mk_qqx vec =
     Polynomial.QQX.zero
     (List.mapi (fun i k -> (i, QQ.of_int k)) vec)
 
-let mp_llrf_with_phase tf = 
-  let mp_llrf tf =
-    if TerminationLLRF.has_llrf srk tf then
+let mp_llrf_with_phase phi =
+  let mp_llrf solver =
+    if TerminationLLRF.has_llrf solver then
       Syntax.mk_false srk
     else
       let fresh_skolem =
@@ -43,19 +49,34 @@ let mp_llrf_with_phase tf =
         | true -> mk_const srk sym
         | false -> fresh_skolem sym
       in
-      substitute_const srk subst (TransitionFormula.formula tf)
+      substitute_const srk subst (Iteration.Solver.get_formula solver)
   in
   let predicates =
     List.map (fun (x,x') ->
         let x = mk_const srk x in
         let x' = mk_const srk x' in
         [mk_lt srk x x';
-          mk_lt srk x' x;
-          mk_eq srk x x'])
-      (TransitionFormula.symbols tf)
+         mk_lt srk x' x;
+         mk_eq srk x x'])
+      (TF.symbols phi)
     |> List.concat
   in
-  mk_not srk (Iteration.phase_mp srk predicates tf mp_llrf)
+  let star solver =
+    let rtc =
+      Iteration.closure
+        Iteration.LossyTranslation.exp
+        solver
+    in
+    let k = mk_symbol srk `TyInt in
+    let tf = Iteration.Solver.get_transition_formula solver in
+    let exists x = x != k && (TF.exists tf) x in
+    TF.make
+      ~exists
+      rtc
+      (TF.symbols tf)
+  in
+  let solver = Iteration.Solver.make srk phi in
+  mk_not srk (Iteration.phase_mp srk predicates star mp_llrf solver)
 
 let assert_equal_pz x y =
   assert_equal 
@@ -67,7 +88,7 @@ let assert_equal_pq x y =
     ~cmp:Sequence.Periodic.equal 
     ~printer:(SrkUtil.mk_show (Sequence.Periodic.pp QQ.pp)) x y
 
-let mp_dta tf = TerminationDTA.mp srk tf
+let mp_dta tf = TerminationDTA.mp (Iteration.Solver.make srk tf)
 
 let suite = "Termination" >::: [
       "even" >:: (fun () ->
@@ -102,7 +123,7 @@ let suite = "Termination" >::: [
           Infix.( ((int 0) < x) && x' = x - (int 1))
           |> build_tf
         in
-        assert_bool "Has LLRF" (TerminationLLRF.has_llrf srk phi)
+        assert_bool "Has LLRF" (has_llrf phi)
       );
       "llrf_2D" >:: (fun () ->
         let phi =
@@ -111,7 +132,7 @@ let suite = "Termination" >::: [
                       || (y <= (int 0)) && y' = (int 10) && x' = x - (int 1)))
           |> build_tf
         in
-        assert_bool "Has LLRF" (TerminationLLRF.has_llrf srk phi)
+        assert_bool "Has LLRF" (has_llrf phi)
       );
       "llrf_sym_const" >:: (fun () ->
         let phi =
@@ -121,7 +142,7 @@ let suite = "Termination" >::: [
                         || (y <= z) && x' = x - (int 1)))
             [(xsym,xsym');(ysym,ysym')]
         in
-        assert_bool "Has LLRF" (TerminationLLRF.has_llrf srk phi)
+        assert_bool "Has LLRF" (has_llrf phi)
       );
       "no_llrf" >:: (fun () ->
         let phi =
@@ -130,7 +151,7 @@ let suite = "Termination" >::: [
                      || x' = x - (int 1)))
           |> build_tf
         in
-        assert_bool "No LLRF" (not (TerminationLLRF.has_llrf srk phi))
+        assert_bool "No LLRF" (not (has_llrf phi))
       );
       "no_llrf_sym_const" >:: (fun () ->
         let phi =
@@ -141,7 +162,7 @@ let suite = "Termination" >::: [
                         || (y <= z) && x' = x - (int 1)))
             [(xsym,xsym');(ysym,ysym')]
         in
-        assert_bool "No LLRF" (not (TerminationLLRF.has_llrf srk phi))
+        assert_bool "No LLRF" (not (has_llrf phi))
       );
       "llrf_with_phase_1" >:: (fun () ->
         let phi =
@@ -151,7 +172,7 @@ let suite = "Termination" >::: [
           [(xsym,xsym');(ysym,ysym')]
         in
         let expected_cond = Infix.((int 0) < y) in
-        assert_bool "No LLRF" (not (TerminationLLRF.has_llrf srk phi));
+        assert_bool "No LLRF" (not (has_llrf phi));
         assert_implies expected_cond (mp_llrf_with_phase phi)
       );
       "llrf_with_phase_2" >:: (fun () ->
@@ -164,7 +185,7 @@ let suite = "Termination" >::: [
           [(xsym,xsym');(ysym,ysym')]
         in
         let expected_cond = Infix.((int 0) <= y) in
-        assert_bool "No LLRF" (not (TerminationLLRF.has_llrf srk phi));
+        assert_bool "No LLRF" (not (has_llrf phi));
         assert_implies expected_cond (mp_llrf_with_phase phi)
       );
       "llrf_with_phase_3" >:: (fun () ->
@@ -175,7 +196,7 @@ let suite = "Termination" >::: [
           [(xsym,xsym');(ysym,ysym')]
         in
         let expected_cond = mk_true srk in
-        assert_bool "No LLRF" (not (TerminationLLRF.has_llrf srk phi));
+        assert_bool "No LLRF" (not (has_llrf phi));
         assert_implies expected_cond (mp_llrf_with_phase phi)
       );
       "char_seq_of_qq_poly_mod1" >:: (fun () ->

@@ -128,7 +128,7 @@ module Make
   (** Compute a representation of a transition as a transition formula. *)
   val to_transition_formula : t -> C.t TransitionFormula.t
 
-  val domain : (module Iteration.PreDomain) ref
+  val domain : (C.t Iteration.exp_op) ref
   val star : t -> t
   val linearize : t -> t
 end

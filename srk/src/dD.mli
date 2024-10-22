@@ -50,6 +50,9 @@ val join : 'a t -> 'a t -> 'a t
 (** Intersect two polyhedra. *)
 val meet : 'a t -> 'a t -> 'a t
 
+(** Widen two polyhedra. *)
+val widen : 'a t -> 'a t -> 'a t
+
 (** Test whether two polyhedra have exactly the same points *)
 val equal : 'a t -> 'a t -> bool
 

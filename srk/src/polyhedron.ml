@@ -96,18 +96,22 @@ let of_formula ?(admit=false) cs phi =
   in
   Formula.eval (CS.get_context cs) alg phi
 
-let implicant_of cs polyhedron =
-  let srk = CS.get_context cs in
-  let zero = mk_real srk QQ.zero in
-  let term = CS.term_of_vec cs in
-  P.fold (fun (p, t) constraints ->
-      let new_constraint =
-        match p with
-        | `Zero -> mk_eq srk (term t) zero
-        | `Nonneg -> mk_leq srk zero (term t)
-        | `Pos -> mk_lt srk zero (term t)
-      in
-      new_constraint::constraints)
+let formula_of_constraint srk f (kind, vec) =
+  let open Syntax in
+  let f' dim =
+    if dim = Linear.const_dim then mk_one srk
+    else f dim
+  in
+  let zero = mk_zero srk in
+  let term = Linear.term_of_vec srk f' vec in
+  match kind with
+  | `Zero -> mk_eq srk term zero
+  | `Nonneg -> mk_leq srk zero term
+  | `Pos -> mk_lt srk zero term
+
+let implicant_of srk f polyhedron =
+  P.fold (fun cnstr constraints ->
+      (formula_of_constraint srk f cnstr)::constraints)
     polyhedron
     []
 
@@ -125,9 +129,9 @@ let cube_of srk polyhedron =
     polyhedron
     []
 
-let to_formula cs polyhedron =
-  implicant_of cs polyhedron
-  |> mk_and (CS.get_context cs)
+let to_formula srk f polyhedron =
+  implicant_of srk f polyhedron
+  |> mk_and srk
 
 (* Check whether a given point belongs to a polyhedron *)
 let mem m polyhedron =

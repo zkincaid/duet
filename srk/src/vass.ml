@@ -7,10 +7,13 @@ module Z = Linear.ZZVector
 module Q = Quantifier
 module TF = TransitionFormula
 module Int = SrkUtil.Int
-module Accelerate =
-  Iteration.MakeDomain(Iteration.Product(Iteration.LossyTranslation)
-                         (Iteration.PolyhedronGuard))
+module IS = Iteration.Solver
 include Log.Make(struct let name = "srk.vass" end)
+
+let closure solver =
+  Iteration.closure
+    (Iteration.product [Iteration.LossyTranslation.exp; Iteration.PolyhedronGuard.exp])
+    solver
 
 (* TODO: Experiment with affine hull of phi as scc transition function *)
 (* sccvass is a vass abstraction such that
@@ -109,7 +112,7 @@ let unify matrices =
   |> BatList.of_enum
   |> M.of_rows
 
-let map_terms srk = List.map (fun (var : Syntax.symbol) -> mk_const srk var)
+let map_terms srk xs = List.map (fun (var : Syntax.symbol) -> mk_const srk var) xs
 
 let ident_matrix_real n =
   BatList.fold_left (fun matr dim  ->
@@ -134,7 +137,8 @@ let compute_edges srk tr_symbols c_states phi =
 
 
 (*TODO: make pretty print prettier*)
-let pp srk _tr_symbols formatter vasses = 
+let pp solver formatter vasses =
+  let srk = IS.get_context solver in
   BatArray.iteri (fun ind sccvas ->
       Format.fprintf formatter "Vass %n has the following control states \n" ind;
       BatArray.iteri (fun ind2 lab -> Format.fprintf formatter "Label %n is %a \n" ind2 (Formula.pp srk) (lab)) sccvas.control_states;
@@ -165,7 +169,7 @@ let compute_single_scc_vass ?(exists=fun _ -> true) srk tr_symbols cs_lst phi =
   in
   (*Populate graph with transformers between two control states*)
   let abstract formula =
-    abstract srk (TF.make ~exists formula tr_symbols)
+    Vas.abstract (IS.make srk (TF.make ~exists formula tr_symbols))
   in
   let postify = substitute_map srk (TF.post_map srk tr_symbols) in
   BatArray.iteri (fun ind1 arr ->
@@ -297,15 +301,15 @@ let get_control_states srk tf =
   BatArray.of_list control_states', sink
 
 
-let abstract srk tf =
-  let exists = TF.exists tf in
-  let tr_symbols = TF.symbols tf in
-  let skolem_constants =
-    Symbol.Set.filter (fun a -> not (exists a)) (symbols (TF.formula tf))
-  in
-  let phi = Nonlinear.linearize srk (rewrite srk ~down:(pos_rewriter srk) (TF.formula tf)) in
+let abstract solver =
+  let tr_symbols = IS.get_symbols solver in
+  let skolem_constants = IS.get_constants solver in
+  let srk = IS.get_context solver in
+  let tf = IS.get_transition_formula solver in
+  let phi = IS.get_formula solver in
   let control_states, sink = get_control_states srk tf in
   let graph = compute_edges srk tr_symbols control_states phi in
+  let exists = TF.exists tf in
   let num_sccs, func_sccs = BGraphComp.scc graph in
   let sccs = Array.make num_sccs  [] in
   BatArray.iteri (fun ind lab -> sccs.(func_sccs ind)<-(lab :: sccs.(func_sccs ind)))
@@ -317,7 +321,7 @@ let abstract srk tf =
     let vassarrays = BatArray.map 
         (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc phi) sccs in
     let result = {vasses=vassarrays;formula=phi; skolem_constants; sink=sink} in
-    logf "%a" (pp srk tr_symbols) result;
+    logf "%a" (pp solver) result;
     result
   )
 
@@ -580,16 +584,16 @@ let compute_trans_post_cond srk pre_cs post_cs trans gamma_trans term_list tr_sy
   let post_trans = SrkApron.formula_of_property 
       (Abstract.abstract ~exists:exists_post srk man complete_trans_form) in
   let lri_form =
-    TF.make
-      (rewrite srk ~down:(pos_rewriter srk) gamma_trans)
-      tr_symbols
+    IS.make srk (TF.make
+                   (rewrite srk ~down:(pos_rewriter srk) gamma_trans)
+                   tr_symbols)
   in
   let preify = substitute_map srk (TF.pre_map srk tr_symbols) in
-  let rslt = SrkApron.formula_of_property
+  let rslt =
+    SrkApron.formula_of_property
       (Abstract.abstract ~exists:exists_post srk man
          (mk_and srk
-            [preify post_trans;
-             Accelerate.closure (Accelerate.abstract srk lri_form)]))
+            [preify post_trans; closure lri_form]))
   in
   rslt
 
@@ -654,9 +658,10 @@ let closure_of_an_scc srk tr_symbols loop_counter vass =
     let constr7 = upper_bound_nonneg_terms srk distvarsmaster (Array.length cs) in
     let constr8 = set_flow_source srk distvarsmaster (fst (List.split local_s_t)) in
     let constr9 = dist_vars_path srk distvarsmaster transformersmap master entry in
-    let constr10 = dist_inf_constr srk distvarsmaster local_s_t entry exit master in 
+    let constr10 = dist_inf_constr srk distvarsmaster local_s_t entry exit master in
     let constr11 = transformers_post_conds_constrs srk cs 
-        transformersmap gamma_trans (term_list srk s_lst tr_symbols) master tr_symbols in
+        transformersmap gamma_trans (term_list srk s_lst tr_symbols) master tr_symbols
+    in
     let constr12 = coh_classes_last_reset_constr srk coh_class_pairs 
         transformers (master :: kvars_equiv_classes) 
         ((mk_add srk master) :: ksums) (unify s_lst) tr_symbols entry exit
@@ -757,7 +762,9 @@ let first_scc_constrs srk ordering_vars sources sccs_closures symmappings tr_sym
                 mk_eq srk (mk_const srk x) (mk_const srk sccx))
                 tr_symbols symmappings.(ind1))))) ordering_vars))
 
-let exp srk tr_symbols loop_counter sccsform =
+let exp_t solver sccsform loop_counter =
+  let srk = IS.get_context solver in
+  let tr_symbols = IS.get_symbols solver in
   (*No sccs <-> no possible transitions*)
   if BatArray.length sccsform.vasses = 0 then (no_trans_taken srk loop_counter tr_symbols) 
   else(
@@ -838,4 +845,4 @@ let exp srk tr_symbols loop_counter sccsform =
     result
   )
 
-
+let exp solver loop_counter = exp_t solver (abstract solver) loop_counter

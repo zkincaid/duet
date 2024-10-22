@@ -188,15 +188,13 @@ struct
     TransitionFormula.make ~exists body tr_symbols
 
   let domain =
-    let open Iteration in
-    let open SolvablePolynomial in
-    ref (module ProductWedge(SolvablePolynomial)(WedgeGuard) : PreDomain)
+    ref (Iteration.wedge_lift
+           (Iteration.wedge_product [ SolvablePolynomial.SolvablePolynomial.wedge_exp
+                                    ; Iteration.WedgeGuard.wedge_exp ]))
 
   let star tr =
-    let (module D) = !domain in
     let tf = to_transition_formula tr in
     logf ~level:`warn "Approximating transitive closure:@.  @[<v 0>%a@]" pp tr;
-    let iter = D.abstract srk tf in
     let tr_symbols = TransitionFormula.symbols tf in
     let transform =
       List.fold_left (fun tr (pre, post) ->
@@ -206,12 +204,7 @@ struct
         M.empty
         tr_symbols
     in
-    let loop_counter_sym = mk_symbol srk ~name:"K" `TyInt in
-    let loop_counter = mk_const srk loop_counter_sym in
-    let closure =
-      mk_and srk [D.exp srk tr_symbols loop_counter iter;
-                  mk_leq srk (mk_real srk QQ.zero) loop_counter]
-    in
+    let closure = Iteration.closure !domain (Iteration.Solver.make srk tf) in
     logf ~level:`warn "Approx TC:@.  @[<v 0>%a@]" (Formula.pp srk) closure;
     { transform = transform;
       guard = closure }

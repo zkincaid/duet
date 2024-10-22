@@ -15,9 +15,10 @@ module TSet : BatSet.S with type elt = transformer
 type vas = TSet.t
 type 'a t = { v : vas; s_lst : M.t list}
 val gamma : 'a context ->  'a t -> (symbol * symbol) list -> 'a formula
-val abstract : 'a context -> 'a TransitionFormula.t -> 'a t
-val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
-val exp : 'a context -> (symbol * symbol) list -> 'a arith_term -> 'a t -> 'a formula
+val abstract : 'a Iteration.Solver.t -> 'a t
+val pp : 'a Iteration.Solver.t -> Format.formatter -> 'a t -> unit
+val exp_t : 'a Iteration.Solver.t -> 'a t -> 'a arith_term -> 'a formula
+val exp : 'a Iteration.exp_op
 
 (* TODO: remove exp_base_helper *)
 val exp_base_helper : 'a context -> (symbol * Symbol.Map.key) list -> 'a arith_term ->
@@ -42,4 +43,4 @@ val coprod_find_transformation : M.t list -> M.t list ->
    transitions of the input transition formula are partitioned by the
    direction of each variable (increasing, decreasing, or stable) and
    there is one transition per cell. *)
-module Monotone : Iteration.PreDomain
+module Monotone : Iteration.Domain

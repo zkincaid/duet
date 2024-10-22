@@ -1,34 +1,22 @@
 open Syntax
 open BatPervasives
 module Vec = Linear.QQVector
-module TF = TransitionFormula
-module CS = CoordinateSystem
+module IS = Iteration.Solver
 
 include Log.Make(struct let name = "TerminationLLRF" end)
-
-let mem_cs cs x =
-  try (ignore (CS.cs_term_id cs (`App (x,[]))); true)
-  with Not_found -> false
-
-let cs_of_symbols srk symbols =
-  let cs = CS.mk_empty srk in
-  List.iter (fun x -> CoordinateSystem.admit_cs_term cs (`App (x,[]))) symbols;
-  cs
 
 (* Given a formula F, find the weakest formula G such that G |= F and
    every quasi-ranking function of G is invariant.  Return None if G =
    false (i.e., F has a linear-lexicographic ranking function).  *)
-let llrf_residual srk tf =
+let llrf_residual solver =
   let man = Polka.manager_alloc_loose () in
-  let tf = TF.linearize srk tf in
-  let solver =
-    Abstract.Solver.make srk (rewrite srk ~down:(pos_rewriter srk) (TF.formula tf))
-  in
+  let srk = IS.get_context solver in
+  let abs_solver = IS.get_abstract_solver solver in
   let x_xp =
     Symbol.Set.fold
       (fun s xs -> (s,s)::xs)
-      (TF.symbolic_constants tf)
-      (TF.symbols tf)
+      (IS.get_constants solver)
+      (IS.get_symbols solver)
   in
   let pre =
     List.map (fun (x,_) -> mk_const srk x) x_xp
@@ -41,7 +29,7 @@ let llrf_residual srk tf =
   let dim = Array.length pre in
   let rec loop nb_invariants =
     let precondition =
-      ConvexHull.abstract solver ~man pre
+      ConvexHull.abstract abs_solver ~man pre
     in
     if DD.is_bottom precondition then
       None (* Residual is inconsistent *)
@@ -49,7 +37,7 @@ let llrf_residual srk tf =
       (* Find the cone of quasi-ranking functions and strengthen F to
          constrain the generators of the cone to be invariant *)
       let non_inc_cone =
-        ConvexHull.abstract solver ~man diff
+        ConvexHull.abstract abs_solver ~man diff
         |> Polyhedron.of_dd
         |> Polyhedron.dual_cone dim
         |> Polyhedron.dd_of ~man dim
@@ -83,14 +71,16 @@ let llrf_residual srk tf =
       in
       let nb_invariants' = List.length qrf_invariant in
       if nb_invariants' = nb_invariants then
-        Some (Abstract.Solver.get_formula solver) (* All QRFs are invariant *)
+        Some (Abstract.Solver.get_formula abs_solver) (* All QRFs are invariant *)
       else begin
-        Abstract.Solver.add solver qrf_invariant;
+        Abstract.Solver.add abs_solver qrf_invariant;
         loop nb_invariants'
       end
   in
   loop 0
 
-let has_llrf srk tf = (llrf_residual srk tf = None)
+let has_llrf solver = (llrf_residual solver = None)
 
-let mp srk tf = if has_llrf srk tf then mk_true srk else mk_false srk
+let mp solver =
+  let srk = IS.get_context solver in
+  if has_llrf solver then mk_false srk else mk_true srk

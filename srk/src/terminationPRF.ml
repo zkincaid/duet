@@ -7,6 +7,7 @@ module CS = CoordinateSystem
 module LIRR = Lirr
 module P = Polynomial
 module PC = PolynomialCone
+module IS = Iteration.Solver
 
 include Log.Make (struct
   let name = "TerminationPRF"
@@ -17,13 +18,11 @@ let pp_dim srk arr formatter i =
     Format.fprintf formatter "%a" (Syntax.ArithTerm.pp srk) (BatArray.get arr i)
   with _ -> Format.fprintf formatter "1"
 
-let zero_stable srk f pre_vars_arr post_vars_arr =
-  let solver = Abstract.Solver.make srk ~theory:`LIRR f in
+let zero_stable solver pre_vars_arr post_vars_arr =
+  let srk = Abstract.Solver.get_context solver in
   let conseq_pre = ConsequenceCone.abstract solver pre_vars_arr in
-  logf "computed conseq pre";
   logf "conseq pre: %a" (PC.pp (pp_dim srk pre_vars_arr)) conseq_pre;
-  let rec work prev_cone prev_f =
-    logf "finding zero guards for formula: %a" (Formula.pp srk) prev_f;
+  let rec work prev_cone =
     let pre_zeros = PC.get_ideal prev_cone in
     let zero_guards = P.Rewrite.generators pre_zeros in
     let zero_guards_remain_zero =
@@ -36,18 +35,15 @@ let zero_stable srk f pre_vars_arr post_vars_arr =
           mk_eq srk (mk_zero srk) post_term)
         zero_guards
     in
-    let new_f = mk_and srk (prev_f :: zero_guards_remain_zero) in
-    let new_solver = Abstract.Solver.make srk ~theory:`LIRR new_f in
-    let new_cone = ConsequenceCone.abstract new_solver pre_vars_arr in
-    if P.Rewrite.equal (PC.get_ideal prev_cone) (PC.get_ideal new_cone) then
-      new_f
-    else work new_cone new_f
-    (* if PC.equal prev_cone new_cone then prev_f else work new_cone new_f *)
+    Abstract.Solver.add solver zero_guards_remain_zero;
+    let new_cone = ConsequenceCone.abstract solver pre_vars_arr in
+    if not (P.Rewrite.equal (PC.get_ideal prev_cone) (PC.get_ideal new_cone)) then
+      work new_cone
   in
-  work conseq_pre f
+  work conseq_pre
 
-let lin_conseq_over_diff_polys srk solver pre_vars_arr post_vars_arr
-    positive_polys =
+let lin_conseq_over_diff_polys solver pre_vars_arr post_vars_arr positive_polys =
+  let srk = Abstract.Solver.get_context solver in
   let diffs_arr =
     Array.map
       (fun poly ->
@@ -60,54 +56,40 @@ let lin_conseq_over_diff_polys srk solver pre_vars_arr post_vars_arr
         mk_sub srk pre_poly_term post_poly_term)
       positive_polys
   in
-  logf "diffs array:";
-  Array.iteri
-    (fun i diff -> logf "dim: %d, term: %a" i (ArithTerm.pp srk) diff)
-    diffs_arr;
-  logf "lin solver made";
   let lin_conseq = ConvexHull.abstract solver diffs_arr in
-  logf "lin abstract complete";
-
-  (* let positive_poly_terms =
-       Array.map
-         (fun poly ->
-           P.QQXs.term_of srk (fun dim -> BatArray.get pre_vars_arr dim) poly)
-         positive_polys
-     in *)
   logf "lin conseq over positives: %a" (DD.pp (pp_dim srk diffs_arr)) lin_conseq;
-
   (lin_conseq, diffs_arr)
 
-let has_prf srk tf =
-  let tf = TF.map_formula (Syntax.eliminate_floor_mod_div srk) tf in
+let has_prf solver =
+  let srk = Iteration.Solver.get_context solver in
+  let abs_solver = Iteration.Solver.get_abstract_solver solver in
   let x_xp =
     Symbol.Set.fold
       (fun s xs -> (s, s) :: xs)
-      (TF.symbolic_constants tf) (TF.symbols tf)
+      (IS.get_constants solver)
+      (IS.get_symbols solver)
   in
-  logf "Finding PRF for TF: %a" (Formula.pp srk) (TF.formula tf);
-  (* let x_xp = TF.symbols tf in *)
+  logf "Finding PRF for TF: %a" (Formula.pp srk) (IS.get_formula solver);
   let pre_vars_arr =
     BatArray.of_list (BatList.map (fun (x, _) -> mk_const srk x) x_xp)
   in
   let post_vars_arr =
     BatArray.of_list (BatList.map (fun (_, xp) -> mk_const srk xp) x_xp)
   in
-  let tf_formula = TF.formula tf in
-  let zero_stable_formula =
-    zero_stable srk tf_formula pre_vars_arr post_vars_arr
-  in
-  logf "zero-stable formula: %a" (Formula.pp srk) zero_stable_formula;
-  let solver = Abstract.Solver.make srk ~theory:`LIRR zero_stable_formula in
-  let pre_conseq_cone = ConsequenceCone.abstract solver pre_vars_arr in
+  Abstract.Solver.push abs_solver;
+  zero_stable abs_solver pre_vars_arr post_vars_arr;
+  logf "zero-stable formula: %a" (Formula.pp srk) (IS.get_formula solver);
+  let pre_conseq_cone = ConsequenceCone.abstract abs_solver pre_vars_arr in
   logf "conseq pre: %a" (PC.pp (pp_dim srk pre_vars_arr)) pre_conseq_cone;
   let pos_pre_polys = PC.get_cone_generators pre_conseq_cone in
   let dim = List.length pos_pre_polys in
   let phedral_new_terms, diffs_arr =
-    lin_conseq_over_diff_polys srk solver pre_vars_arr post_vars_arr
+    lin_conseq_over_diff_polys
+      abs_solver
+      pre_vars_arr
+      post_vars_arr
       (Array.of_list pos_pre_polys)
   in
-  (* logf "lin consequence complete"; *)
   let constraints_enum = DD.enum_constraints_closed phedral_new_terms in
   let new_generators =
     BatEnum.fold
@@ -153,41 +135,42 @@ let has_prf srk tf =
   in
 
   let diffs_arr = Array.append diffs_arr (Array.make 1 (mk_one srk)) in
-  (* Array.set diffs_arr dim (mk_one srk); *)
   logf "after intersection: %a" (DD.pp (pp_dim srk diffs_arr)) result;
   let ans = not (BatEnum.is_empty (DD.enum_generators result)) in
   logf "has prf: %b" ans;
+  Abstract.Solver.pop abs_solver;
   ans
 
-let has_plrf srk tf =
-  let tf = TF.map_formula (Syntax.eliminate_floor_mod_div srk) tf in
+let has_plrf solver =
+  let srk = Iteration.Solver.get_context solver in
+  let abs_solver = Iteration.Solver.get_abstract_solver solver in
   let x_xp =
     Symbol.Set.fold
       (fun s xs -> (s, s) :: xs)
-      (TF.symbolic_constants tf) (TF.symbols tf)
+      (IS.get_constants solver)
+      (IS.get_symbols solver)
   in
-  logf "Begin PLRF for TF: %a" (Formula.pp srk) (TF.formula tf);
-  (* let x_xp = TF.symbols tf in *)
+  logf "Begin PLRF for TF: %a" (Formula.pp srk) (Abstract.Solver.get_formula abs_solver);
   let pre_vars_arr =
     BatArray.of_list (BatList.map (fun (x, _) -> mk_const srk x) x_xp)
   in
   let post_vars_arr =
     BatArray.of_list (BatList.map (fun (_, xp) -> mk_const srk xp) x_xp)
   in
-  let tf_formula = TF.formula tf in
 
-  let find_qrfs f =
-    logf "current TF: %a" (Formula.pp srk) f;
-    let solver = Abstract.Solver.make srk ~theory:`LIRR f in
+  let find_qrfs () =
+    logf "current TF: %a" (Formula.pp srk) (Abstract.Solver.get_formula abs_solver);
     let pre_conseq_cone =
-      ConsequenceCone.abstract solver pre_vars_arr
+      ConsequenceCone.abstract abs_solver pre_vars_arr
     in
     logf "conseq pre: %a" (PC.pp (pp_dim srk pre_vars_arr)) pre_conseq_cone;
-    (* let pos_polys = PC.get_cone_generators pre_conseq_cone in *)
     let pos_pre_polys = PC.get_cone_generators pre_conseq_cone in
     let dim = List.length pos_pre_polys in
     let phedral_new_terms, diffs_arr =
-      lin_conseq_over_diff_polys srk solver pre_vars_arr post_vars_arr
+      lin_conseq_over_diff_polys
+        abs_solver
+        pre_vars_arr
+        post_vars_arr
         (Array.of_list pos_pre_polys)
     in
     let phedron =
@@ -231,26 +214,34 @@ let has_plrf srk tf =
     qrfs
   in
 
-  let rec termination_by_qrfs f =
-    let zero_stable_formula = zero_stable srk f pre_vars_arr post_vars_arr in
-    logf "zero-stable formula: %a" (Formula.pp srk) zero_stable_formula;
-    let solver = Abstract.Solver.make srk ~theory:`LIRR zero_stable_formula in
-    match Abstract.Solver.get_model solver with
+  let rec termination_by_qrfs () =
+    zero_stable abs_solver pre_vars_arr post_vars_arr;
+    logf "zero-stable formula: %a" (Formula.pp srk) (Abstract.Solver.get_formula abs_solver);
+    match Abstract.Solver.check abs_solver with
     | `Unsat ->
         logf "has PLRF!!";
         true
-    | _ -> (
-        let qrfs = find_qrfs zero_stable_formula in
-        List.iter (logf "qrf unchange: %a" (Formula.pp srk)) qrfs;
-        let f_qrfs_dont_change = mk_and srk qrfs in
-        let improvement = mk_and srk [ f; mk_not srk f_qrfs_dont_change ] in
-        let ss = Abstract.Solver.make srk ~theory:`LIRR improvement in
-        logf "improvement formula: %a" (Formula.pp srk) improvement;
-        match Abstract.Solver.get_model ss with
-        | `Unsat | `Unknown ->
-            logf "does not have PLRF :( ";
-            false
-        | `Sat _ -> termination_by_qrfs (mk_and srk [f; f_qrfs_dont_change]))
+    | `Unknown ->
+        logf "Unknown!";
+      false
+    | _ ->
+      let qrfs = find_qrfs () in
+      let improvement = mk_and srk qrfs in
+      List.iter (logf "qrf unchange: %a" (Formula.pp srk)) qrfs;
+      Abstract.Solver.push abs_solver;
+      Abstract.Solver.add abs_solver [mk_not srk improvement];
+      let check = Abstract.Solver.check abs_solver in
+      Abstract.Solver.pop abs_solver;
+      logf "improvement formula: %a" (Formula.pp srk) improvement;
+      match check with
+      | `Unsat | `Unknown ->
+        logf "does not have PLRF :( ";
+        false
+      | `Sat ->
+        Abstract.Solver.add abs_solver qrfs;
+        termination_by_qrfs ()
   in
-
-  termination_by_qrfs tf_formula
+  Abstract.Solver.push abs_solver;
+  let result = termination_by_qrfs () in
+  Abstract.Solver.pop abs_solver;
+  result

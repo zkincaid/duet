@@ -2012,7 +2012,7 @@ let is_sat srk phi =
           List.map replace_defs implicant
           |> Polyhedron.of_implicant ~admit:true cs
           |> Polyhedron.try_fourier_motzkin cs (fun _ -> false)
-          |> Polyhedron.implicant_of cs
+          |> Polyhedron.implicant_of srk (CS.term_of_coordinate cs)
           |> SrkSimplify.partition_implicant
         in
         let is_sat constraints =
@@ -2140,7 +2140,7 @@ let abstract_subwedge subwedge ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true
           List.map replace_defs implicant
           |> Polyhedron.of_implicant ~admit:true cs
           |> Polyhedron.try_fourier_motzkin cs p
-          |> Polyhedron.implicant_of cs
+          |> Polyhedron.implicant_of srk (CS.term_of_coordinate cs)
         in
         let new_wedge =
           let w = of_atoms srk implicant' in

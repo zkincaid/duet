@@ -18,6 +18,13 @@ val maximize : 'a context -> 'a formula -> 'a arith_term -> [ `Bounded of QQ.t
 (** Quantifier eliminiation via model-based projection *)
 val qe_mbp : 'a context -> 'a formula -> 'a formula
 
+
+(** Compute a quantifer-free formula equivalent to [exists X.F], where X is
+   the set of symbols that do *not* satisfy the given predicate and [F] is the
+   underyling formula of the given solver.  If the [dnf] option is set, the
+   result is in disjunctive normal form. *)
+val exists_elim : 'a Abstract.Solver.t -> ?dnf:bool -> (symbol -> bool) -> 'a formula
+
 (** Model-based projection.  If [dnf] option is set, convert to
    disjunctive normal form. *)
 val mbp : ?dnf:bool -> 'a context -> (symbol -> bool) -> 'a formula -> 'a formula

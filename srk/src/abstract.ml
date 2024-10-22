@@ -120,6 +120,24 @@ type 'a smt_model =
   [ `LIRA of 'a Interpretation.interpretation
   | `LIRR of Lirr.Model.t ]
 
+module Model = struct
+  type 'a t = 'a smt_model
+
+  let sat srk m formula =
+    match m with
+    | `LIRR m -> Lirr.Model.evaluate_formula srk m formula
+    | `LIRA m -> Interpretation.evaluate_formula m formula
+
+  let sign srk m t =
+    match m with
+    | `LIRR m -> Lirr.Model.sign srk m t
+    | `LIRA m ->
+      match QQ.compare (Interpretation.evaluate_term m t) QQ.zero with
+      | 0 -> `Zero
+      | c when c < 0 -> `Neg
+      | _ -> `Pos
+end
+
 type ('a, 'b) domain =
   { join : 'b -> 'b -> 'b
   ; of_model : 'a smt_model -> 'b

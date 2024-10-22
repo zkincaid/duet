@@ -47,14 +47,14 @@ module Fp : sig
    * be reached in the fp where recursion over-approximated using the 
    * star operator of the provided predomain [pd] and returns no otherwise.*)
   val check : 
-    'a context -> 'a fp -> (module Iteration.PreDomain) -> 
+    'a context -> 'a fp -> 'a Iteration.exp_op -> 
     [> `No | `Unknown | `Yes]
   (** Solves a fp where recursion is over-approximated using the
    * star operator of the provided predomain [pd]. Where [f = solve srk fp pd]
    * and [r] is a relation used in [fp] the set of solutions to [r] is given by
    * [(syms, phi) = f r] where [phi] is a formula in which [syms.(i)]
    * gives the symbol used for the [i]th argument to [r].*)
-  val solve : 'a context -> 'a fp -> (module Iteration.PreDomain) ->
+  val solve : 'a context -> 'a fp -> 'a Iteration.exp_op ->
     (relation -> symbol array * 'a formula)
 end
 

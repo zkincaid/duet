@@ -6,6 +6,7 @@ open Sequence
 module Vec = Linear.QQVector
 module Mat = Linear.QQMatrix
 module TF = TransitionFormula
+module IS = Iteration.Solver
 
 include Log.Make(struct let name = "TerminationDTA" end)
 
@@ -242,14 +243,15 @@ let closed_form sim_symbols linterm ep_mat =
        (ExpPolynomial.scalar (Vec.coeff Linear.const_dim linterm))
        Linear.const_dim
 
-let mp srk tf =
-  let tf = TF.linearize srk tf in
-  match Smt.is_sat srk (TF.formula tf) with
-  | `Unknown -> failwith "SMT solver should not return unknown for QRA formulas"
+let mp solver =
+  let srk = IS.get_context solver in
+  match IS.check solver with
+  | `Unknown -> failwith "SMT solver should not return unknown for LRA formulas"
   | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
   | `Sat ->
+    let tf = IS.get_transition_formula solver in
      let qdlts_abs =
-       DLTSPeriodicRational.abstract_rational srk tf
+       DLTSPeriodicRational.abstract_rational solver
        |> DLTS.simplify srk ~scale:true
      in
      let module PLM = Lts.PartialLinearMap in

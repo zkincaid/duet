@@ -101,7 +101,7 @@ module Fp = struct
 
   let goal_vert = -2 
   let start_vert = -1 
-  let to_weighted_graph srk fp pd =
+  let to_weighted_graph srk fp exp =
     let open WeightedGraph in
     let emptyarr = BatArray.init 0 (fun _ -> failwith "empty") in
     let alg = 
@@ -156,7 +156,6 @@ module Fp = struct
         )
       in
       let star (pre, post, phi) =
-        let module PD = (val pd : Iteration.PreDomain) in
         let trs =
           BatArray.fold_lefti
             (fun trs ind presym -> (presym, post.(ind)) :: trs)
@@ -165,8 +164,7 @@ module Fp = struct
         in
         let lc = mk_symbol srk `TyInt in
         let tr_phi = TransitionFormula.make phi trs in
-        pre, post, 
-        PD.exp srk trs (mk_const srk lc) (PD.abstract srk tr_phi)
+        (pre, post, exp (Iteration.Solver.make srk tr_phi) (mk_const srk lc))
       in
       {mul; add; star; zero; one}
     in

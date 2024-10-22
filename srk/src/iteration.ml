@@ -8,280 +8,297 @@ module CS = CoordinateSystem
 module TF = TransitionFormula
 module WG = WeightedGraph
 
-module type PreDomain = sig
-  type 'a t
-  val pp : 'a context -> (symbol * symbol) list -> Format.formatter -> 'a t -> unit
-  val exp : 'a context -> (symbol * symbol) list -> 'a arith_term -> 'a t -> 'a formula
-  val abstract : 'a context -> 'a TransitionFormula.t -> 'a t
+module Solver = struct
+
+  module A = BatDynArray
+  type 'a t =
+    { solver : 'a Abstract.Solver.t
+    ; symbols : (symbol * symbol) list
+    (* For wedge_hull, need to maintain formulas without preprocessing *)
+    ; stack : ('a Formula.t list) A.t
+    ; constants : Symbol.Set.t }
+
+  let preprocess srk = function
+    | `LIRR -> Syntax.eliminate_floor_mod_div srk
+    | `LIRA -> rewrite srk ~down:(pos_rewriter srk) % (Nonlinear.linearize srk)
+
+  let make srk ?(theory=get_theory srk) tf =
+    let phi = preprocess srk theory (TF.formula tf) in
+    let stack = A.singleton [TF.formula tf] in
+    { solver = Abstract.Solver.make srk ~theory phi
+    ; symbols = TF.symbols tf
+    ; stack = stack
+    ; constants = TF.symbolic_constants tf }
+
+
+  let get_theory s = Abstract.Solver.get_theory s.solver
+
+  let get_abstract_solver s = s.solver
+
+  let get_context s = Abstract.Solver.get_context s.solver
+
+  let get_formula s = mk_and (get_context s) (A.last s.stack)
+
+  let get_symbols s = s.symbols
+
+  let get_constants s = s.constants
+
+  let get_transition_formula s =
+    let all_symbols =
+      List.fold_left
+        (fun set (s,s') -> Symbol.Set.add s (Symbol.Set.add s' set))
+        s.constants
+        s.symbols
+    in
+    TransitionFormula.make
+      ~exists:(fun s -> Symbol.Set.mem s all_symbols)
+      (get_formula s)
+      s.symbols
+
+  let push s =
+    Abstract.Solver.push s.solver;
+    A.add s.stack (A.last s.stack)
+
+  let pop s =
+    Abstract.Solver.pop s.solver;
+    A.delete_last s.stack
+
+  let add s formulas =
+    let pp_formulas =
+      List.map (preprocess (get_context s) (get_theory s)) formulas
+    in
+    Abstract.Solver.add s.solver pp_formulas;
+    A.upd s.stack (A.length s.stack - 1) (fun xs -> formulas@xs)
+
+  let check s = Abstract.Solver.check s.solver
+
+  let get_model s = Abstract.Solver.get_model s.solver
+
+  let abstract s = Abstract.Solver.abstract s.solver
+
+  let wedge_hull s =
+    let post_symbols = TF.post_symbols s.symbols in
+    let subterm x = not (Symbol.Set.mem x post_symbols) in
+    let tf = get_transition_formula s in
+    let srk = get_context s in
+    Wedge.abstract ~exists:(TF.exists tf) ~subterm srk (get_formula s)
 end
 
-module type PreDomainIter = sig
-  include PreDomain
-  val equal : ('a context) -> (symbol * symbol) list -> 'a t -> 'a t -> bool
-  val join : ('a context) -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
-  val widen : ('a context) -> (symbol * symbol) list -> 'a t -> 'a t -> 'a t
+type 'a exp_op = 'a Solver.t -> 'a arith_term -> 'a formula
+
+type 'a wedge_exp_op =
+  'a context ->
+  (symbol * symbol) list ->
+  'a Wedge.t ->
+  'a arith_term ->
+  'a formula
+
+module type Exp = sig
+  val exp : 'a exp_op
 end
 
-module type PreDomainWedge = sig
-  include PreDomain
-  val abstract_wedge : 'a context -> (symbol * symbol) list -> 'a Wedge.t -> 'a t
-end
-
-module type PreDomainWedgeIter = sig
-  include PreDomainIter
-  val abstract_wedge : 'a context -> (symbol * symbol) list -> 'a Wedge.t -> 'a t
+module type WedgeExp = sig
+  val wedge_exp : 'a wedge_exp_op
 end
 
 module type Domain = sig
   type 'a t
-  val pp : Format.formatter -> 'a t -> unit
-  val closure : 'a t -> 'a formula
-  val abstract : 'a context -> 'a TransitionFormula.t -> 'a t
-  val tr_symbols : 'a t -> (symbol * symbol) list
+  val pp : 'a Solver.t -> Format.formatter -> 'a t -> unit
+  val abstract : 'a Solver.t -> 'a t
+  val exp_t : 'a Solver.t -> 'a t -> 'a arith_term -> 'a formula
+  val exp : 'a exp_op
 end
 
-module LIRR = struct
-  type 'a t = 'a TF.t
+module type WedgeDomain = sig
+  type 'a t
+  val pp : 'a Solver.t -> Format.formatter -> 'a t -> unit
+  val wedge_abstract : 'a context ->
+    (symbol * symbol) list ->
+    'a Wedge.t ->
+    'a t
+  val exp_t : 'a context -> (symbol * symbol) list -> 'a t -> 'a arith_term -> 'a formula
+  val wedge_exp : 'a wedge_exp_op
+end
 
-  let pp srk _ formatter tf = let f = TF.formula tf in Formula.pp srk formatter f
+let closure exp solver =
+  let srk = Solver.get_context solver in
+  let loop_counter_sym = mk_symbol srk ~name:"K" `TyInt in
+  let loop_counter = mk_const srk loop_counter_sym in
+  mk_and srk [ exp solver loop_counter
+             ; mk_leq srk (mk_zero srk) loop_counter]
 
-  let abstract _ tf = tf
+let product exps solver loop_counter =
+  List.map (fun exp -> exp solver loop_counter) exps
+  |> mk_and (Solver.get_context solver)
 
-  let exp = LirrInvariants.compute_LIRR_invariants
+let wedge_product exps srk tr_symbols wedge loop_counter =
+  List.map (fun exp -> exp srk tr_symbols wedge loop_counter) exps
+  |> mk_and srk
 
+let wedge_lift wedge_exp solver loop_counter =
+  wedge_exp
+    (Solver.get_context solver)
+    (Solver.get_symbols solver)
+    (Solver.wedge_hull solver)
+    loop_counter
+
+module Cartesian = struct
+  type 'a t =
+    { pre : 'a formula
+    ; post : 'a formula }
+
+  let pp solver formatter k =
+    let srk = Solver.get_context solver in
+    Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]"
+      (Formula.pp srk) k.pre
+      (Formula.pp srk) k.post
+
+  let exp srk tr_symbols k loop_counter =
+    let identity = TF.formula (TF.identity srk tr_symbols) in
+    mk_or srk [ mk_and srk [ mk_eq srk loop_counter (mk_real srk QQ.zero)
+                           ; identity ]
+              ; mk_and srk [ mk_leq srk (mk_real srk QQ.one) loop_counter
+                           ; k.pre
+                           ; k.post ] ]
+
+  let precondition k = k.pre
+
+  let postcondition k = k.post
 end
 
 module LIRRGuard = struct
-  type 'a t =
-    { precondition : PolynomialCone.t;
-      postcondition : PolynomialCone.t }
+  type 'a t = 'a Cartesian.t
 
-  let pp _ _ _ _ =
-    ()
-    (* Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]" *)
-    (*   PolynomialCone.pp iter.precondition *)
-    (*   PolynomialCone.pp iter.postcondition *)
+  let pp = Cartesian.pp
 
-  let abstract srk tf =
-    let post_symbols = TF.post_symbols (TF.symbols tf) in
-    let pre_symbols = TF.pre_symbols (TF.symbols tf) in
-    let precondition =
-      let exists x =
-        TF.exists tf x && not (Symbol.Set.mem x post_symbols)
-      in
-      Lirr.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
+  let abstract solver =
+    let srk = Solver.get_context solver in
+    let consts = Solver.get_constants solver in
+    let abs_solver = Solver.get_abstract_solver solver in
+    let pre_simulation =
+      Symbol.Set.union consts (TF.pre_symbols (Solver.get_symbols solver))
+      |> Symbol.Set.elements
+      |> List.map (mk_const srk)
+      |> Array.of_list
     in
-    let postcondition =
-      let exists x =
-        TF.exists tf x && not (Symbol.Set.mem x pre_symbols)
-      in
-      Lirr.find_consequences srk (mk_exists_consts srk exists (TF.formula tf))
+    let post_simulation =
+      Symbol.Set.union consts (TF.post_symbols (Solver.get_symbols solver))
+      |> Symbol.Set.elements
+      |> List.map (mk_const srk)
+      |> Array.of_list
     in
-    let pp_dim = (fun formatter i ->
-      try Format.fprintf formatter "%a" (pp_symbol srk) (symbol_of_int i)
-      with _ -> Format.fprintf formatter "1")
-  in
-  logf "precondition: %a" (PolynomialCone.pp pp_dim) precondition;
-  logf "postcondition: %a" (PolynomialCone.pp pp_dim) postcondition;
-  { precondition; postcondition }
-
-  let exp srk tr_symbols loop_counter guard =
-    let term_of_dim dim =
-      mk_const srk (symbol_of_int dim)
+    let pre =
+      ConsequenceCone.abstract abs_solver pre_simulation
+      |> PolynomialCone.to_formula srk (Array.get pre_simulation)
     in
-    mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
-                           TF.formula (TF.identity srk tr_symbols)];
-               mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
-                           PolynomialCone.to_formula srk term_of_dim guard.precondition;
-                           PolynomialCone.to_formula srk term_of_dim guard.postcondition]]
+    let post =
+      ConsequenceCone.abstract abs_solver post_simulation
+      |> PolynomialCone.to_formula srk (Array.get post_simulation)
+    in
+    Cartesian.{ pre; post }
 
-  let equal _ _ iter iter' =
-    PolynomialCone.equal iter.precondition iter'.precondition
-    && PolynomialCone.equal iter.postcondition iter'.postcondition
+  let exp_t solver =
+    Cartesian.exp (Solver.get_context solver) (Solver.get_symbols solver)
 
-  let join _ _ iter iter' =
-    { precondition = PolynomialCone.intersection iter.precondition iter'.precondition;
-      postcondition = PolynomialCone.intersection iter.postcondition iter'.postcondition }
-
-  let widen _ _ _ _ =
-    failwith "Polynomial cone does not support widening."
+  let exp solver loop_counter = exp_t solver (abstract solver) loop_counter
 end
 
 module WedgeGuard = struct
-  type 'a t =
-    { precondition : 'a Wedge.t;
-      postcondition : 'a Wedge.t }
+  type 'a t = 'a Cartesian.t
 
-  let pp _ _ formatter iter =
-    Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]"
-      Wedge.pp iter.precondition
-      Wedge.pp iter.postcondition
+  let pp = Cartesian.pp
 
-  let abstract_wedge _ tr_symbols wedge =
+  let wedge_abstract _srk tr_symbols wedge =
     let pre_symbols = TF.pre_symbols tr_symbols in
     let post_symbols = TF.post_symbols tr_symbols in
-    let precondition =
+    let pre =
       Wedge.exists (not % flip Symbol.Set.mem post_symbols) wedge
+      |> Wedge.to_formula
     in
-    let postcondition =
+    let post =
       Wedge.exists (not % flip Symbol.Set.mem pre_symbols) wedge
+      |> Wedge.to_formula
     in
-    { precondition; postcondition }
+    Cartesian.{ pre; post }
 
-  let abstract srk tf =
-    let wedge = TF.wedge_hull srk tf in
-    abstract_wedge srk (TF.symbols tf) wedge
+  let exp_t = Cartesian.exp
 
-  let exp srk tr_symbols loop_counter guard =
-    mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
-                           TF.formula (TF.identity srk tr_symbols)];
-               mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
-                           Wedge.to_formula guard.precondition;
-                           Wedge.to_formula guard.postcondition]]
-
-  let equal _ _ iter iter' =
-    Wedge.equal iter.precondition iter'.precondition
-    && Wedge.equal iter.postcondition iter'.postcondition
-
-  let join _ _ iter iter' =
-    { precondition = Wedge.join iter.precondition iter'.precondition;
-      postcondition = Wedge.join iter.postcondition iter'.postcondition }
-
-  let widen _ _ iter iter' =
-    { precondition = Wedge.widen iter.precondition iter'.precondition;
-      postcondition = Wedge.widen iter.postcondition iter'.postcondition }
+  let wedge_exp srk tr_symbols wedge loop_counter =
+    exp_t srk tr_symbols (wedge_abstract srk tr_symbols wedge) loop_counter
 end
 
 module PolyhedronGuard = struct
-  type 'a polyhedron = ('a, Polka.strict Polka.t) SrkApron.property
-  type 'a t =
-    { precondition : 'a polyhedron;
-      postcondition : 'a polyhedron }
+  type 'a t = 'a Cartesian.t
 
-  let pp _ _ formatter iter =
-    Format.fprintf formatter "pre:@;  @[<v 0>%a@]@;post:@;  @[<v 0>%a@]"
-      SrkApron.pp iter.precondition
-      SrkApron.pp iter.postcondition
+  let pp = Cartesian.pp
 
-  let abstract srk tf =
-    let phi = Nonlinear.linearize srk (TF.formula tf) in
-    let phi =
-      rewrite srk ~down:(pos_rewriter srk) phi
+  let abstract solver =
+    let srk = Solver.get_context solver in
+    let consts = Solver.get_constants solver in
+    let pre_simulation =
+      Symbol.Set.union consts (TF.pre_symbols (Solver.get_symbols solver))
+      |> Symbol.Set.elements
+      |> List.map (mk_const srk)
+      |> Array.of_list
     in
-    let post_symbols = TF.post_symbols (TF.symbols tf) in
-    let pre_symbols = TF.pre_symbols (TF.symbols tf) in
-    let man = Polka.manager_alloc_strict () in
-    let precondition =
-      let exists x =
-        TF.exists tf x && not (Symbol.Set.mem x post_symbols)
-      in
-      Abstract.abstract ~exists srk man phi
+    let post_simulation =
+      Symbol.Set.union consts (TF.post_symbols (Solver.get_symbols solver))
+      |> Symbol.Set.elements
+      |> List.map (mk_const srk)
+      |> Array.of_list
     in
-    let postcondition =
-      let exists x =
-        TF.exists tf x && not (Symbol.Set.mem x pre_symbols)
-      in
-      Abstract.abstract ~exists srk man phi
+    let abs_solver = Solver.get_abstract_solver solver in
+    let pre =
+      ConvexHull.abstract abs_solver pre_simulation
+      |> DD.enum_constraints
+      |> BatEnum.map (Polyhedron.formula_of_constraint srk (Array.get pre_simulation))
+      |> BatList.of_enum
+      |> mk_and srk
     in
-    { precondition; postcondition }
+    let post =
+      ConvexHull.abstract abs_solver post_simulation
+      |> DD.enum_constraints
+      |> BatEnum.map (Polyhedron.formula_of_constraint srk (Array.get post_simulation))
+      |> BatList.of_enum
+      |> mk_and srk
+    in
+    Cartesian.{ pre; post }
 
-  let exp srk tr_symbols loop_counter guard =
-    mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
-                           TF.formula (TF.identity srk tr_symbols)];
-               mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
-                           SrkApron.formula_of_property guard.precondition;
-                           SrkApron.formula_of_property guard.postcondition]]
+  let exp_t solver =
+    Cartesian.exp (Solver.get_context solver) (Solver.get_symbols solver)
 
-  let equal _ _ iter iter' =
-    SrkApron.equal iter.precondition iter'.precondition
-    && SrkApron.equal iter.postcondition iter'.postcondition
-
-  let join _ _ iter iter' =
-    { precondition = SrkApron.join iter.precondition iter'.precondition;
-      postcondition = SrkApron.join iter.postcondition iter'.postcondition }
-
-  let widen _ _ iter iter' =
-    { precondition = SrkApron.widen iter.precondition iter'.precondition;
-      postcondition = SrkApron.widen iter.postcondition iter'.postcondition }
-
-  let precondition guard = guard.precondition
-  let postcondition guard = guard.postcondition
+  let exp solver loop_counter =
+    exp_t solver (abstract solver) loop_counter
 end
 
 module LinearGuard = struct
-  type 'a t =
-    { precondition : 'a formula;
-      postcondition : 'a formula }
+  type 'a t = 'a Cartesian.t
 
-  let abstract_presburger_rewriter srk expr =
-    match Expr.refine srk expr with
-    | `Formula phi -> begin match Formula.destruct srk phi with
-        | `Atom _ ->
-          if Quantifier.is_presburger_atom srk phi then
-            expr
-          else
-            (mk_true srk :> ('a,typ_fo) expr)
-        | _ -> expr
-      end
-    | _ -> expr
+  let pp = Cartesian.pp
 
-  let pp srk _ formatter guard =
-    Format.fprintf formatter
-      "@[<v 0>precondition: @[<hov> %a@]@;postcondition: @[<hov> %a@]@]"
-      (Formula.pp srk) guard.precondition
-      (Formula.pp srk) guard.postcondition
-
-  let abstract srk tf =
-    let phi =
-      (TF.formula tf)
-      |> rewrite srk ~up:(abstract_presburger_rewriter srk)
-      |> rewrite srk ~down:(pos_rewriter srk)
-    in
-    let tr_symbols = TF.symbols tf in
-    let exists = TF.exists tf in
+  let abstract solver =
+    let tr_symbols = Solver.get_symbols solver in
     let pre_symbols = TF.pre_symbols tr_symbols in
     let post_symbols = TF.post_symbols tr_symbols in
-    let lin_phi = Nonlinear.linearize srk phi in
-    let precondition =
-      Quantifier.mbp
-        srk
-        (fun x -> exists x && not (Symbol.Set.mem x post_symbols))
-        lin_phi
+    let constants = Solver.get_constants solver in
+    let abs_solver = Solver.get_abstract_solver solver in
+    let pre =
+      Quantifier.exists_elim
+        abs_solver
+        (fun x -> Symbol.Set.mem x constants || Symbol.Set.mem x pre_symbols)
     in
-    let postcondition =
-      Quantifier.mbp
-        srk
-        (fun x -> exists x && not (Symbol.Set.mem x pre_symbols))
-        lin_phi
+    let post =
+      Quantifier.exists_elim
+        abs_solver
+        (fun x -> Symbol.Set.mem x constants || Symbol.Set.mem x post_symbols)
     in
-    { precondition; postcondition }
+    Cartesian.{ pre; post }
 
-  let exp srk tr_symbols loop_counter guard =
-    mk_or srk [mk_and srk [mk_eq srk loop_counter (mk_real srk QQ.zero);
-                           TF.formula (TF.identity srk tr_symbols)];
-               mk_and srk [mk_leq srk (mk_real srk QQ.one) loop_counter;
-                           guard.precondition;
-                           guard.postcondition]]
+  let exp_t solver =
+    Cartesian.exp (Solver.get_context solver) (Solver.get_symbols solver)
 
-  let join srk _ guard guard' =
-    { precondition = mk_or srk [guard.precondition; guard'.precondition];
-      postcondition = mk_or srk [guard.postcondition; guard'.postcondition] }
-
-  let widen srk _ guard guard' =
-    let man = Polka.manager_alloc_strict () in
-    let widen_formula phi psi =
-      if Smt.equiv srk phi psi = `Yes then phi
-      else
-        let p = Abstract.abstract srk man phi in
-        let p' = Abstract.abstract srk man psi in
-        SrkApron.formula_of_property (SrkApron.widen p p')
-    in
-    { precondition = widen_formula guard.precondition guard'.precondition;
-      postcondition = widen_formula guard.postcondition guard'.postcondition }
-
-  let equal srk _ guard guard' =
-    Smt.equiv srk guard.precondition guard'.precondition = `Yes
-    && Smt.equiv srk guard.postcondition guard'.postcondition = `Yes
+  let exp solver loop_counter =
+    exp_t solver (abstract solver) loop_counter
 end
 
 module GuardedTranslation = struct
@@ -294,7 +311,8 @@ module GuardedTranslation = struct
       guard : 'a formula
     }
 
-  let pp srk _ formatter gt =
+  let pp solver formatter gt =
+    let srk = Solver.get_context solver in
     Format.fprintf formatter "@[<v 0>";
     gt.simulation |> Array.iteri (fun i t ->
         Format.fprintf formatter "%a += %a@;"
@@ -305,12 +323,13 @@ module GuardedTranslation = struct
       (substitute srk (fun (i, _) -> gt.simulation.(i)) gt.guard);
     Format.fprintf formatter "@]"
 
-  let abstract srk tf =
+  let abstract solver =
+    let srk = Solver.get_context solver in
     let zz_symbols = (* int-sorted transition symbols *)
       List.filter (fun (s,s') ->
           typ_symbol srk s = `TyInt
           && typ_symbol srk s' = `TyInt)
-        (TF.symbols tf)
+        (Solver.get_symbols solver)
     in
     (* [1, x0' - x0, ..., xn' - xn] *)
     let delta =
@@ -320,6 +339,7 @@ module GuardedTranslation = struct
           zz_symbols)
       |> Array.of_list
     in
+    let abs_solver = Solver.get_abstract_solver solver in
     let (simulation, translation) =
       let pre_symbols =
         List.map (fun (s,_) -> mk_const srk s) zz_symbols
@@ -338,7 +358,7 @@ module GuardedTranslation = struct
           (Linear.term_of_vec srk (fun i -> pre_symbols.(i-1)) functional::sim,
            const::tr))
         ([], [])
-        (Abstract.vanishing_space srk (TF.formula tf) delta)
+        (Abstract.LinearSpan.abstract abs_solver delta)
     in
     (* exists x,x'. F(x,x') /\ Sx = y *)
     let guard =
@@ -354,11 +374,16 @@ module GuardedTranslation = struct
       let sx_eq_y =
         List.map2 (fun s t -> mk_eq srk (mk_const srk s) t) fresh_symbols simulation
       in
-      Quantifier.mbp
-        srk
-        (fun x -> Symbol.Map.mem x sym_to_var)
-        (mk_and srk ((TF.formula tf)::sx_eq_y))
-      |> substitute_map srk sym_to_var
+      Abstract.Solver.push abs_solver;
+      Abstract.Solver.add abs_solver sx_eq_y;
+      let result =
+        Quantifier.exists_elim
+          abs_solver
+          (fun x -> Symbol.Map.mem x sym_to_var)
+        |> substitute_map srk sym_to_var
+      in
+      Abstract.Solver.pop abs_solver;
+      result
     in
     { simulation = Array.of_list simulation;
       translation = Array.of_list translation;
@@ -373,7 +398,9 @@ module GuardedTranslation = struct
                        loop_counter]))
     |> mk_and srk
 
-  let exp srk tr_symbols loop_counter gt =
+  let exp_t solver gt loop_counter =
+    let srk = Solver.get_context solver in
+    let tr_symbols = Solver.get_symbols solver in
     let post_map = (* map pre-state vars to post-state vars *)
       TF.post_map srk tr_symbols
     in
@@ -409,12 +436,16 @@ module GuardedTranslation = struct
     mk_and srk
       [guard;
        exp_translation srk delta loop_counter gt]
+
+  let exp solver loop_counter =
+    exp_t solver (abstract solver) loop_counter
 end
 
 module LossyTranslation = struct
   type 'a t = ('a arith_term * [ `Geq | `Eq ] * QQ.t) list
 
-  let pp srk _ formatter lr =
+  let pp solver formatter lr =
+    let srk = Solver.get_context solver in
     Format.fprintf formatter "@[<v 0>";
     lr |> List.iter (fun (t, op, k) ->
         let opstring = match op with
@@ -424,19 +455,16 @@ module LossyTranslation = struct
         Format.fprintf formatter "%a %s %a@;" (ArithTerm.pp srk) t opstring QQ.pp k);
     Format.fprintf formatter "@]"
 
-  let abstract srk tf =
-    let phi =
-      TF.formula tf
-      |> rewrite srk ~down:(pos_rewriter srk)
-      |> Nonlinear.linearize srk
-    in
+  let abstract solver =
+    let srk = Solver.get_context solver in
     let delta =
       List.map
         (fun (s,s') -> mk_sub srk (mk_const srk s') (mk_const srk s))
-        (TF.symbols tf)
+        (Solver.get_symbols solver)
       |> Array.of_list
     in
-    DD.enum_constraints (ConvexHull.conv_hull srk phi delta)
+    let abs_solver = Solver.get_abstract_solver solver in
+    DD.enum_constraints (ConvexHull.abstract abs_solver delta)
     /@ (fun (kind, vec) ->
         let (k, vec) = V.pivot Linear.const_dim vec in
         let t = Linear.term_of_vec srk (Array.get delta) vec in
@@ -446,7 +474,8 @@ module LossyTranslation = struct
         | `Nonneg | `Pos -> (t, `Geq, k))
     |> BatList.of_enum
 
-  let exp srk _ loop_counter lr =
+  let exp_t solver lr loop_counter =
+    let srk = Solver.get_context solver in
     List.map (fun (delta, op, c) ->
         match op with
         | `Eq ->
@@ -455,12 +484,16 @@ module LossyTranslation = struct
           mk_leq srk (mk_mul srk [mk_real srk c; loop_counter]) delta)
       lr
     |> mk_and srk
+
+  let exp solver loop_counter =
+    exp_t solver (abstract solver) loop_counter
 end
 
 module NonlinearRecurrenceInequation = struct
   type 'a t = ('a arith_term * [ `Geq | `Eq ] * 'a arith_term) list
 
-  let pp srk _ formatter lr =
+  let pp solver formatter lr =
+    let srk = Solver.get_context solver in
     Format.fprintf formatter "NLE: @[<v 0>";
     lr |> List.iter (fun (t, op, k) ->
         let opstring = match op with
@@ -532,7 +565,7 @@ module NonlinearRecurrenceInequation = struct
     in
     (delta, delta_map)
 
-  let abstract_wedge srk tr_symbols wedge =
+  let wedge_abstract srk tr_symbols wedge =
     let (delta,delta_map) = make_deltas srk tr_symbols in
     let syms =
       List.fold_left (fun set (s,s') ->
@@ -555,31 +588,7 @@ module NonlinearRecurrenceInequation = struct
     in
     abstract_delta_wedge srk delta_wedge delta delta_map
 
-  let abstract srk tf =
-    let (delta,delta_map) = make_deltas srk (TF.symbols tf) in
-    let syms =
-      List.fold_left (fun set (s,s') ->
-          Symbol.Set.add s (Symbol.Set.add s' set))
-        Symbol.Set.empty
-        (TF.symbols tf)
-    in
-    let delta_wedge =
-      let exists x =
-        Symbol.Map.mem x delta_map || (TF.exists tf x && not (Symbol.Set.mem x syms))
-      in
-      let subterm x = not (Symbol.Map.mem x delta_map) in
-      let delta_constraints =
-        Symbol.Map.fold (fun s diff xs ->
-            (mk_eq srk (mk_const srk s) diff)::xs)
-          delta_map
-          []
-      in
-      mk_and srk ((TF.formula tf)::delta_constraints)
-      |> Wedge.abstract ~subterm ~exists srk
-    in
-    abstract_delta_wedge srk delta_wedge delta delta_map
-
-  let exp srk _ loop_counter lr =
+  let exp_t srk _ lr loop_counter =
     List.map (fun (delta, op, c) ->
         match op with
         | `Eq ->
@@ -588,214 +597,124 @@ module NonlinearRecurrenceInequation = struct
           mk_leq srk (mk_mul srk [c; loop_counter]) delta)
       lr
     |> mk_and srk
+
+  let wedge_exp srk tr_symbols wedge loop_counter =
+    exp_t srk tr_symbols (wedge_abstract srk tr_symbols wedge) loop_counter
 end
 
-module Product (A : PreDomain) (B : PreDomain) = struct
-  type 'a t = 'a A.t * 'a B.t
-
-  let pp srk tr_symbols formatter (a, b) =
-    Format.fprintf formatter "%a@;%a"
-      (A.pp srk tr_symbols) a
-      (B.pp srk tr_symbols) b
-
-  let exp srk tr_symbols loop_counter (a, b) =
-    mk_and srk [A.exp srk tr_symbols loop_counter a;
-                B.exp srk tr_symbols loop_counter b]
-
-  let abstract srk tf =
-    (A.abstract srk tf, B.abstract srk tf)
-end
-
-module Split (Iter : PreDomain) = struct
-  type 'a t = ('a, typ_bool, 'a Iter.t * 'a Iter.t) Expr.Map.t
-
-  let pp srk tr_symbols formatter split_iter =
-    let pp_elt formatter (pred,(left,right)) =
-      Format.fprintf formatter "[@[<v 0>%a@; %a@; %a@]]"
-        (Formula.pp srk) pred
-        (Iter.pp srk tr_symbols) left
-        (Iter.pp srk tr_symbols) right
-    in
-    Format.fprintf formatter "<@[<v 0>Split @[<v 0>%a@]@]>"
-      (SrkUtil.pp_print_enum_nobox pp_elt) (Expr.Map.enum split_iter)
-
-
-  let base_bottom srk tr_symbols =
-    Iter.abstract srk (TF.make (mk_false srk) tr_symbols)
-
-  let abstract srk tf =
-    let body = TF.formula tf in
-    let tr_symbols = TF.symbols tf in
-    let exists = TF.exists tf in
-    let post_symbols = TF.post_symbols tr_symbols in
-    let predicates =
-      let preds = ref Expr.Set.empty in
-      let prestate sym = exists sym && not (Symbol.Set.mem sym post_symbols) in
-      let rr expr =
-        match destruct srk expr with
-        | `Not phi ->
-          if Symbol.Set.for_all prestate (symbols phi) then
-            preds := Expr.Set.add phi (!preds);
-          expr
-        | `Atom (`Arith (op, s, t)) ->
-          let phi =
-            match op with
-            | `Eq -> mk_eq srk s t
-            | `Leq -> mk_leq srk s t
-            | `Lt -> mk_lt srk s t
-          in
-          begin
+let split exp solver loop_counter =
+  let srk = Solver.get_context solver in
+  let tr_symbols = Solver.get_symbols solver in
+  let constants = Solver.get_constants solver in
+  let pre_symbols = TF.pre_symbols tr_symbols in
+  let prestate sym =
+    Symbol.Set.mem sym pre_symbols || Symbol.Set.mem sym constants
+  in
+  let body = Solver.get_formula solver in
+  let predicates =
+    let preds = ref Expr.Set.empty in
+    let rr expr =
+      match destruct srk expr with
+      | `Not phi ->
+        if Symbol.Set.for_all prestate (symbols phi) then
+          preds := Expr.Set.add phi (!preds);
+        expr
+      | `Atom (`Arith (op, s, t)) ->
+        let phi =
+          match op with
+          | `Eq -> mk_eq srk s t
+          | `Leq -> mk_leq srk s t
+          | `Lt -> mk_lt srk s t
+        in
+        begin
           if Symbol.Set.for_all prestate (symbols phi) then
             let redundant = match op with
               | `Eq -> false
-              | `Leq -> Expr.Set.mem (SrkSimplify.simplify_terms srk (mk_lt srk t s)) (!preds)
-              | `Lt -> Expr.Set.mem (SrkSimplify.simplify_terms srk (mk_leq srk t s)) (!preds)
+              | `Leq ->
+                Expr.Set.mem (SrkSimplify.simplify_terms srk (mk_lt srk t s)) (!preds)
+              | `Lt ->
+                Expr.Set.mem (SrkSimplify.simplify_terms srk (mk_leq srk t s)) (!preds)
             in
             if not redundant then
               preds := Expr.Set.add phi (!preds)
-          end;
-          expr
-        | _ -> expr
-      in
-      ignore (rewrite srk ~up:rr body);
-      BatList.of_enum (Expr.Set.enum (!preds))
+        end;
+        expr
+      | _ -> expr
     in
-    let uninterp_body =
+    ignore (rewrite srk ~up:rr body);
+    BatList.of_enum (Expr.Set.enum (!preds))
+  in
+  let sat_modulo_body psi =
+    let psi =
       rewrite srk
         ~up:(Nonlinear.uninterpret_rewriter srk)
-        body
+        psi
     in
-    let solver = Smt.StdSolver.make srk in
-    Smt.StdSolver.add solver [uninterp_body];
-    let sat_modulo_body psi =
-      let psi =
-        rewrite srk
-          ~up:(Nonlinear.uninterpret_rewriter srk)
-          psi
-      in
-      Smt.StdSolver.push solver;
-      Smt.StdSolver.add solver [psi];
-      let result = Smt.StdSolver.check solver in
-      Smt.StdSolver.pop solver 1;
-      result
-    in
-    let is_split_predicate psi =
-      (sat_modulo_body psi = `Sat)
-      && (sat_modulo_body (mk_not srk psi) = `Sat)
-    in
-    let post_map = TF.post_map srk tr_symbols in
-    let postify =
-      let subst sym =
-        if Symbol.Map.mem sym post_map then
-          Symbol.Map.find sym post_map
-        else
-          mk_const srk sym
-      in
-      substitute_const srk subst
-    in
-    let abstract formula =
-      Iter.abstract srk (TF.make ~exists formula tr_symbols)
-    in
-    let add_split_predicate split_iter psi =
-      if is_split_predicate psi then
-        let not_psi = mk_not srk psi in
-        let post_psi = postify psi in
-        let post_not_psi = postify not_psi in
-        let psi_body = mk_and srk [body; psi] in
-        let not_psi_body = mk_and srk [body; not_psi] in
-        if sat_modulo_body (mk_and srk [psi; post_not_psi]) = `Unsat then
-          (* {psi} body {psi} -> body* = ([not psi]body)*([psi]body)* *)
-          let left_abstract = abstract not_psi_body in
-          let right_abstract = abstract psi_body in
-          Expr.Map.add not_psi (left_abstract, right_abstract) split_iter
-        else if sat_modulo_body (mk_and srk [not_psi; post_psi]) = `Unsat then
-          (* {not phi} body {not phi} -> body* = ([phi]body)*([not phi]body)* *)
-          let left_abstract = abstract psi_body in
-          let right_abstract = abstract not_psi_body in
-          Expr.Map.add psi (left_abstract, right_abstract) split_iter
-        else
-          split_iter
+    Solver.push solver;
+    Solver.add solver [psi];
+    let result = Solver.check solver in
+    Solver.pop solver;
+    result
+  in
+  let is_split_predicate psi =
+    (sat_modulo_body psi = `Sat)
+    && (sat_modulo_body (mk_not srk psi) = `Sat)
+  in
+  let post_map = TF.post_map srk tr_symbols in
+  let postify =
+    let subst sym =
+      if Symbol.Map.mem sym post_map then
+        Symbol.Map.find sym post_map
       else
-        split_iter
+        mk_const srk sym
     in
-    let split_iter =
-      List.fold_left add_split_predicate Expr.Map.empty predicates
+    substitute_const srk subst
+  in
+  let exp_modulo predicate loop_counter =
+    Solver.push solver;
+    Solver.add solver [predicate];
+    let result = exp solver loop_counter in
+    Solver.pop solver;
+    mk_and srk [ result
+               ; mk_or srk [ mk_eq srk (mk_zero srk) loop_counter
+                           ; predicate ] ]
+  in
+  let split_exp p not_p =
+    let left_counter = mk_const srk (mk_symbol srk ~name:"K" `TyInt) in
+    let right_counter = mk_const srk (mk_symbol srk ~name:"K" `TyInt) in
+    let left_exp = exp_modulo not_p left_counter in
+    let right_exp = exp_modulo p right_counter in
+    let left_right =
+      TF.mul srk
+        (TF.make left_exp tr_symbols)
+        (TF.make right_exp tr_symbols)
+      |> TF.formula
     in
-    (* If there are no predicates that can split the loop, split on true *)
-    let split_iter =
-      if Expr.Map.is_empty split_iter then
-        Expr.Map.add
-          (mk_true srk)
-          (Iter.abstract srk tf, base_bottom srk tr_symbols)
-          Expr.Map.empty
+    mk_and srk [left_right;
+                mk_eq srk (mk_add srk [left_counter; right_counter]) loop_counter]
+  in
+  let try_split_predicate psi =
+    if is_split_predicate psi then
+      let not_psi = mk_not srk psi in
+      let post_psi = postify psi in
+      let post_not_psi = postify not_psi in
+      if sat_modulo_body (mk_and srk [psi; post_not_psi]) = `Unsat then
+        (* {psi} body {psi} -> body* = ([not psi]body)*([psi]body)* *)
+        Some (split_exp psi not_psi)
+      else if sat_modulo_body (mk_and srk [not_psi; post_psi]) = `Unsat then
+        (* {not phi} body {not phi} -> body* = ([phi]body)*([not phi]body)* *)
+        Some (split_exp not_psi psi)
       else
-        split_iter
-    in
-    split_iter
-
-  let exp srk tr_symbols loop_counter split_iter =
-    Expr.Map.enum split_iter
-    /@ (fun (predicate, (left, right)) ->
-        let not_predicate = mk_not srk predicate in
-        let left_counter = mk_const srk (mk_symbol srk ~name:"K" `TyInt) in
-        let right_counter = mk_const srk (mk_symbol srk ~name:"K" `TyInt) in
-        let left_closure =
-          mk_and srk [Iter.exp srk tr_symbols left_counter left;
-                      mk_or srk [mk_eq srk (mk_real srk QQ.zero) left_counter;
-                                 predicate]]
-        in
-        let right_closure =
-          mk_and srk [Iter.exp srk tr_symbols right_counter right;
-                      mk_or srk [mk_eq srk (mk_real srk QQ.zero) right_counter;
-                                 not_predicate]]
-        in
-        let left_right =
-          TF.mul srk
-            (TF.make left_closure tr_symbols)
-            (TF.make right_closure tr_symbols)
-          |> TF.formula
-        in
-        mk_and srk [left_right;
-                    mk_eq srk (mk_add srk [left_counter; right_counter]) loop_counter])
-    |> BatList.of_enum
-    |> mk_and srk
-end
-
-module MakeDomain (Iter : PreDomain) = struct
-  type 'a t =
-    { srk : 'a context;
-      tr_symbols : (symbol * symbol) list;
-      iter : 'a Iter.t }
-
-  let pp formatter iter =
-    Format.fprintf formatter "{@[<v 1>%a@]}"
-      (Iter.pp iter.srk iter.tr_symbols) iter.iter
-
-  let closure iter =
-    let srk = iter.srk in
-    let loop_counter_sym = mk_symbol srk ~name:"K" `TyInt in
-    let loop_counter = mk_const srk loop_counter_sym in
-    mk_and srk [Iter.exp iter.srk iter.tr_symbols loop_counter iter.iter;
-                mk_leq srk (mk_real srk QQ.zero) loop_counter]
-
-  let abstract srk tf =
-    let iter = Iter.abstract srk tf in
-    let tr_symbols = TF.symbols tf in
-    { srk; tr_symbols; iter }
-
-  let tr_symbols iter = iter.tr_symbols
-end
-
-module ProductWedge (A : PreDomainWedge) (B : PreDomainWedge) = struct
-  include Product(A)(B)
-
-  let abstract_wedge srk tr_symbols wedge =
-    (A.abstract_wedge srk tr_symbols wedge,
-     B.abstract_wedge srk tr_symbols wedge)
-
-  let abstract srk tf =
-    abstract_wedge srk (TF.symbols tf) (TF.wedge_hull srk tf)
-end
+        None
+    else
+      None
+  in
+  let split_iter = BatList.filter_map try_split_predicate predicates in
+  match split_iter with
+  | [] ->
+    (* If there are no predicates that can split the loop, default to exp *)
+    exp solver loop_counter
+  | _ -> mk_and srk split_iter
 
 
 (* A transition p(x,x') predicate is invariant for a transition relation T(x,x') if
@@ -905,7 +824,7 @@ let invariant_partition srk candidates tf =
     predicates, find_cells []
 
 let mp_algebra srk nonterm = WG.{
-      omega = nonterm;
+      omega = (fun tf -> nonterm (Solver.make srk tf));
       omega_add = (fun p1 p2 -> Syntax.mk_or srk [p1; p2]);
       omega_mul = (fun transition state -> TF.preimage srk transition state ) }
 
@@ -914,7 +833,8 @@ let tf_algebra srk symbols star = WG.{
       add = TF.add srk;
       one = TF.identity srk symbols;
       zero = TF.zero srk symbols;
-      star = star }
+      star = (fun tf -> star (Solver.make srk tf))
+    }
 
 let phase_graph srk tf candidates algebra =
   let inv_predicates, cells = invariant_partition srk candidates tf in
@@ -1050,18 +970,9 @@ let phase_graph srk tf candidates algebra =
   done;
   !wg
 
-let phase_mp srk candidate_predicates tf nonterm =
-  let star tf =
-      let module E = (val if get_theory srk = `LIRR then 
-        (module LIRR : PreDomain) 
-      else (module LossyTranslation))
-      in 
-      let k = mk_symbol srk `TyInt in
-      let exists x = x != k && (TF.exists tf) x in
-      TF.make ~exists
-        (E.exp srk (TF.symbols tf) (mk_const srk k) (E.abstract srk tf)) (TF.symbols tf)
-  in
-  let algebra = tf_algebra srk (TF.symbols tf) star in
+let phase_mp srk candidate_predicates star nonterm solver =
+  let tf = Solver.get_transition_formula solver in
+  let algebra = tf_algebra srk (Solver.get_symbols solver) star in
   let wg = phase_graph srk tf candidate_predicates algebra in
   (* node (-1) is virtual entry.  Add edges to all isolated vertices
      (only one in-edge, from its self-loop).  *)
@@ -1076,132 +987,114 @@ let phase_mp srk candidate_predicates tf nonterm =
   in
   WG.omega_path_weight wg (mp_algebra srk nonterm) (-1)
 
-module InvariantDirection (Iter : PreDomain) = struct
-  type 'a t = 'a Iter.t list list
-
-  let pp srk tr_symbols formatter phases =
-    let pp_phase formatter phase =
-      Format.fprintf formatter "  @[<v 0>%a@]"
-        (SrkUtil.pp_print_enum (Iter.pp srk tr_symbols)) (BatList.enum phase)
-    in
-    Format.fprintf formatter "Phases@. @[<v 0>%a@]"
-      (SrkUtil.pp_print_enum pp_phase) (BatList.enum phases)
-
-  let abstract srk tf =
-    let tf = TF.linearize srk tf in
-    let tr_symbols = TF.symbols tf in
-    let exists = TF.exists tf in
-    (* Use variable directions as candidate transition invariants *)
-    let predicates =
-      List.concat (List.map (fun (x,x') ->
-          let x = mk_const srk x in
-          let x' = mk_const srk x' in
-          [mk_lt srk x x';
-           mk_lt srk x' x;
-           mk_eq srk x x'])
+let invariant_direction exp solver loop_counter =
+  let tr_symbols = Solver.get_symbols solver in
+  let srk = Solver.get_context solver in
+  let abs_solver = Solver.get_abstract_solver solver in
+  (* Use variable directions as candidate transition invariants *)
+  let predicates =
+    List.concat (List.map (fun (x,x') ->
+        let x = mk_const srk x in
+        let x' = mk_const srk x' in
+        [mk_lt srk x x';
+         mk_lt srk x' x;
+         mk_eq srk x x'])
         tr_symbols)
-      |> invariant_transition_predicates srk tf
-      |> BatArray.of_list
-    in
-    let solver = Smt.Solver.make srk in
-    Smt.Solver.add solver [TF.formula tf];
-    (* The predicate induce a parition of the transitions of T by
-       their valuation of the predicates; find the cells of this
-       partition *)
-    let rec find_cells cells =
-      Smt.Solver.push solver;
-      match Smt.Solver.get_model solver with
-      | `Sat m ->
-         let cell =
-           Array.map (Smt.Model.sat m) predicates
-         in
-         let cell_formula =
-           List.mapi (fun i sat ->
-               if sat then predicates.(i)
-               else mk_not srk predicates.(i))
-             (Array.to_list cell)
-           |> mk_and srk
-         in
-         Smt.Solver.add solver [mk_not srk cell_formula];
-         find_cells (cell::cells)
-      | `Unsat -> cells
-      | `Unknown -> assert false (* to do *)
-    in
-    (* # of true predicates.  Since they're invariant, transitions
-       belonging to a low-weight cell must precede transitions from
-       higher-weight cells, and cells with equal weight can't appear
-       in an execution *)
-    let compare_weight cell1 cell2 =
-      let weight cell =
-        Array.fold_left (fun i v -> if v then i+1 else i) 0 cell
+    |> invariant_transition_predicates srk (Solver.get_transition_formula solver)
+    |> BatArray.of_list
+  in
+  (* The predicate induce a parition of the transitions of T by
+     their valuation of the predicates; find the cells of this
+     partition *)
+  let rec find_cells cells =
+    match Abstract.Solver.get_model abs_solver with
+    | `Sat m ->
+      let cell =
+        Array.map (Abstract.Model.sat srk m) predicates
       in
-      compare (weight cell1) (weight cell2)
+      let cell_formula =
+        List.mapi (fun i sat ->
+            if sat then predicates.(i)
+            else mk_not srk predicates.(i))
+          (Array.to_list cell)
+        |> mk_and srk
+      in
+      Abstract.Solver.block abs_solver cell_formula;
+      find_cells (cell::cells)
+    | `Unsat -> cells
+    | `Unknown -> assert false (* to do *)
+  in
+  (* # of true predicates.  Since they're invariant, transitions
+     belonging to a low-weight cell must precede transitions from
+     higher-weight cells, and cells with equal weight can't appear
+     in an execution *)
+  let compare_weight cell1 cell2 =
+    let weight cell =
+      Array.fold_left (fun i v -> if v then i+1 else i) 0 cell
     in
-    BatList.sort compare_weight (find_cells [])
+    compare (weight cell1) (weight cell2)
+  in
+  let cells = Abstract.Solver.with_blocking abs_solver find_cells [] in
+  let exp_cell subst k cell =
+    let cell_predicates =
+      BatArray.fold_lefti
+        (fun ps i v ->
+           if v then predicates.(i)::ps
+           else mk_not srk predicates.(i)::ps)
+        []
+        cell
+    in
+    Solver.push solver;
+    Solver.add solver cell_predicates;
+    let result = exp solver k in
+    Solver.pop solver;
+    substitute_map srk subst result
+  in
+  let exp_group mid_symbols k cells =
+    let subst =
+      BatList.fold_left2 (fun m (x, x') (sym, sym') ->
+          Symbol.Map.add sym (mk_const srk x)
+            (Symbol.Map.add sym' (mk_const srk x') m))
+        Symbol.Map.empty
+        mid_symbols
+        tr_symbols
+    in
+    List.map (exp_cell subst k) cells
+    |> mk_or srk
+  in
+  let groups =
+    BatList.sort compare_weight cells
     |> BatList.group_consecutive (fun x y -> compare_weight x y = 0)
-    |> List.map (List.map (fun cell ->
-                     let cell_predicates =
-                       BatArray.fold_lefti
-                         (fun ps i v ->
-                           if v then predicates.(i)::ps
-                           else mk_not srk predicates.(i)::ps)
-                         []
-                         cell
-                     in
-                     let tf' =
-                       TF.make
-                         ~exists
-                         (mk_and srk ((TF.formula tf)::cell_predicates))
-                         tr_symbols
-                     in
-                     Iter.abstract srk tf'))
-
-  let exp srk tr_symbols k phases =
-    let exp_group mid_symbols k cells =
-      let subst =
-        BatList.fold_left2 (fun m (x, x') (sym, sym') ->
-            Symbol.Map.add sym (mk_const srk x)
-              (Symbol.Map.add sym' (mk_const srk x') m))
-          Symbol.Map.empty
-          mid_symbols
+  in
+  let rec go groups tr_symbols exp_formulas loop_counters =
+    match groups with
+    | [ ] ->
+      (* formula is unsat *)
+      assert (loop_counters == []);
+      assert (exp_formulas == []);
+      ([TF.formula (TF.identity srk tr_symbols)],
+       [mk_real srk QQ.zero])
+    | [x] ->
+      let k = mk_const srk (mk_symbol srk ~name:"k" `TyInt) in
+      ((exp_group tr_symbols k x)::exp_formulas,
+       k::loop_counters)
+    | (x::xs) ->
+      let mid =
+        List.map (fun (sym, _) ->
+            let name = "mid_" ^ (show_symbol srk sym) in
+            mk_symbol srk ~name:name (typ_symbol srk sym))
           tr_symbols
       in
-      List.map (fun cell_iter ->
-          Iter.exp srk tr_symbols k cell_iter
-          |> substitute_map srk subst)
-        cells
-      |> mk_or srk
-    in
-    let rec go groups tr_symbols exp_formulas loop_counters =
-      match groups with
-      | [ ] ->
-         (* formula is unsat *)
-         assert (loop_counters == []);
-         assert (exp_formulas == []);
-         ([TF.formula (TF.identity srk tr_symbols)],
-          [mk_real srk QQ.zero])
-      | [x] ->
-         let k = mk_const srk (mk_symbol srk ~name:"k" `TyInt) in
-         ((exp_group tr_symbols k x)::exp_formulas,
-          k::loop_counters)
-      | (x::xs) ->
-         let mid =
-           List.map (fun (sym, _) ->
-               let name = "mid_" ^ (show_symbol srk sym) in
-               mk_symbol srk ~name:name (typ_symbol srk sym))
-             tr_symbols
-         in
-         let tr_symbols1 =
-           BatList.map2 (fun (sym, _) sym' -> (sym, sym')) tr_symbols mid
-         in
-         let tr_symbols2 =
-           BatList.map2 (fun sym (_, sym') -> (sym, sym')) mid tr_symbols
-         in
-         let k = mk_const srk (mk_symbol srk ~name:"k" `TyInt) in
-         go xs tr_symbols2 ((exp_group tr_symbols1 k x)::exp_formulas) (k::loop_counters)
-    in
-    let (formulas, loop_counters) =
-      go phases tr_symbols [] []
-    in
-    mk_and srk (mk_eq srk k (mk_add srk loop_counters)::formulas)
-end
+      let tr_symbols1 =
+        BatList.map2 (fun (sym, _) sym' -> (sym, sym')) tr_symbols mid
+      in
+      let tr_symbols2 =
+        BatList.map2 (fun sym (_, sym') -> (sym, sym')) mid tr_symbols
+      in
+      let k = mk_const srk (mk_symbol srk ~name:"k" `TyInt) in
+      go xs tr_symbols2 ((exp_group tr_symbols1 k x)::exp_formulas) (k::loop_counters)
+  in
+  let (formulas, loop_counters) =
+    go groups tr_symbols [] []
+  in
+  mk_and srk (mk_eq srk loop_counter (mk_add srk loop_counters)::formulas)

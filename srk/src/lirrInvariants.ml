@@ -79,8 +79,9 @@ let find_inv_functionals dx_dims implied_ideal =
     (fun base_vec -> QQMatrix.vector_right_mul lin_part_mat base_vec)
     null_space
 
-let compute_LIRR_invariants srk tr_symbols loop_counter tf =
-  let solver = Abstract.Solver.make srk (TF.formula tf) in
+let exp solver loop_counter =
+  let srk = Iteration.Solver.get_context solver in
+  let tr_symbols = Iteration.Solver.get_symbols solver in
   let pre_symbols =
     List.map (fun (s,_) -> mk_const srk s) tr_symbols
     |> Array.of_list
@@ -93,7 +94,7 @@ let compute_LIRR_invariants srk tr_symbols loop_counter tf =
   in
   let inv_functionals =
     Abstract.LinearSpan.abstract
-      solver
+      (Iteration.Solver.get_abstract_solver solver)
       delta
     |> List.map (Linear.term_of_vec srk (Array.get pre_symbols))
     |> Array.of_list
@@ -136,7 +137,7 @@ let compute_LIRR_invariants srk tr_symbols loop_counter tf =
     Abstract.{ join; top; of_model; bottom; formula_of }
   in
   let rec_cone =
-    Abstract.Solver.abstract solver domain
+    Iteration.Solver.abstract solver domain
   in
   (* Convert vectors and polynomial to terms, associating dimension i to
      delta_inv[i] *)

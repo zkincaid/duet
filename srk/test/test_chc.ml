@@ -5,8 +5,7 @@ open Test_pervasives
 open Chc
 open Iteration
 
-let pd = (module Product(LossyTranslation)(PolyhedronGuard) :
-  PreDomain)
+let pd = Iteration.product [LossyTranslation.exp; PolyhedronGuard.exp]
 
 let mk_rel_atom_fresh srk fp ?(name="R") syms =
   let typs = List.map (typ_symbol srk) syms in

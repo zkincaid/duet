@@ -7,22 +7,22 @@ open Iteration
 
 (** Solvable polynomial maps with eigenvalue 1.  Closed forms are
    polynomial. *)
-module SolvablePolynomialOne : PreDomainWedgeIter
+module SolvablePolynomialOne : WedgeExp
 
 (** Solvable polynomial maps without spectral assumptions.  Closed
    forms may use operators from Berg's operational calculus,
    represented as uninterpreted function symbols that will be
    allocated upon calling [exp]. *)
-module SolvablePolynomial : PreDomainWedgeIter
+module SolvablePolynomial : WedgeExp
 
 (** Solvable polynomial maps with periodic rational eigenvalues.
    Closed forms are exponential polynomials. *)
-module SolvablePolynomialPeriodicRational : PreDomainWedgeIter
+module SolvablePolynomialPeriodicRational : WedgeExp
 
 (** Extends [SolvablePolynomialPeriodicRational] with universally
    quantified precondition expressed over terms with
    Presurger-definable dynamics. *)
-module PresburgerGuard : PreDomain
+module PresburgerGuard : Exp
 
 (** Deterministic linear transition systems *)
 type 'a dlts_abstraction =
@@ -31,7 +31,7 @@ type 'a dlts_abstraction =
 
 (** Deterministic linear transition systems *)
 module DLTS : sig
-  include PreDomainIter with type 'a t = 'a dlts_abstraction
+  include Domain with type 'a t = 'a dlts_abstraction
 
   (** Simplify the simulation function of a DLTS abstraction.  If
      [scale] is set, the resulting simulation is scaled so that the
@@ -44,14 +44,14 @@ end
 (** Solvable polynomial maps with periodic rational eigenvalues,
    restricted to an algebraic variety, represented as a DLTS with a
    polynomial simulation. *)
-module DLTSSolvablePolynomial : PreDomainWedge with type 'a t = 'a dlts_abstraction
+module DLTSSolvablePolynomial : WedgeExp
 
 module DLTSPeriodicRational : sig
-  include PreDomainIter with type 'a t = 'a dlts_abstraction
+  include Domain with type 'a t = 'a dlts_abstraction
 
   (** Find best abstraction as a DLTS with rational (rather than
      periodic rational) spectrum *)
-  val abstract_rational : 'a context -> 'a TransitionFormula.t -> 'a t
+  val abstract_rational : 'a Iteration.Solver.t -> 'a t
 end
 
 
@@ -59,7 +59,7 @@ val pp_sp : Format.formatter -> TransitionIdeal.solvable_polynomial -> unit
 
 module SolvablePolynomialLIRR : 
   sig
-    include PreDomain
+    include Domain
 
     type pre_t
 
@@ -68,6 +68,6 @@ module SolvablePolynomialLIRR :
     val exp_ti : pre_t -> TransitionIdeal.t
   end
 
-module UltSolvablePolynomialLIRR : PreDomain
+module UltSolvablePolynomialLIRR : Exp
 
-module SolvablePolynomialLIRRQuadratic : PreDomain
+module SolvablePolynomialLIRRQuadratic : Exp

@@ -4,41 +4,48 @@ open Syntax
 open Test_pervasives
 
 module QQMatrix = Linear.QQMatrix
+let mk_wedge_star ops srk tf =
+  let solver = Iteration.Solver.make ~theory:`LIRR srk tf in
+  Iteration.closure (Iteration.wedge_lift (Iteration.wedge_product ops)) solver
+
+let mk_star theory ops srk tf =
+  let solver = Iteration.Solver.make ~theory srk tf in
+  Iteration.closure (Iteration.product ops) solver
+  
 module SP = struct
-  include Iteration.MakeDomain(Iteration.ProductWedge
-                                 (SolvablePolynomial.SolvablePolynomial)
-                                 (Iteration.WedgeGuard))
-  let star srk tf = closure (abstract srk tf)
+  let star =
+    mk_wedge_star [SolvablePolynomial.SolvablePolynomial.wedge_exp
+                  ;Iteration.WedgeGuard.wedge_exp]
 end
 module SPPR = struct
-  include Iteration.MakeDomain(Iteration.ProductWedge
-                                 (SolvablePolynomial.SolvablePolynomialPeriodicRational)
-                                 (Iteration.WedgeGuard))
-  let star srk tf = closure (abstract srk tf)
+  let star =
+    mk_wedge_star [SolvablePolynomial.SolvablePolynomialPeriodicRational.wedge_exp
+                  ;Iteration.WedgeGuard.wedge_exp]
+
 end
 module DLTS = struct
-  include Iteration.MakeDomain(Iteration.Product
-                                 (SolvablePolynomial.DLTSSolvablePolynomial)
-                                 (Iteration.PolyhedronGuard))
-  let star srk tf = closure (abstract srk tf)
+  let star srk tf =
+    mk_star `LIRR [Iteration.wedge_lift SolvablePolynomial.DLTSSolvablePolynomial.wedge_exp
+                  ;Iteration.PolyhedronGuard.exp]
+      srk
+      tf
 end
 module WAT = struct
-  include Iteration.MakeDomain(Iteration.Product
-                                 (Iteration.LIRR)
-                                 (Iteration.LIRRGuard))
-  let star srk tf = closure (abstract srk tf)
+  let star srk tf =
+    mk_star `LIRR [LirrInvariants.exp
+                  ;Iteration.LIRRGuard.exp]
+      srk
+      tf
 end
 
 module GT = struct
-  include Iteration.MakeDomain(Iteration.GuardedTranslation)
-  let star srk tf = closure (abstract srk tf)
+  let star = mk_star `LIRA [Iteration.GuardedTranslation.exp]
 end
 
 module SPQ = struct
-  include Iteration.MakeDomain(Iteration.Product
-                                 (SolvablePolynomial.SolvablePolynomialLIRRQuadratic)
-                                 (Iteration.LIRRGuard))
-  let star srk tf = closure (abstract srk tf)
+  let star =
+    mk_star `LIRR [SolvablePolynomial.SolvablePolynomialLIRRQuadratic.exp
+                 ;Iteration.LIRRGuard.exp]
 end
 
 

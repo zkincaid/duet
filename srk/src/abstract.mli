@@ -41,6 +41,12 @@ type ('a, 'b) domain =
   ; top : 'b
   ; bottom : 'b }
   
+module Model : sig
+  type 'a t = 'a smt_model
+  val sat : 'a context -> 'a t -> 'a formula -> bool
+  val sign : 'a context -> 'a t -> 'a arith_term -> [ `Zero | `Pos | `Neg | `Unknown ]
+end
+
 (** A solver contains a single formula that can be abstracted in various ways
    (convex hull, affine hull, sign analysis, ...); the solver allows different
    abstraction routines to share the work of computing a diverse set of models

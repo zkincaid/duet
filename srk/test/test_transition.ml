@@ -31,7 +31,7 @@ end
 module T = Transition.Make(Ctx)(V)
 
 let () =
-  T.domain := (module Iteration.Split(val !T.domain))
+  T.domain := Iteration.split (!T.domain)
 
 let () =
   V.register_var "i" `TyInt;
