@@ -650,6 +650,10 @@ module ApronInterpretation = struct
         { av with value = value }
       end
 
+  let assert_true bexpr av =
+    try assert_true bexpr av
+    with _ -> false
+
   (** Widen, but preserve variable strict inequalities (i.e., if a < b in x
       and y, then a < b in (widen_preserve_leq x y). *)
   let widen_preserve_leq x y =

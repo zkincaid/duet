@@ -119,11 +119,10 @@ module Dependence (M : sig
       | _ -> preds
     in
     let preds =
-      let process_thread p t =
-        let func = lookup_function t file in
+      let process_thread p func =
         Cfg.fold_vertex f func.cfg p
       in
-      List.fold_left process_thread [] file.threads
+      List.fold_left process_thread [] file.funcs
     in
     Log.log "Extracted predicates:";
     List.iter
