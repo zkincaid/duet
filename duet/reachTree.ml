@@ -174,6 +174,7 @@ struct
     (* precedent_nodes[v] stores all tree nodes mapping to CFG vertex v. Used in mc_close. *)
     mutable precedent_nodes : ISet.t IntMap.t;
     interproc : Summarizer.t;
+    mutable leaves : ISet.t;
   }
 
   let root = 0
@@ -192,6 +193,7 @@ struct
         covers = IntMap.empty; (* for (u, v) in cover, u is ancestor of v and label(v) |= label(u). v is covered if (u, v) in cover. Then cover[v] = u. *)
         reverse_covers = IntMap.empty; (* for each v, store the v's that cover it: i.e. cover[v] *)
         precedent_nodes = IntMap.empty;
+        leaves = ISet.empty;
         interproc;
       }
 
@@ -268,13 +270,15 @@ struct
     v :: List.fold_left (fun l ch -> descendants art ch @ l) [] v_children
 
   (* return leaves of subtree rooted at v. *)
-  let rec leaves (art : t ref) (v : node) : node list =
+  (* let rec leaves (art : t ref) (v : node) : node list =
     let chs = children art v in
     if List.length chs == 0 then [ v ]
     else
       List.fold_left
-        (fun child_leaves ch -> leaves art ch @ child_leaves)
-        [] chs
+        (fun child_leaves ch ->  (leaves art ch) @ child_leaves)
+        [] chs *)
+  let leaves (art : t ref) (v : node) : node list = 
+    !art.leaves |> ISet.to_list 
 
   (* is a node in tree a leaf? *)
   let is_leaf (art : t ref) (v : node) : bool =
@@ -323,9 +327,16 @@ struct
     !art.vtxcnt <- !art.vtxcnt + 1;
     new_id
 
+  (* [update_leaf art x] attempts to update leaf structure; if x is a leaf then x is marked as leaf, otherwise x is unmarked as leaf. *)
+  let update_leaf (art: t ref) (x: node) = 
+    if is_leaf art x then 
+      !art.leaves <- ISet.add x !art.leaves 
+    else 
+      !art.leaves <- ISet.remove x !art.leaves 
+
   (* Add new tree leaf mapping to CFG vertex v and with parent tree node p. *)
   let add_tree_vertex (art : t ref) ?(label = mk_true ()) (v : TS.vertex)
-      (p : int) =
+      (p : node) =
     (* sequentially add v to the lists, indexed by !vtxcnt *)
     let new_vertex = get_id art in
     (* note that new_vertex refers to a new tree vertex, where as v is a corresp. cfg location. *)
@@ -344,6 +355,8 @@ struct
     in
     !art.precedent_nodes <-
       IntMap.add (VN.of_vertex v) precedent_nodes !art.precedent_nodes;
+    update_leaf art p;
+    update_leaf art new_vertex;
     new_vertex 
   
   (** expand:  
@@ -467,7 +480,8 @@ struct
                          let x_leaves = leaves art x in
                          List.iter
                            (fun x_leaf ->
-                             logf
+                            if not (is_leaf art x_leaf) then failwith "ERR: found non-leaf among leaves set of ART";
+                              logf
                                "         close: adding %d back to worklist \n"
                                x_leaf;
                              wl' := x_leaf :: !wl')
@@ -524,6 +538,7 @@ struct
                           logf
                             "         refine: adding %d back to worklist \n"
                             x_leaf;
+                            if not (is_leaf art x_leaf) then failwith "ERROR: found a non-leaf node in leaves set of ART";
                           worklist := x_leaf :: !worklist)
                         x_leaves;
                       l

@@ -554,7 +554,7 @@ module Make
               List.fold_right VarSet.remove (uses tr) (PHT.find tmp_map (u, v))
             in
             Weight (T.exists (fun x -> not (VarSet.mem x tmp)) tr)
-          with Not_found -> label)
+          with Not_found -> label)  
 
   let forward_invariants_ivl tg entry =
     let init v =
@@ -681,11 +681,13 @@ module Make
       let tg' =
         WG.fold_vertex (fun v tg ->
             let ug = WG.forget_weights tg in
+            Printf.printf "visiting vertex %d\n" v;
             if (p v
                 || WG.mem_edge tg v v
                 || (WG.U.in_degree ug v != 1
                     && WG.U.out_degree ug v != 1))
             then
+              let _ = Printf.printf "trying rtc on vertex %d\n " v in 
               begin if WG.mem_edge tg v v then
                   match WG.edge_weight tg v v with
                   | Weight tr ->
@@ -693,14 +695,16 @@ module Make
                      | Some rtc ->
                        let u = -1 in
                        (try
+                          Printf.printf "removing edge from %d %d\n" v v;
                           let tg = WG.remove_edge tg v v in
                           let tg =
+                            Printf.printf "success: contracting vertex %d %d\n" v u;
                             WG.contract_vertex (WG.split_vertex tg v (Weight rtc) u) u
                           in
                           continue := true;
                           tg
                         with _ -> tg)
-                     | None -> tg end
+                     | None -> Printf.printf "...failed.\n"; tg end
                       with _ -> tg)
                   | Call (_, _) -> tg
                 else

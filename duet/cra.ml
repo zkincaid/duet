@@ -792,7 +792,7 @@ let decorate_transition_system predicates ts entry =
     ts
 
 module VSet = BatSet.Make(V)
-let make_transition_system rg =
+let make_transition_system ?(simplify=true) rg =
   let call_edge block =
     Call ((RG.block_entry rg block).did, (RG.block_exit rg block).did)
   in
@@ -867,7 +867,7 @@ let make_transition_system rg =
         let elim_var v =
           V.is_global v || VSet.mem v (!assert_vars)
         in
-        let tg = TS.simplify point_of_interest tg in
+        let tg = if simplify then TS.simplify point_of_interest tg else tg in
         let tg = TS.remove_temporaries elim_var tg in
         let tg =
           if !forward_inv_gen then

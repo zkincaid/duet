@@ -83,7 +83,7 @@ module ART :
     (Summarizer : sig
                     type t
                     (** [init g s] returns a Summarizer.t type for a given transition system, source vertex pair (g, s). *)
-                    val init : TS.t -> TS.vertex -> TS.vertex -> t
+                    val init : TS.t -> TS.vertex -> TS.vertex -> bool -> t
                     (** [over_proc_summary s n] returns the over-approximate procedure summary for procedure `n`. *)
                     val over_proc_summary : t -> PN.t -> K.t
                     (** [under_proc_summary s n] returns the under-approximate procedure summary (initially `false`) for procedure `n`. *)

@@ -157,42 +157,81 @@ module Summarizer =
         src: int;
         query: TS.query;
         rev_query: TS.reverse_query;
-        mutable underapprox: K.t SMap.t
+        mutable underapprox: K.t SMap.t;
+        mutable overapprox: K.t SMap.t; (* Caution: used only for silent mode where no CRA-generated summaries are used. *)
+        silent: bool;
       }
 
-      let init (graph: cfg_t) (src: int) (tgt: int): t =
+      let init (graph: cfg_t) (src: int) (tgt: int) (enable_summary: bool) : t =
         let q = mk_query graph src in
         let rq = TS.mk_reverse_query q tgt in
         { graph = graph
         ; src = src
         ; query = q
         ; rev_query = rq
-        ; underapprox = SMap.empty }
+        ; underapprox = SMap.empty
+        ; overapprox = SMap.empty  
+        ; silent = not enable_summary }
+
+
+      let filt_over (ctx: t) x = 
+        if ctx.silent then begin 
+          logf "filt_over: context is silent! \n";
+          K.assume @@ mk_true ()  
+        end 
+        else begin 
+          logf "filt_over: context isn't silent!\n";
+          x end
+      
+      let filt_under (ctx: t) x = 
+        if ctx.silent then K.assume @@ mk_false ()
+        else x 
 
       (** retrieve over-approximate procedure summary *)
       let over_proc_summary (ctx: t) ((u, v) : ProcName.t) =
+        if ctx.silent then begin 
+          match SMap.find_opt (u, v) ctx.overapprox with 
+          | Some s -> s 
+          | None -> 
+            let init = K.assume @@ mk_true () in 
+            ctx.overapprox <- SMap.add (u, v) init ctx.overapprox; init  
+        end else
           TS.get_summary ctx.query (u, v) 
           |> K.exists (V.is_global)
-
+        
       (** set over-approximate procedure summary *)
       let set_over_proc_summary (ctx: t) ((u, v): ProcName.t) (w: K.t) =
-          TS.set_summary ctx.query (u, v) w
-      
+        if ctx.silent then begin
+          match SMap.find_opt (u, v) ctx.overapprox with
+          | Some s -> 
+            ctx.overapprox <- SMap.add (u, v) (K.conjunct s w) ctx.overapprox
+          | None -> 
+            ctx.overapprox <- SMap.add (u, v) w ctx.overapprox;
+          end else 
+            TS.set_summary ctx.query (u, v) w
+
       (** retrieve under-approximate procedure summary *)
       let under_proc_summary (ctx: t) ((u, v): ProcName.t) : K.t = 
         SMap.find_default K.zero (u, v) ctx.underapprox
         |> K.exists (V.is_global) 
-
+        
       (** set under-approximate procedure summary *)
       let set_under_proc_summary (ctx: t) ((u, v): ProcName.t) (w: K.t) : unit = 
         ctx.underapprox <- SMap.add (u, v) w ctx.underapprox
 
       (** refinement of procedure summaries using a two-voc transition formula *)
       let refine_over_summary (ctx: t) ((u, v): ProcName.t) (rfn: K.t) =
-        over_proc_summary ctx (u, v) 
-        |> K.conjunct rfn 
-        |> set_over_proc_summary ctx (u, v)
-      
+        if ctx.silent then begin 
+          match SMap.find_opt (u, v) ctx.overapprox with
+          | Some s -> 
+            ctx.overapprox <- SMap.add (u, v) (K.conjunct s rfn) ctx.overapprox
+          | None -> 
+            ctx.overapprox <- SMap.add (u, v) rfn ctx.overapprox
+        end else 
+          over_proc_summary ctx (u, v) 
+          |> K.conjunct rfn 
+          |> set_over_proc_summary ctx (u, v)
+        
       let refine_under_summary (ctx: t) ((u, v): ProcName.t) (w:K.t) : unit = 
         let summary = under_proc_summary ctx (u, v) in 
         let summary' = K.add summary w in 
@@ -201,9 +240,12 @@ module Summarizer =
       
       let path_weight_intra (ctx: t) (src: int) (dst: int) =
           TS.exit_summary ctx.rev_query src dst
+          |> filt_over ctx 
       
       let path_weight_inter (ctx: t) (src: int) =
           TS.target_summary ctx.rev_query src
+          |> filt_over ctx 
+      
   end
 
 
@@ -322,9 +364,9 @@ module GPS = struct
       art = ReachTree.make ts entry err_loc pre_state !gctx.interproc;
       global_ctx = gctx;
     }
-  and mk_mc_context (global_cfg: cfg_t) (global_src: int) (err_loc: int)= 
+  and mk_mc_context (global_cfg: cfg_t) (global_src: int) (err_loc: int) enable_summary = 
     ref {
-      interproc = Summarizer.init global_cfg global_src err_loc;
+      interproc = Summarizer.init global_cfg global_src err_loc enable_summary;
     }
 
   (** place an element in front of the deque (worklist) *)
@@ -626,13 +668,13 @@ module GPS = struct
       | `Concretized cond -> Unsafe (cond) 
   
 
-  let execute (ts : cfg_t) (entry : int) (err_loc : int) : mc_result = 
+  let execute (ts : cfg_t) (entry : int) (err_loc : int) (enable_summary:bool) : mc_result = 
     (**
     * Set up data structures used by the algorithm: worklist, 
     * vtxcnt (keeps track of largest unused vertex number in tree), 
     * ptt is a pointer to the reachability tree.
     *)
-    let global_context = mk_mc_context ts entry err_loc in 
+    let global_context = mk_mc_context ts entry err_loc enable_summary in 
     logf "executing concolic mcmillan's algorithm\n";
     (*let ts_with_gas = instrument_with_gas ts in *)
     let main_context = mk_intra_context global_context (entry, err_loc) ts 0 K.one entry err_loc in 
@@ -643,7 +685,7 @@ module GPS = struct
 module BM = BatMap.Make(Int)
 
 
-let analyze_concolic_mcl enable_gas file = 
+let analyze_concolic_mcl enable_gas enable_summary file = 
   let open Srk.Iteration in 
   populate_offset_table file;
   K.domain := split (product [ PolyhedronGuard.exp
@@ -659,7 +701,7 @@ let analyze_concolic_mcl enable_gas file =
       logf "\nentry: %d\n" entry; 
       Printf.printf "testing reachability of location %d\n" err_loc ; 
       Printf.printf "------------------------------\n";
-      begin match GPS.execute ts entry err_loc with 
+      begin match GPS.execute ts entry err_loc enable_summary with 
       | Safe _ -> Printf.printf "  proven safe\n";
       | Unsafe _ -> Printf.printf "  proven unsafe\n"
       end;
@@ -675,7 +717,7 @@ let dump_cfg simplify file =
     begin 
       let rg = Interproc.make_recgraph file in 
       let _ (* entry *) = (RG.block_entry rg main).did in 
-      let (ts, assertions) = make_transition_system rg in 
+      let (ts, assertions) = make_transition_system ~simplify:simplify rg in 
       let ts, _ = make_ts_assertions_unreachable ts assertions in 
       TSDisplay.display ts
     end
@@ -683,6 +725,12 @@ let dump_cfg simplify file =
 
 let _ = 
   CmdLine.register_pass 
-    ("-mcl-concolic", analyze_concolic_mcl false, " GPS model checking algorithm");
+    ("-mcl-concolic", analyze_concolic_mcl false true, " GPS model checking algorithm");
   CmdLine.register_pass
-    ("-mcl-concolic-gas", analyze_concolic_mcl true, " GPS model checking algorithm")
+    ("-mcl-concolic-gas", analyze_concolic_mcl true true, " GPS model checking algorithm");
+  CmdLine.register_pass
+    ("-mcl-concolic-nosum", analyze_concolic_mcl false false, "GPS without CRA-generated summary");
+  CmdLine.register_pass
+    ("-dump-unsimplified-cfg", dump_cfg false, "dump unsimplified CFG");
+  CmdLine.register_pass
+    ("-dump-simplified-cfg", dump_cfg true, "dump simplified CFG")
