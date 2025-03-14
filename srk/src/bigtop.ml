@@ -87,7 +87,7 @@ let spec_list = [
   ("-lirrsat",
    Arg.String (fun file ->
        let phi = load_formula file in
-       print_result (LirrSolver.is_sat srk (snd (Quantifier.normalize srk phi)))),
+       print_result (Lirr.is_sat srk (snd (Quantifier.normalize srk phi)))),
    " Test satisfiability of a non-linear ground formula using theory of linear integer real rings");
 
   ("-normaliz",
@@ -229,8 +229,8 @@ let spec_list = [
        let open Iteration in
        let fp = Chc.Fp.create () in
        let fp = load_chc fp file in
-       let pd = 
-         (module Product(LossyTranslation)(PolyhedronGuard) : PreDomain) 
+       let pd =
+         Iteration.product [LossyTranslation.exp; PolyhedronGuard.exp]
        in (*TODO: let user pick iter operation*)
        let rels = Chc.Fp.get_relations_used fp in
        let sln = Chc.Fp.solve srk fp pd in
