@@ -589,6 +589,7 @@ struct
   let force_cover (art : t ref) v w = (* check if v_label -> w_label where v is an ancestor at w *)
     if maps_to art v <> maps_to art w then (false, []) 
     else begin 
+      logf "force_cover(%d, %d)\n" v w;
       (* let v_label = label art v in *)
       let w_label = label art w in 
       let artpath = tree_path art ~src:w v in 
@@ -625,17 +626,21 @@ struct
         if maps_to art u <> maps_to art v then 
           try let p = parent art u in go p 
           with Not_found -> (false, []) 
-         else match force_cover art v u with 
+         else 
+          begin match force_cover art v u with 
         | (true, frontiers) -> (true, frontiers)
         | (false, _) -> 
           try 
             let p = parent art u in go p 
           with Not_found -> (false, [])
         end 
+      end
     in
-      match v with 
+      let res = match v with 
       | 0 -> (false, [])
-      | _ -> go (parent art v)
+      | _ -> go (parent art v) in 
+      let bb, _ = res in 
+      logf " --- lclose result of %d : %b ---\n" v  bb ; res
 
 
   (** TODO: [deprecated] procedures for lightweight verification of ART invariants *)

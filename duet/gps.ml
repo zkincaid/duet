@@ -132,11 +132,11 @@ module Summarizer =
 
       let filt_over (ctx: t) x = 
         if ctx.silent then begin 
-          logf "filt_over: context is silent! \n";
+          (*logf "filt_over: context is silent! \n";*)
           K.assume @@ mk_true ()  
         end 
         else begin 
-          logf "filt_over: context isn't silent!\n";
+          (*logf "filt_over: context isn't silent!\n";*)
           x end
       
       let filt_under (ctx: t) x = 
@@ -251,7 +251,7 @@ module GPS = struct
   module ReachTree = ReachTree.ART(Ctx)(K)(TS')(ProcName)(VN)(Summarizer)
 
   (* to print the reachability tree (+ worklist), or not *) 
-  let print_tree = false
+  let print_tree = true
 
   type global_context = {
     interproc: Summarizer.t;
@@ -309,7 +309,7 @@ module GPS = struct
         | None -> Syntax.mk_const srk sym 
         end
       | None -> Syntax.mk_const srk sym) in 
-    K.construct (Syntax.substitute_const srk substitute f) (ValueHT.to_seq sym_map |> List.of_seq)
+    K.construct (Syntax.substitute_const srk substitute (Syntax.mk_not srk f)) (ValueHT.to_seq sym_map |> List.of_seq)
 
 
   let mk_intra_context (gctx: global_context ref) (id: ProcName.t) (ts: cfg_t) (recurse_level: int) (precondition: K.t) (entry: int) (err_loc: int)  =
@@ -427,6 +427,7 @@ module GPS = struct
      Returns `Failure (u, m) with (u, m) being a new item to the concolic worklist if unable to refine.
      Returns `Success if refine is able to refine. *)
   let mc_refine (ctx: intra_context ref) (v: ReachTree.node) = 
+    logf "refining node %d\n" (ReachTree.of_node v);
     let handle_failure v m = 
       logf " *********************** REFINEMENT FAILED *************************\n"; 
       let path_condition = path_condition ctx OverApprox v 
@@ -441,6 +442,7 @@ module GPS = struct
       | `Unknown -> failwith "mc_refine: got UNKNOWN as a result for interpolate_or_get_model"
       | `Valid interpolants ->
         logf "--- mc_refine: interpolation succeeded. path length %d, interpolant length %d" (List.length path) (List.length interpolants);
+        log_formulas "interpolants - " interpolants;
         ReachTree.refine art path interpolants
         |> List.iter (fun x -> !ctx.worklist <- worklist_push x !ctx.worklist); 
         `Success 
@@ -491,13 +493,14 @@ module GPS = struct
       (* Fetched tree node u from work list. First attempt to close it. *)
       if not (ReachTree.is_covered !ctx.art u) then 
         begin
-          logf " uncovered. try close\n";
+          logf " uncovered. try close %d\n" (ReachTree.of_node u);
           begin match ReachTree.lclose !ctx.art u with (* Close succeeded. No need to further explore it. *)
           | true, leaves ->  
             logf "Close succeeded.\n"; 
             worklist_push_all leaves;
             `Continue
           | false, leaves -> (* u is uncovered. *)
+            logf " ... close failed in refining node %d, try refining it\n" (ReachTree.of_node u);
             worklist_push_all leaves;
             begin match mc_refine ctx u with 
               | `Success -> (* refinement succeeded *)
