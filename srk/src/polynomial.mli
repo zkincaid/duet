@@ -85,6 +85,8 @@ module QQX : sig
   (** [term_of srk t p] computes a term representing [p(t)]. *)
   val term_of : ('a context) -> 'a arith_term -> t -> 'a arith_term
 
+  (** Translate Flint's univariate polynomial with integer coefficients. *)
+  val of_fmpz_poly : Flint.FMPZ_poly.t -> t
 end
 
 (** Monomials *)

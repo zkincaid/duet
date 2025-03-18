@@ -470,9 +470,8 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
         QQXs.sub poss negs
       in
       List.map exp_rel_to_poly relations, BM.enum (fst (!bases_in_rec))
-        
 
-  let algebraic_relations_in sols = 
+  let algebraic_relations_in sols =
     let root_rels = fst (base_relations ()) in
     let post_offset = Array.length sols in
     let iter_var = 2 * post_offset in

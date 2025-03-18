@@ -1,5 +1,8 @@
 open BatPervasives
 
+module FMPZ_poly = Flint.FMPZ_poly
+module FMPZ_poly_factor = Flint.FMPZ_poly_factor
+
 include Log.Make(struct let name = "srk.polynomial" end)
 
 let pp_ascii_dim formatter i =
@@ -213,6 +216,12 @@ module QQX = struct
     let coeffs = Linear.solve_exn mat b in
     of_enum (V.enum coeffs)
 
+  let of_fmpz_poly zzx =
+    BatEnum.fold (fun qqx order ->
+        add_term (QQ.of_zz (FMPZ_poly.get_coef zzx order)) order qqx)
+      zero
+      (0--(FMPZ_poly.degree zzx))
+
   let factor p =
     let denominator =
       BatEnum.fold (fun d (coeff, _) ->
@@ -221,23 +230,19 @@ module QQX = struct
         (enum p)
     in
     let zzx =
-      (enum p) /@ (fun (coeff, d) ->
-          let (num, den) = QQ.to_zzfrac coeff in
-          (d, Ntl.ZZ.of_mpz (ZZ.mpz_of (ZZ.div (ZZ.mul num denominator) den))))
-      |> BatList.of_enum
-      |> Ntl.ZZX.of_list
+      Array.init (order p + 1) (fun i ->
+          match QQ.to_zz (QQ.mul (QQ.of_zz denominator) (coeff i p)) with
+          | Some z -> z
+          | None -> assert false)
+      |> FMPZ_poly.create
     in
-    let (c, factors) = Ntl.ZZX.factor zzx in
-    let content = QQ.of_zzfrac (ZZ.of_mpz (Ntl.ZZ.mpz_of c)) denominator in
+    let factors = FMPZ_poly_factor.factor zzx in
+    let content = QQ.of_zzfrac (FMPZ_poly_factor.content factors) denominator in
+
     let factors =
-      List.map (fun (zzx, n) ->
-          let qqx =
-            BatList.enum (Ntl.ZZX.list_of zzx)
-            /@ (fun (degree, coeff) ->
-                (QQ.of_zz (ZZ.of_mpz (Ntl.ZZ.mpz_of coeff)), degree))
-            |> of_enum
-          in
-          (qqx, n))
+      FMPZ_poly_factor.fold
+        (fun factors zzx n -> (of_fmpz_poly zzx, n)::factors)
+        []
         factors
     in
     (content, factors)
@@ -274,8 +279,6 @@ module QQX = struct
       p
       []
     |> Syntax.mk_add srk
-
-
 end
 
 module Monomial = struct
@@ -1343,7 +1346,6 @@ module FGb = struct
 
   let use_fgb = ref true
 
-
   let mon_to_fmon vs m = 
     List.map (
       fun v -> 
@@ -1399,16 +1401,7 @@ module FGb = struct
     let non_zero = List.filter (fun ml -> not (List.for_all (fun (c, _) -> ZZ.equal ZZ.zero c) ml)) polys in 
     if List.length non_zero = 0 then [convert_to_faugere (blk1 @ blk2) QQXs.zero]
     else
-      try 
-        Faugere_zarith.Fgb_int_zarith.fgb non_zero (List.map string_of_int blk1) (List.map string_of_int blk2)
-      with Faugere.FgbE s ->
-        if String.starts_with ~prefix:"Sorry the size of the matrix is too big" s then (*If Fgb fails I do not expect Rewrite to succeed, but at least we will try this way.*)
-          (logf ~level:`trace "fgb: %s" s;
-          log ~level:`trace "Trying Rewrite";          
-          let r = Rewrite.grobner_basis (Rewrite.mk_rewrite (get_mon_order blk1 blk2) (List.map (convert_from_faugere (blk1 @ blk2)) polys)) in
-          List.map (convert_to_faugere (blk1 @ blk2)) (Rewrite.generators r))
-        else
-          raise (Faugere.FgbE s)
+      Faugere_zarith.Fgb_int_zarith.fgb non_zero (List.map string_of_int blk1) (List.map string_of_int blk2)
 
   let grobner_basis (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) (polys : QQXs.t list) = 
     if !use_fgb then
@@ -1419,7 +1412,6 @@ module FGb = struct
       Rewrite.generators (Rewrite.grobner_basis (Rewrite.mk_rewrite (get_mon_order blk1 blk2) polys))
 
 end
-
 
 module Ideal = struct
 

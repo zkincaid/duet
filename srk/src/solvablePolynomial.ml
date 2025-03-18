@@ -1839,10 +1839,8 @@ module SolvablePolynomialLIRR = struct
           logf "%a" pp_cl cf;
           let sp_map_offset = Array.length cf in
           let module EP = (val Log.time "Splitting Field" Rational.RatEP.to_nf cf) in
-
           let zero_eig_transient, zero_eigen_stab, rels = Log.time "Algebraic Relations" EP.long_run_algebraic_relations () in
           logf "Alg Relations: %a" (Id.pp (pp_dim it_offset)) (Id.make rels);
-          
           let cl = 
             if (List.length inv_seq_id) + 1 >= zero_eigen_stab then
               Id.intersect transient_closure (Id.sum inv_dom_id (Id.make rels))

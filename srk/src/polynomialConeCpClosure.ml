@@ -207,7 +207,6 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
 
   let num_rounds = ref 0 in
   let rec closure cone affine_basis =
-
     let (new_zeroes, new_positives) = compute_cut cone affine_basis in
     let new_cone = PolynomialCone.add_generators
                      ~zeros:new_zeroes

@@ -21,7 +21,7 @@
     ocamlgraph
     normalizffi
     faugere
-    arbduet
+    flint
     ))
 
 (package

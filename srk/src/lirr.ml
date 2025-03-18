@@ -494,7 +494,6 @@ module Solver = struct
       in
       add int [] |> add zero |> add nonneg
     in
-
     let (cut_pc, lattice) =
       PolynomialConeCpClosure.regular_cutting_plane_closure
         pc (List.map fst (BatDynArray.to_list int))

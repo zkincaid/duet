@@ -1,4 +1,3 @@
-open Normalizffi
 open BatPervasives
 
 module L = Log.Make(struct let name = "srk.intLattice" end)
@@ -7,6 +6,7 @@ module QQEndo = Linear.MakeLinearMap(QQ)(Int)(Linear.QQVector)(Linear.QQVector)
 
 module D = Linear.MakeDenseConversion(SrkUtil.Int)(Linear.QQVector)
 
+module FMPZ_mat = Flint.FMPZ_mat
 (** A lattice is represented as a matrix 1/[denominator] B,
     where B is in row Hermite normal form and the rows of B are the basis of the
     lattice.
@@ -79,10 +79,10 @@ let make_context ?(order=Int.compare) dimensions =
   |> D.make_context
 
 let densify ctxt vector =
-  let arr = Array.make (D.dim ctxt) (Mpzf.of_int 0) in
+  let arr = Array.make (D.dim ctxt) ZZ.zero in
   BatEnum.iter
     (fun (coeff, dim) ->
-       arr.(D.int_of_dim ctxt dim) <- ZZ.mpz_of coeff)
+       arr.(D.int_of_dim ctxt dim) <- coeff)
     (Linear.ZZVector.enum vector);
   arr
 
@@ -96,28 +96,21 @@ let sparsify ctxt arr =
    ZZ L = (1/d) ZZ (d L) = (1/d) ZZ B = ZZ (1/d B).
  *)
 let dense_hermite_normal_form matrix =
-  let level = `trace in
-  let verbose = Log.level_leq (!L.my_verbosity_level) level in
-  if verbose then Flint.set_debug true else ();
-  let mat = Flint.new_matrix matrix in
-  Flint.hermitize mat;
-  let rank = Flint.rank mat in
-  let basis =
-    Flint.denom_matrix_of_rational_matrix mat
-    |> snd
-    |> BatList.take rank (* The rows after rank should be all zeros *)
+  let columns = Array.length matrix.(0) in
+  let mat =
+    FMPZ_mat.init ~rows:(Array.length matrix) ~columns (fun i j -> matrix.(i).(j))
   in
-  if verbose then Flint.set_debug false;
-  basis
+  let mat' = FMPZ_mat.hnf mat in
+  let rank = FMPZ_mat.rank mat' in
+  Array.init rank (fun i ->
+      Array.init columns (fun j ->
+          FMPZ_mat.entry mat' i j))
+
 
 let hermite_normal_form ctxt matrix =
-  let densified =
-    List.map (Array.to_list % densify ctxt) matrix in
+  let densified = Array.of_list (List.map (densify ctxt) matrix) in
   let hermitized = dense_hermite_normal_form densified in
-  let generators =
-    List.map (Array.of_list % (List.map ZZ.of_mpz)) hermitized
-  in
-  List.map (sparsify ctxt) generators
+  List.map (sparsify ctxt) (Array.to_list hermitized)
 
 let hermitize vectors =
   if List.for_all (Linear.QQVector.equal Linear.QQVector.zero) vectors
@@ -125,10 +118,13 @@ let hermitize vectors =
   else
     let (dimensions, lcm) = collect_dims_and_lcm_denoms vectors in
     let ctxt = make_context dimensions in
-    let generators = hermite_normal_form ctxt
+    let generators =
+      hermite_normal_form
+        ctxt
         (List.map
            (zzify % Linear.QQVector.scalar_mul (QQ.of_zz lcm))
-           vectors) in
+           vectors)
+    in
     Lattice
       { generators
       ; denominator = lcm

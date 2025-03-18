@@ -15,7 +15,7 @@ depends: [
   "ocamlgraph"
   "normalizffi"
   "faugere"
-  "arbduet"
+  "flint"
 ]
 build: [
   ["dune" "subst"] {pinned}

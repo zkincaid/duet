@@ -5,6 +5,11 @@ include Log.Make(struct let name = "srk.linear" end)
 
 module IntSet = SrkUtil.Int.Set
 module Term = ArithTerm
+
+module FMPZ_mat = Flint.FMPZ_mat
+module FMPZ_poly = Flint.FMPZ_poly
+module FMPZ_poly_factor = Flint.FMPZ_poly_factor
+
 module ZZVector = struct
   include Ring.MakeVector(ZZ)
 
@@ -84,27 +89,25 @@ module QQMatrix = struct
           (entries m)
       in
       let dim_array = Array.of_list dims in
-      let m =
-        Array.map (fun i ->
-            Array.map (fun j ->
-                let (num, den) = QQ.to_zzfrac (entry i j m) in
-                Ntl.ZZ.of_mpz (ZZ.mpz_of (ZZ.div (ZZ.mul num denominator) den)))
-              dim_array)
-          dim_array
+      let dim = Array.length dim_array in
+      let flint_m = FMPZ_mat.init ~rows:dim ~columns:dim (fun i j ->
+          let (num, den) = QQ.to_zzfrac (entry dim_array.(i) dim_array.(j) m) in
+          (ZZ.div (ZZ.mul num denominator) den))
       in
-      let charpoly = Ntl.ZZMatrix.charpoly m in
-      let (_, factors) = Ntl.ZZX.factor charpoly in
-      factors |> BatList.filter_map (fun (p, m) ->
-                     if Ntl.ZZX.degree p == 1 then
-                       (* p = ax + b *)
-                       let a = ZZ.of_mpz (Ntl.ZZ.mpz_of (Ntl.ZZX.get_coeff p 1)) in
-                       let b = ZZ.of_mpz (Ntl.ZZ.mpz_of (Ntl.ZZX.get_coeff p 0)) in
-                       let eigenvalue =
-                         QQ.negate (QQ.of_zzfrac b (ZZ.mul a denominator))
-                       in
-                       Some (eigenvalue, m)
-                     else
-                       None)
+      let charpoly = FMPZ_mat.charpoly flint_m in
+      FMPZ_poly_factor.fold (fun eigenvalues p m ->
+          if FMPZ_poly.degree p == 1 then
+            (* p = ax + b *)
+            let a = FMPZ_poly.get_coef p 1 in
+            let b = FMPZ_poly.get_coef p 0 in
+            let eigenvalue =
+              QQ.negate (QQ.of_zzfrac b (ZZ.mul a denominator))
+            in
+            (eigenvalue, m)::eigenvalues
+          else
+            eigenvalues)
+        []
+        (FMPZ_poly_factor.factor charpoly)
 end
 
 exception No_solution

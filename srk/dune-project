@@ -19,5 +19,5 @@
     ocamlgraph
     normalizffi
     faugere
-    arbduet
+    flint
     ))

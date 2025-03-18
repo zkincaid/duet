@@ -20,13 +20,12 @@
     apron apron.boxMPQ apron.octMPQ apron.polkaMPQ
     zarith
     z3
-    ntl
     ocamlgraph
     normalizffi
+    flint
+    arb
     faugere
     faugere.zarith
-    arbduet
-    arbduet.zarith
     )
   (preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))
 
@@ -36,7 +35,7 @@
   (modes native)
   (promote (until-clean) (into ..))
   (link_flags (:standard) (:include link_flags.sexp))
-  (libraries srk oUnit apron apron.boxMPQ apron.octMPQ apron.polkaMPQ zarith)
+  (libraries srk oUnit apron apron.boxMPQ apron.octMPQ apron.polkaMPQ zarith flint)
   (preprocess (pps ppx_deriving.ord ppx_deriving.eq ppx_deriving.show)))
 
 (ocamllex
