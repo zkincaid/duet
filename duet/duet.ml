@@ -11,6 +11,7 @@ open! Cra
 open! Proofspace
 open! Dependence
 open! Categorize
+open! Gps
 
 let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp]"
 

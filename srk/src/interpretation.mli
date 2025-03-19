@@ -67,6 +67,9 @@ val select_ite : 'a interpretation ->
   ('a,'b) expr ->
   (('a,'b) expr) * ('a formula list)
 
+val restrict : (symbol -> bool) -> 'a interpretation -> 'a interpretation
+
+
 val destruct_atom : 'a context ->
   'a formula ->
   [ `ArithComparison of ([`Lt | `Leq | `Eq] * 'a arith_term * 'a arith_term)

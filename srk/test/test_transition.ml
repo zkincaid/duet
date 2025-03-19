@@ -27,6 +27,7 @@ module V = struct
       Some (Hashtbl.find rev_sym_table sym)
     else
       None
+  let is_global _ = true
 end
 module T = Transition.Make(Ctx)(V)
 

@@ -363,6 +363,15 @@ module PathlenDomain = struct
   let widen = ISet.inter
 end
 
+module TrivialPE = struct
+  type weight = Pathexpr.simple Pathexpr.t
+  type abstract_weight = Pathexpr.simple Pathexpr.t
+  let abstract exp = exp
+  let concretize exp = exp
+  let equal = Pathexpr.equiv pe_context
+  let widen = Pathexpr.mk_add pe_context
+end
+
 let mk_pathlen_query edges call_edges src =
   let open WG in
   let g =
@@ -379,6 +388,40 @@ let mk_pathlen_query edges call_edges src =
   in
   let query = RecGraph.mk_query g src in
   RecGraph.summarize_iterative query pathlen_algebra (module PathlenDomain)
+
+let rev_query_test edges call_edges src tgt () =
+  let open WG in
+  let g =
+    List.fold_left
+      (fun g (u,v) -> RecGraph.add_edge g u v)
+      (RecGraph.empty ())
+      edges
+  in
+  let g =
+    List.fold_left
+      (fun g (u, (s, t), v) -> RecGraph.add_call_edge g u (s, t) v)
+      g
+      call_edges
+  in
+  let algebra = function
+  | `Edge (x, y) -> Pathexpr.mk_edge pe_context x y
+  | `Add (x, y) -> Pathexpr.mk_add pe_context x y
+  | `Zero -> Pathexpr.mk_zero pe_context
+  | `One -> Pathexpr.mk_one pe_context
+  | `Star x -> Pathexpr.mk_star pe_context x
+  | `Mul (x, y) -> Pathexpr.mk_mul pe_context x y
+  | `Segment x -> x
+  in
+  let query =
+    RecGraph.summarize_iterative
+      (RecGraph.mk_query g src)
+      algebra
+      (module TrivialPE)
+  in
+  let rev_query = RecGraph.mk_reverse_query query tgt in
+  assert_equal_pathexpr pe_context
+    (RecGraph.target_summary rev_query src)
+    (RecGraph.path_weight query tgt)
 
 let get_cyclelen query =
   WG.RecGraph.omega_path_weight query pathlen_omega_algebra
@@ -567,4 +610,48 @@ let suite = "WeightedGraph" >::: [
       assert_equal ~cmp:ISet.equal ~printer:ISet.show
         (ISet.of_list [2])
         (get_cyclelen query))
+
+    ; "rev_query_simple" >::
+      (rev_query_test
+         [(0, 1); (1, 2); (2, 3); (2, 0); (0, 3)]
+         []
+         0
+         3)
+
+    ; "rev_query_simple2" >::
+      (rev_query_test
+         [(0, 1); (1, 2); (2, 3); (2, 0); (0, 3)]
+         []
+         0
+         1)
+
+    ; "rev_query_simple3" >::
+      (rev_query_test
+         [ (89, 95); (95, 16); (16, 94); (94, 73)
+         ; (73, 95); (94, 95); (73, 96) ]
+         []
+         73
+         96)
+
+
+    ; "rev_query_big" >::
+      (rev_query_test
+         [ (53, 10); (10, 56); (10, 52)
+         ; (56, 17); (17, 55); (55, 21); (21, 56); (21, 38)
+         ; (38, 47);  (47, 57); (47, 43); (43, 52); (43, 52)
+         ; (38, 34); (34, 52); (34, 57); (52, 54) ]
+         []
+         53
+         57)
+
+    ; "rev_query_rec" >::
+      (rev_query_test
+         [(0, 1); (2, 3); (0, 3);
+          (4, 5); (6, 7); (4, 7); (7, 4)]
+         [(1, (4, 7), 2);
+          (5, (0, 3), 6);
+          (8, (0, 3), 9)]
+         8
+         1)
   ]
+

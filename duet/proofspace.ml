@@ -64,6 +64,8 @@ module IV = struct
       Some (Hashtbl.find sym_to_var sym)
     else
       None
+  
+  let is_global _ = failwith "unimplemented"
 end
 
 module P = struct

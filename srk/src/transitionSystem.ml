@@ -5,15 +5,17 @@ include Log.Make(struct let name = "srk.transitionSystem" end)
 
 module WG = WeightedGraph
 module Int = SrkUtil.Int
+module ISet = BatSet.Make(Int)
 
 type 'a label =
   | Weight of 'a
   | Call of int * int
 
+
 module Make
     (C : sig
        type t
-       val context : t context
+       val context : t context     
      end)
     (Var : sig
        type t
@@ -41,6 +43,7 @@ module Make
        val one : t
        val star : t -> t
        val exists : (var -> bool) -> t -> t
+       val try_rtc : t -> t option
      end)
 = struct
 
@@ -49,6 +52,7 @@ module Make
   type tlabel = T.t label
 
   type query = T.t WG.RecGraph.weight_query
+  type reverse_query = T.t WG.RecGraph.reverse_query
 
   let mk_query ?(delay=1) ts source dom =
     let rg =
@@ -148,6 +152,17 @@ module Make
       (fun refs (var, term) -> add_symbols (symbols term) (VarSet.add var refs))
       (add_symbols (symbols (T.guard tr)) VarSet.empty)
       (T.transform tr)
+
+
+  let set_summary q (u, v) summary = 
+    WG.RecGraph.set_summary q (u, v) summary
+  
+  let get_summary q (u, v) = 
+    WG.RecGraph.get_summary q (u, v)
+    
+  let mk_reverse_query = WG.RecGraph.mk_reverse_query
+  let exit_summary = WG.RecGraph.exit_summary
+  let target_summary = WG.RecGraph.target_summary
 
   (* Variables whose abstract values may change as the result of a
      transition *)
@@ -510,11 +525,11 @@ module Make
   module VHT = BatHashtbl.Make(Var)
 
   (* Remove temporary variables that are referenced by only one transition *)
-  let remove_temporaries tg =
+  let remove_temporaries proj tg =
     (* Map each local variable to the set of transitions that refer to it *)
     let ref_map = VHT.create 991 in
     let add_ref var (u, v) =
-      if not (Var.is_global var) then
+      if not (proj var) then
         VHT.modify_def PS.empty var (PS.add (u,v)) ref_map
     in
     tg |> WG.iter_edges (fun (u, label, v) ->
@@ -541,7 +556,7 @@ module Make
               List.fold_right VarSet.remove (uses tr) (PHT.find tmp_map (u, v))
             in
             Weight (T.exists (fun x -> not (VarSet.mem x tmp)) tr)
-          with Not_found -> label)
+          with Not_found -> label)  
 
   let forward_invariants_ivl tg entry =
     let init v =
@@ -662,18 +677,46 @@ module Make
     in
     List.map invariants (L.all_loops (L.loop_nest tg))
 
-  let simplify p tg =
+
+  let simplify ?(try_rtc=false) p tg =
     let rec go tg =
       let continue = ref false in
       let tg' =
         WG.fold_vertex (fun v tg ->
             let ug = WG.forget_weights tg in
+            Printf.printf "visiting vertex %d\n" v;
             if (p v
                 || WG.mem_edge tg v v
-                || WG.U.in_degree ug v != 1
-                || WG.U.out_degree ug v != 1)
+                || (WG.U.in_degree ug v != 1
+                    && WG.U.out_degree ug v != 1))
             then
-              tg
+              begin if try_rtc then begin 
+                let _ = Printf.printf "trying rtc on vertex %d\n " v in 
+                  begin if WG.mem_edge tg v v then
+                      match WG.edge_weight tg v v with
+                      | Weight tr ->
+                        (try begin match T.try_rtc tr with
+                        | Some rtc ->
+                          let u = -1 in
+                          (try
+                              Printf.printf "removing edge from %d %d\n" v v;
+                              let tg = WG.remove_edge tg v v in
+                              let tg =
+                                Printf.printf "success: contracting vertex %d %d\n" v u;
+                                WG.contract_vertex (WG.split_vertex tg v (Weight rtc) u) u
+                              in
+                              continue := true;
+                              tg
+                            with _ -> tg)
+                        | None -> Printf.printf "...failed.\n"; tg end
+                          with _ -> tg)
+                      | Call (_, _) -> tg
+                    else
+                      tg
+                    end
+                  end 
+                else tg 
+              end
             else begin
               try
                 let tg = WG.contract_vertex tg v in

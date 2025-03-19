@@ -20,7 +20,7 @@ module Solver = struct
 
   let preprocess srk = function
     | `LIRR -> Syntax.eliminate_floor_mod_div srk
-    | `LIRA -> rewrite srk ~down:(pos_rewriter srk) % (Nonlinear.linearize srk)
+    | `LIRA -> rewrite srk ~down:(pos_rewriter srk) % (Nonlinear.linearize srk) % Syntax.eliminate_floor_mod_div srk
 
   let make srk ?(theory=get_theory srk) tf =
     let phi = preprocess srk theory (TF.formula tf) in

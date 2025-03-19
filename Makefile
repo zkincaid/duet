@@ -3,13 +3,13 @@
 all: build
 
 build:
-	dune build duet
+	dune build --profile release duet
 
 clean:
 	dune clean
 
 test:
-	dune runtest -f
+	dune runtest --profile release -f
 
 install:
 	dune build @install

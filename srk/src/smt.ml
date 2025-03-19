@@ -92,6 +92,10 @@ module Solver = struct
   let push s = s.s_push ()
   let pop s = s.s_pop
 
+
+  let get_unsat_core srk solver assumptions = failwith "" 
+  let get_unsat_core_or_model ?(symbols=[]) srk solver assumptions = failwith ""
+
   let make srk =
     match get_theory srk with
     | `LIRA ->
