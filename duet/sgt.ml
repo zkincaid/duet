@@ -289,7 +289,8 @@ end)
               state := `Unknown
             | `Success (* refinement succeeded. *) -> 
               logf " --- SGT: refinement success\n";
-              state := `Unknown
+              !ctx.worklist <- worklist';
+              state := `Unknown;
             end
           | None -> 
               state := `Safe 
