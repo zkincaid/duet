@@ -127,6 +127,7 @@ module ART :
         t ref -> ?label:Ctx.t Srk.Syntax.formula -> TS.vertex -> int -> node
       val expand :
         int -> t ref -> node -> Ctx.t Interpretation.interpretation -> (node * Ctx.t Interpretation.interpretation) list * node list
+      val guarded_expand : t ref -> node -> Ctx.t Interpretation.interpretation -> K.t -> (node * Ctx.t Interpretation.interpretation) list * node list
       val cover : t ref -> node -> node -> bool
       val close : t ref -> node -> (bool * node list)
       val force_cover : t ref -> node -> node -> (bool * node list) 

@@ -3,16 +3,8 @@ open Srk
 open CfgIr
 open BatPervasives
 open Cra 
+open Sgt 
 
-(*module RG = Interproc.RG
-module WG = WeightedGraph
-module TLLRF = TerminationLLRF
-module TDTA = TerminationDTA
-module TPRF = TerminationPRF
-module G = RG.G
-(*module Ctx = Syntax.MakeSimplifyingContext ()*)
-module Int = SrkUtil.Int
-module TF = TransitionFormula*)
 module TS = TransitionSystem.Make(Ctx)(V)(K)
 
 include Log.Make(struct let name = "gps" end)
@@ -211,7 +203,7 @@ module Summarizer =
   end
 
 
-  type path_type = 
+type path_type = 
     | OverApprox 
     | UnderApprox
 
@@ -249,9 +241,15 @@ module GPS = struct
   end
   (* ART module *)
   module ReachTree = ReachTree.ART(Ctx)(K)(TS')(ProcName)(VN)(Summarizer)
+  
+  (** summary-guided testing *)
+  module SGT = SummaryGuidedTesting(Ctx)(K)(TS')(ProcName)(Summarizer)(ReachTree)
 
   (* to print the reachability tree (+ worklist), or not *) 
-  let print_tree = true
+  (* RF 3/2/25: If you enable this flag, and even if     *)
+  (* the logf output stream is suppressed, it incurs a _huge_ *)
+  (* performance penalty. *)
+  let print_tree = false
 
   type global_context = {
     interproc: Summarizer.t;
@@ -452,17 +450,19 @@ module GPS = struct
     let round ctx = 
       match DQ.front (!ctx.execlist) with 
       | Some ((u, u_model), w) -> 
-        if print_tree then 
+        if print_tree then (* XXX: if this is enabled, the performance penalty is huge. *)
         ReachTree.log_art !ctx.art;
         logf " visit %d (%d)\n" (ReachTree.of_node u) (ReachTree.maps_to !ctx.art u);
         !ctx.execlist <- w;
-        if (ReachTree.maps_to !ctx.art u) = (ReachTree.get_err_loc !ctx.art) then
+        if (ReachTree.maps_to !ctx.art u) = (ReachTree.get_err_loc !ctx.art) then begin 
+          logf " *** found potential path-to-error, checking if prophesized pre-condition is sat...\n";
           begin match Smt.is_sat srk (make_equalities ctx) with 
           | `Sat -> 
-          `ErrorReached u
+            logf " *** SAT, done\n";
+            `ErrorReached u
           | _ -> !ctx.worklist <- worklist_push u !ctx.worklist; `Continue
           end
-        else begin
+        end else begin
             logf "model of %d (%d): \n" (ReachTree.of_node u) (ReachTree.maps_to !ctx.art u);
             log_model "" u_model;
             let new_concolic_nodes, new_frontier_nodes = ReachTree.expand !ctx.recurse_level !ctx.art u u_model in 
@@ -619,12 +619,20 @@ module GPS = struct
           begin match concolic_phase ctx with 
           | `Unsafe w -> 
             logf "--- GPS: found path-to-error at tree node %d (cfg vertex %d) \n" (ReachTree.of_node w) (ReachTree.maps_to !ctx.art w);
-            let path_to_w = 
+            logf " --- forming path to error... \n";
+            let has_calls, path_to_w = 
               ReachTree.tree_path !ctx.art w 
               |> art_cfg_path_pair ctx 
-              |> List.map (fun (u, (u_vtx, v_vtx), v) -> (u, WG.edge_weight !ctx.ts u_vtx v_vtx, v)) in
-            begin match path_to_w with 
-            | curr :: right -> 
+              |> List.map (fun (u, (u_vtx, v_vtx), v) -> (u, WG.edge_weight !ctx.ts u_vtx v_vtx, v)) 
+              |> List.fold_left (fun (has_call, l) (u, w, v) ->
+                match w with 
+                | Call _ -> (true, (u, w, v) :: l)
+                | _ -> (false, (u, w, v) :: l)
+                ) (false, []) 
+            in
+            logf " --- finished forming path to error, calling handle_path_to_error ... \n";
+            begin match has_calls, path_to_w with 
+            | true, curr :: right -> 
               begin match handle_path_to_error ctx [] curr right `Right w with 
                 | `Safe -> (* path-to-error concretization failed. frontier_node is the src node of a call-edge. *)
                   (* we can mark `w` as a frontier node to be refined, and continue. *)
@@ -635,9 +643,14 @@ module GPS = struct
                   state := `Concretized (pathcond);
                   continue := false
                 end
-            | [] -> 
-              (* corner case: the path to error is of length 0. *)
-              state := `Concretized (K.one)  
+            | false, curr :: right -> 
+              state := `ConcretizedList (path_to_w);
+              continue := false
+            | true, []
+            | false, [] -> 
+              (* corner case: either no calls along the path, or if the path to error is of length 0. *)
+              state := `Concretized (K.one);
+              continue := false  
             end
           | `Safe -> 
             state := `Continue
@@ -649,6 +662,7 @@ module GPS = struct
       done; 
       match !state with 
       | `Continue -> Safe (extract_refinement ctx)
+      | `ConcretizedList w -> Unsafe (K.one) (* TODO: fix this *)
       | `Concretized cond -> Unsafe (cond) 
   
 
@@ -691,6 +705,31 @@ let analyze_mc enable_gas enable_summary file =
     end
   | _ -> assert false
 
+let analyze_sgt enable_gas enable_summary file = 
+    let open Srk.Iteration in 
+    populate_offset_table file;
+    K.domain := split (product [ PolyhedronGuard.exp
+                               ; LossyTranslation.exp ]);
+    match file.entry_points with
+    | [main] -> begin
+        let rg = Interproc.make_recgraph file in
+        let entry = (RG.block_entry rg main).did in
+        let (ts, assertions) = make_transition_system ~simplify:true ~instr_gas:enable_gas entry rg in
+        let ts, err_loc = make_ts_assertions_unreachable ts assertions in 
+        if !CmdLine.display_graphs then TSDisplay.display ts;
+        logf "\nentry: %d\n" entry; 
+        Printf.printf "testing reachability of location %d\n" err_loc ; 
+        Printf.printf "------------------------------\n";
+        begin match GPS.SGT.execute ts entry err_loc (mk_true ()) enable_summary with 
+        | `Safe  -> Printf.printf "  proven safe\n";
+        | `Unsafe -> Printf.printf "  proven unsafe\n"
+        | `Error s -> Printf.printf "ERR: %s\n" s
+        end;
+        Printf.printf "------------------------------\n"
+      end
+    | _ -> assert false
+  
+
 (** dump simplified CFG before doing model checking / CRA / concolic execution *)
 let dump_cfg simplify instrument file = 
   populate_offset_table file;
@@ -707,13 +746,21 @@ let dump_cfg simplify instrument file =
 
 let _ = 
   CmdLine.register_pass 
-    ("-gps", analyze_mc false true, " GPS model checking algorithm");
+    ("-gps", analyze_mc false true, " GPS model checking algorithm, without gas-instrumentation");
   CmdLine.register_pass
-    ("-gps-gas", analyze_mc true true, " GPS model checking algorithm");
+    ("-gps-gas", analyze_mc true true, " GPS model checking algorithm, with gas-instrumentation (i.e., refutation-complete)");
   CmdLine.register_pass
-    ("-gps-nosum", analyze_mc false false, "GPS without CRA-generated summary");
+    ("-gps-nosum", analyze_mc false false, "GPS with neither gas nor CRA-generated summary");
   CmdLine.register_pass 
-    ("-gps-nosum-nogas", analyze_mc true false, "GPS with gas but without CRA-generated summary");
+    ("-gps-nosum-nogas", analyze_mc true false, "GPS with gas but without CRA-generated summary (i.e., refutation-complete)");
+  CmdLine.register_pass 
+    ("-sgt", analyze_mc false true, "Summary-guided testing, without gas-instrumentation");
+  CmdLine.register_pass
+    ("-sgt-gas", analyze_sgt true true, "Summary-guided testing, with gas");
+  CmdLine.register_pass
+    ("-sgt-nosum", analyze_sgt false false, "Summary-guided testing without CRA-generated summary");
+  CmdLine.register_pass 
+    ("-sgt-nosum-nogas", analyze_sgt true false, "Summary-guided testing with gas but without CRA-generated summary");
   CmdLine.register_pass
     ("-dump-unsimplified-cfg", dump_cfg false false, "dump unsimplified CFG");
   CmdLine.register_pass

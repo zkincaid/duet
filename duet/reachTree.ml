@@ -222,36 +222,6 @@ struct
     try IntMap.find i !art.cfg_vertex
     with _ -> failwith @@ Printf.sprintf "maps_to: not found tree node %d\n" i
 
-  (* deprecated:
-  (* [cfg_edge_weight t mode u v] returns the edge weight of edge (u, v) in ART t.
-       If (u, v) maps to a call-edge (x, y) in the CFG, return the over-approximate summary if
-      `mode` is set to `OverApprox`, and return an under-approximate summary otherwise. *)
-  let edge_weight (art : t ref) (mode : equery) (u : node) (v : node) =
-    let t = !art in
-    match TS.edge_weight t.graph (maps_to art u) (maps_to art v) with
-    | TransitionSystem.Weight w -> w
-    | TransitionSystem.Call (a, b) -> (
-        (* (a, b) is a pair of CFG vertices that uniquely identify a call *)
-        let a, b = (VN.to_vertex a, VN.to_vertex b) in
-        match mode with
-        | OverApprox -> Summarizer.over_proc_summary t.interproc (PN.make (a, b))
-        | UnderApprox ->
-            Summarizer.under_proc_summary t.interproc (PN.make (a, b)))
-  
-  let edge_weight (art : t ref) (mode : equery) (u : node) (v : node) =
-    let t = !art in
-    match TS.edge_weight t.graph (maps_to art u) (maps_to art v) with
-    | TransitionSystem.Weight w -> w
-    | TransitionSystem.Call (a, b) -> (
-        (* (a, b) is a pair of CFG vertices that uniquely identify a call *)
-        let a, b = (VN.to_vertex a, VN.to_vertex b) in
-        match mode with
-        | OverApprox -> Summarizer.over_proc_summary t.interproc (PN.make (a, b))
-        | UnderApprox ->
-            Summarizer.under_proc_summary t.interproc (PN.make (a, b)))
-
-
-            *)
   (* [tree_path t u] returns list of tree nodes that form the corrsp. tree path from root of t to tree node u *)
   let tree_path (art : t ref) ?(src=root) (u : node) : node list =
     let rec tree_path_rev art u =
@@ -270,13 +240,6 @@ struct
     v :: List.fold_left (fun l ch -> descendants art ch @ l) [] v_children
 
   (* return leaves of subtree rooted at v. *)
-  (* let rec leaves (art : t ref) (v : node) : node list =
-    let chs = children art v in
-    if List.length chs == 0 then [ v ]
-    else
-      List.fold_left
-        (fun child_leaves ch ->  (leaves art ch) @ child_leaves)
-        [] chs *)
   let leaves (art : t ref) (v : node) : node list = 
     !art.leaves |> ISet.to_list 
 
@@ -301,25 +264,6 @@ struct
         !art.precedent_nodes
     in
     ISet.elements precedents_set
-
-  (* deprecated:
-  (* [path_condition t mode u] returns a list of edge weights that form the path condition from root of t to tree node u.  *)
-  (* if `cutoff` is specified to a non-zero value, then [path_condition] will try to stop at intermediate ancestor `cutoff`. *)
-  (* Over-approximate summaries are substituted in for call-edge locations if mode = `OverApprox`, and under-approximate *)
-  (* summaries are substituted in otherwise. *)
-  let path_condition (art : t ref) (mode : equery) ?(cutoff = 0) (u : node) =
-    if u == 0 || cutoff = u then []
-    else
-      let rec visit (art : t ref) (u : node) =
-        let v = parent art u in
-        if v = 0 then [ edge_weight art mode 0 u ]
-        else if v = cutoff then
-          (* v=0 case is already handled above *)
-          [ edge_weight art mode cutoff u ]
-        else edge_weight art mode v u :: visit art v
-      in
-      List.rev (visit art u)
-  *)
 
   (** retrieves a new ART node ID, ensuring all ART nodes have distinct IDs in increasing order according to their creation *)
   let get_id (art : t ref) : node =
@@ -358,24 +302,63 @@ struct
     update_leaf art p;
     update_leaf art new_vertex;
     new_vertex 
-  
-  (** expand:  
-        for every out-neighbor y of v, first try deriving a post-state model of v-> y, if successful, put it
-          on the concolic execution worklist. Otherwise, it is a frontier node, and put it on the 
-          refinement worklist. *)
 
+  (* this is a helper primitive *)    
   let is_deterministic =
     let is_det tr =
       not (K.contains_havoc tr) || K.is_deterministic tr
     in
     Memo.memo is_det
 
+
+  let get_weight art weight =     
+    match weight with 
+      | TransitionSystem.Weight w -> w 
+      | TransitionSystem.Call (u, v) ->
+          let proc = (VN.to_vertex u, VN.to_vertex v) |> PN.make in
+          Summarizer.over_proc_summary !art.interproc proc
+
+  (** expand:  
+        for every out-neighbor y of v, first try deriving a post-state model of v-> y, if successful, put it
+          on the concolic execution worklist. Otherwise, it is a frontier node, and put it on the 
+          refinement worklist. *)
+
+
+  (* New (more general) API for expansion that supports summary-guided testing 
+    * and an IMPACT-style algorithm. The expansion is performed guarded by the pre-image
+      of [tr], where, in GPS and SGT, [tr] is a single-target path summary, in IMPACT, [tr]
+      is the identity transition. More specifically, for each out-neighbor u of G(v), we 
+      first test if m /\ tr is SAT, if so, then this out-neighbor is non-frontier. Otherwise,
+      this out neighbor is a frontier.  *)
+  let guarded_expand (art: t ref) (v: node) (m: Ctx.t Interpretation.interpretation) (tr: K.t) = 
+    let vg = maps_to art v in 
+    let new_concolic_nodes, new_frontier_nodes = (ref [], ref []) in 
+    (* visit out-neighbors of v *)
+    TS.iter_succ_e 
+      (fun (_, weight, y) -> 
+          let weight = 
+            let w' = get_weight art weight in 
+              if is_deterministic w' then w' else 
+                K.mul w' (K.assume @@ K.guard (tr)) 
+              in 
+            match K.get_post_model m weight with
+            | Some y_model ->
+                let new_vtx = add_tree_vertex art y v in
+                new_concolic_nodes := (new_vtx, y_model) :: !new_concolic_nodes
+            | None ->
+                let new_node = add_tree_vertex art y v in
+                new_frontier_nodes := new_node :: !new_frontier_nodes)
+      !art.graph vg;
+    (* make it FIFO *)
+    (List.rev !new_concolic_nodes, List.rev !new_frontier_nodes)
+    
+
   (* returns (new nodes on concolic worklist, new nodes on frontier worklist) *)
   (* a newly expanded node (leaf) is deemed a _concolic node_ if it can inherit
      a post-state model from its parent by means of symbol substitution. It is deemed
      a _frontier node_ if concrete execution cannot reach it from its parent node. A
      frontier node does not have a model associated with it and is in need of refinement. *)
-  let expand recurse_level (art : t ref) (v : node) (m: Ctx.t Interpretation.interpretation)=
+  let expand recurse_level (art : t ref) (v : node) (m: Ctx.t Interpretation.interpretation) =
     let oracle s src tgt =
       if recurse_level = 0 then Summarizer.path_weight_inter s src
       else Summarizer.path_weight_intra s src tgt
