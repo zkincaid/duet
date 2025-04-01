@@ -114,14 +114,23 @@ module ConvHull : sig
 
   val convex_hull:
     'a context ->
-    [`Precise of Plt.abstraction_algorithm | `RealRelaxation of [`FullProject | `Lw]] ->
+    [ `Precise of Plt.abstraction_algorithm
+    | `RealRelaxation of [`FullProject | `Lw]
+    | `ElimFMDLw
+    ] ->
     'a formula -> DD.closed DD.t
 
   val compare:
     'a context ->
     (DD.closed DD.t -> DD.closed DD.t -> bool) ->
-    [`Precise of Plt.abstraction_algorithm | `RealRelaxation of [`FullProject | `Lw]] ->
-    [`Precise of Plt.abstraction_algorithm | `RealRelaxation of [`FullProject | `Lw]] ->
+    [ `Precise of Plt.abstraction_algorithm
+    | `RealRelaxation of [`FullProject | `Lw]
+    | `ElimFMDLw
+    ] ->
+    [ `Precise of Plt.abstraction_algorithm
+    | `RealRelaxation of [`FullProject | `Lw]
+    | `ElimFMDLw
+    ] ->
     'a formula -> unit
 
 end = struct
@@ -228,12 +237,13 @@ end = struct
        end
     | `RealRelaxation `FullProject ->
        Format.fprintf fmt
-         "Desugar LIA terms and Ints into LRA, drop integrality constraints,
-          and compute the convex hull by doing a full projection on each implicant (FMCAD'15)"
+         "Desugar LIA terms and Ints into LRA, drop integrality constraints, and compute the convex hull by doing a full projection on each implicant (FMCAD'15)"
     | `RealRelaxation `Lw ->
        Format.fprintf fmt
-         "Desugar LIA terms and Ints into LRA, drop integrality constraints,
-          and compute the convex hull by doing Loos-Weispfenning model-based projection on each implicant and convexifying"
+         "Desugar LIA terms and Ints into LRA, drop integrality constraints, and compute the convex hull by doing Loos-Weispfenning model-based projection on each implicant and convexifying"
+    | `ElimFMDLw ->
+       Format.fprintf fmt
+         "Desugar LIA terms and Ints, KEEP integrality constraints in SMT solver, and compute the convex hull by doing Loos-Weispfenning model-based projection on each implicant and convexifying"
 
   let convex_hull srk how phi =
     let (qf, phi) = Quantifier.normalize srk phi in
@@ -247,6 +257,17 @@ end = struct
       |> List.rev
       |> Array.of_list
     in
+
+    (* Normalize formula to be in LIRA(X), which requires formulas to be in NNF
+       and free of floor, mod, div.
+     *)
+    let phi =
+      Syntax.rewrite srk ~down:(nnf_rewriter srk) phi
+      |> rewrite srk ~down:(pos_rewriter srk)
+      |> Syntax.eliminate_floor_mod_div srk
+    in
+    let symbols = Syntax.symbols phi in
+
     let print_input () =
       let symbols_to_eliminate =
         S.filter (fun sym -> not (S.mem sym symbols_to_keep)) symbols
@@ -279,6 +300,9 @@ end = struct
       | `Precise how ->
          Plt.convex_hull how srk phi terms
       | `RealRelaxation how -> Plt.convex_hull_of_real_relaxation how srk phi terms
+      | `ElimFMDLw ->
+         let expanded_phi = Syntax.eliminate_floor_mod_div_int srk phi in
+         Plt.convex_hull (ProjectImplicant (`AssumeReal `Lw)) srk expanded_phi terms
     in
     Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
       (Syntax.Formula.pp srk)
@@ -476,6 +500,17 @@ let spec_list = [
      implicant using Loos-Weispfening model-based projection"
   );
 
+  ("-lira-convex-hull-elimfmd-lw"
+  , Arg.String
+      (fun file ->
+        ignore (ConvHull.convex_hull srk `ElimFMDLw (load_formula file));
+        Format.printf "Result: success"
+      )
+  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
+     by desugaring LIA terms and Ints into LRA, KEEPING integrality constraints in the
+     SMT solver, and projecting each implicant using Loos-Weispfening model-based projection"
+  );
+
   ("-compare-convex-hull-sc-vs-sc-hkmmzcone"
   , Arg.String (fun file ->
         ConvHull.compare srk
@@ -497,7 +532,7 @@ let spec_list = [
         ConvHull.compare srk
           DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`Precise (IntFrac `Standard))
           (load_formula file))
-  , "Test convex hulls computed by -lira-convex-hull-sc-hkmmzcone with that of -lira-convex-hull-lwcooper-hkmmzcone"
+  , "Test convex hulls computed by -lira-convex-hull-sc-hkmmzcone with that of -lira-convex-hull-intfrac"
   );
 
   ("-compare-convex-hull-sc-hkmmzcone-vs-real-relaxation-lw"
@@ -505,15 +540,43 @@ let spec_list = [
         ConvHull.compare srk
           DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`RealRelaxation `Lw)
           (load_formula file))
-  , "Compare convex hulls of a LIRA formula against that of its real relaxation"
+  , "Compare convex hull of a LIRA formula against that of its real relaxation"
   );
 
-  ("-compare-convex-hull-sc-hkmmzcone-vs-intfrac"
+  ("-compare-convex-hull-sc-hkmmzcone-vs-lw"
   , Arg.String (fun file ->
         ConvHull.compare srk
-          DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`Precise (IntFrac `Standard))
+          DD.equal
+          (`Precise (SubspaceCone `WithHKMMZCone))
+          (`Precise (ProjectImplicant (`AssumeReal `Lw)))
           (load_formula file))
-  , "Test convex hulls for correctness"
+  , "Compare convex hull of a LIRA formula against that of -lra-convex-hull-lw"
+  );
+
+  ("-compare-convex-hull-sc-hkmmzcone-vs-elimfmd-lw"
+  , Arg.String (fun file ->
+        ConvHull.compare srk
+          DD.equal
+          (`Precise (SubspaceCone `WithHKMMZCone))
+          `ElimFMDLw
+          (load_formula file))
+  , "Compare convex hull of a LIRA formula against that of -lira-convex-hull-elimfmd-lw"
+  );
+
+  ("-compare-convex-hull-sc-hkmmzcone-vs-real-relaxation-lw"
+  , Arg.String (fun file ->
+        ConvHull.compare srk
+          DD.equal
+          (`Precise (SubspaceCone `WithHKMMZCone))
+          (`RealRelaxation `Lw)
+          (load_formula file))
+  , "Compare convex hull of a LIRA formula against that of -lira-convex-hull-elimfmd-lw"
+  );
+
+  ("-compare-convex-hull-elimfmd-lw-vs-real-relaxation-lw"
+  , Arg.String (fun file ->
+        ConvHull.compare srk DD.equal `ElimFMDLw (`RealRelaxation `Lw) (load_formula file))
+  , "Compare convex hull of partially relaxed formula using LW against that of its real relaxation"
   );
 
   ("-lia-convex-hull-by-hull-then-project-gc"
@@ -588,6 +651,17 @@ let spec_list = [
         ConvHull.compare srk DD.equal
           (`Precise (SubspaceCone `WithHKMMZCone))
           (`Precise (ProjectImplicant (`AssumeInt (`ProjectThenHull `GomoryChvatal))))
+          (load_formula file)
+      )
+  , "Test convex hulls for correctness"
+  );
+
+  ("-compare-lia-convex-hull-sc-hkmmzcone-vs-lwcooper-hkmmzcone"
+  , Arg.String
+      (fun file ->
+        ConvHull.compare srk DD.equal
+          (`Precise (SubspaceCone `WithHKMMZCone))
+          (`Precise LwCooperHKMMZCone)
           (load_formula file)
       )
   , "Test convex hulls for correctness"

@@ -23,8 +23,7 @@ let () = my_verbosity_level := `info
 let test_convex_hull = ref false
 let test_level = ref `debug
 
-(* Some small constant *)
-let _epsilon = QQ.of_frac 1 10
+let eager_hermite = ref false
 
 module LocalAbstraction : sig
 
@@ -325,11 +324,12 @@ module Plt : sig
       LocalAbstraction.t
 
   val poly_part: 'layout t -> P.t
-  val lattice_part: 'layout t -> L.t
-  val tiling_part: 'layout t -> L.t
+  val lattice_part: 'layout t -> L.unreduced L.t
+  val tiling_part: 'layout t -> L.unreduced L.t
 
   val mk_plt:
-    poly_part:P.t -> lattice_part:L.t -> tiling_part:L.t -> 'layout t
+    poly_part:P.t ->
+    lattice_part: L.unreduced L.t -> tiling_part: L.unreduced L.t -> 'layout t
 
   val abstract_poly_part:
     (P.t, int -> Q.t, P.t, int -> Q.t) LocalAbstraction.t ->
@@ -369,8 +369,8 @@ end = struct
   type 'layout t =
     {
       poly_part: P.t
-    ; lattice_part: L.t
-    ; tiling_part: L.t
+    ; lattice_part: L.unreduced L.t
+    ; tiling_part: L.unreduced L.t
     }
 
   let poly_part plt = plt.poly_part
@@ -385,8 +385,8 @@ end = struct
 
   let constrained_dimensions plt =
     let p = BatList.of_enum (P.enum_constraints plt.poly_part) in
-    let l = L.basis plt.lattice_part in
-    let t = L.basis plt.tiling_part in
+    let l = L.generators plt.lattice_part in
+    let t = L.generators plt.tiling_part in
     collect_dimensions (fun (_, v) -> v) (fun _ -> true) p
     |> IntSet.union (collect_dimensions (fun v -> v) (fun _ -> true) l)
     |> IntSet.union (collect_dimensions (fun v -> v) (fun _ -> true) t)
@@ -943,10 +943,10 @@ end = struct
       |> BatList.of_enum
     in
     let phis_l =
-      List.map (formula_l srk term_of_dim) (L.basis plt.lattice_part)
+      List.map (formula_l srk term_of_dim) (L.generators plt.lattice_part)
     in
     let phis_t =
-      List.map (formula_t srk term_of_dim) (L.basis plt.tiling_part)
+      List.map (formula_t srk term_of_dim) (L.generators plt.tiling_part)
     in
     mk_and srk (phis_p @ phis_l @ phis_t)
 
@@ -975,11 +975,20 @@ end = struct
         Polyhedron.of_constraints
           (BatEnum.append (BatList.enum universe_p) (BatList.enum lincond.p_cond))
       in
+      let mk_lattice l =
+        let lattice = L.of_generators l in
+        try
+          if !eager_hermite then
+            L.hermitize lattice |> L.forget
+          else lattice
+        with
+        | Stack_overflow -> lattice
+      in
       let imp_l =
-        L.hermitize (List.rev_append universe_l lincond.l_cond)
+        mk_lattice (List.rev_append universe_l lincond.l_cond)
       in
       let imp_t =
-        L.hermitize (List.rev_append universe_t lincond.t_cond)
+        mk_lattice (List.rev_append universe_t lincond.t_cond)
       in
       let plt = { poly_part = imp_p
                 ; lattice_part = imp_l
@@ -1017,10 +1026,10 @@ end = struct
         (BatList.of_enum (P.enum_constraints plt.poly_part));
       test_point_in_lattice `IsInt "abstract_to_plt"
         (expanded_univ_translation interp)
-        (L.basis plt.lattice_part);
+        (L.generators plt.lattice_part);
       test_point_in_lattice `NotInt "abstract_to_plt"
         (expanded_univ_translation interp)
-        (L.basis plt.tiling_part);
+        (L.generators plt.tiling_part);
       (plt, expanded_univ_translation)
     in
     LocalAbstraction.{ abstract }
@@ -1319,17 +1328,13 @@ end = struct
              | `Zero | `Nonneg  -> (kind, v)
              | `Pos ->
                 let m_val = Linear.evaluate_affine m v in
-                let epsilon =
-                  if QQ.lt m_val _epsilon then
-                    (* test point m does not satisfy t - epsilon >= 0 -- need to
-                       choose a smaller value for epsilon than the default. *)
-                    QQ.nudge_down ~accuracy:2 m_val
-                  else
-                    _epsilon
+                let (constant, covector) = V.pivot Linear.const_dim v in
+                let inf_norm =
+                    V.fold (fun _ x curr -> QQ.max curr (QQ.abs x)) covector QQ.zero
                 in
-                assert (QQ.lt QQ.zero epsilon);
-                (* t > 0 --> t - epsilon >= 0 *)
-                (`Nonneg, V.add_term (QQ.negate epsilon) Linear.const_dim v))
+                let delta = QQ.min m_val inf_norm in
+                let v' = V.add_term (QQ.sub constant delta) Linear.const_dim covector in
+                (`Nonneg, v'))
       |> P.of_constraints in
     let closed_subpolyhedron_dd = P.dd_of ~man (max_dim + 1) closed_subpolyhedron
     in
@@ -1342,8 +1347,8 @@ end = struct
     in
     let fns =
       let covectors =
-        (L.basis (lattice_part plt))
-        @ (L.basis (tiling_part plt))
+        (L.generators (lattice_part plt))
+        @ (L.generators (tiling_part plt))
       in
       (* Taking the dot-product with the lattice / tiling constraints
          effectively homogenizes them, since the coefficient
@@ -1425,10 +1430,10 @@ end = struct
          let () = show m in
          models := m :: !models;
          counter := !counter + 1;
-         logf ~level:`info "Abstraction loop iteration: %d" !counter;
+         logf ~level:`debug "Abstraction loop iteration: %d" !counter;
          let points = BatEnum.map model_translation (BatList.enum !models) in
          let result = local_abstraction points src in
-         logf ~level:`info "Abstraction loop iteration %d done" (!counter - 1);
+         logf ~level:`debug "Abstraction loop iteration %d done" (!counter - 1);
          result
     in
     let (of_model, solver) =
@@ -1887,8 +1892,8 @@ end = struct
   let abstract_cooper_ ~elim ~round_up m plt =
     let open Plt in
     let p = P.enum_constraints (Plt.poly_part plt) |> BatList.of_enum in
-    let l = L.basis (Plt.lattice_part plt) in
-    let t = L.basis (Plt.tiling_part plt) in
+    let l = L.generators (Plt.lattice_part plt) in
+    let t = L.generators (Plt.tiling_part plt) in
     let elim_dimensions =
       Plt.constrained_dimensions plt
       |> IntSet.filter elim
@@ -1906,8 +1911,8 @@ end = struct
     in
     logf ~level:`debug "abstract_cooper: abstracted";
     mk_plt ~poly_part:(Polyhedron.of_constraints (BatList.enum projected_p))
-      ~lattice_part:(L.hermitize projected_l)
-      ~tiling_part:(L.hermitize projected_t)
+      ~lattice_part:(L.of_generators projected_l)
+      ~tiling_part:(L.of_generators projected_t)
 
   let abstract_cooper ~elim ~round_up =
     let restricted m dim =
@@ -1938,8 +1943,8 @@ end = struct
 
   let abstract_lw_cooper_ ~elim m plt =
     let p = P.enum_constraints (Plt.poly_part plt) |> BatList.of_enum in
-    let l = L.basis (Plt.lattice_part plt) in
-    let t = L.basis (Plt.tiling_part plt) in
+    let l = L.generators (Plt.lattice_part plt) in
+    let t = L.generators (Plt.tiling_part plt) in
     log_plt_constraints ~level:`debug "abstract_lw_cooper: abstracting" (p, l, t);
     let elim_dimensions =
       Plt.constrained_dimensions plt |> IntSet.filter elim in
@@ -1972,8 +1977,8 @@ end = struct
     let projected_t = Plt.tiling_part plt in
     log_plt_constraints ~level:`debug "abstract_lw_cooper: abstracted"
       ( BatList.of_enum (P.enum_constraints projected_p)
-      , L.basis projected_l
-      , L.basis projected_t);
+      , L.generators projected_l
+      , L.generators projected_t);
     (plt, univ_translation)
 
   let abstract_lw_cooper ~elim =
@@ -2018,7 +2023,7 @@ end = struct
       in
       let closed_p = close_constraints (P.enum_constraints (Plt.poly_part plt))
                      |> P.of_constraints in
-      let l_constraints = L.basis (Plt.lattice_part plt) in
+      let l_constraints = L.generators (Plt.lattice_part plt) in
       logf ~level:`debug "abstract_sc: lattice constraints: @[%a@]"
         (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
            pp_vector)
@@ -2098,11 +2103,12 @@ end = struct
   let abstract_intfrac_plt ~elim =
     let abstract m plt =
       logf ~level:`debug "abstract_intfrac_plt...";
+      let lattice = Plt.lattice_part plt |> L.hermitize in
       let must_be_integral dim =
         (* If dim is supported in any positive integrality constraint,
            dim itself is.
          *)
-        L.member (V.of_term QQ.one dim) (Plt.lattice_part plt) in
+        L.member (V.of_term QQ.one dim) lattice in
       let abstract_lw =
         LW.abstract_lw
           ~elim:(fun dim ->
@@ -2486,9 +2492,12 @@ let sharpen_strict_inequalities_assuming_integrality p =
 
 let integer_hull_plt_assuming_integrality ~man hull_alg plt =
   let lattice_basis =
-    IntLattice.basis (Plt.lattice_part plt) in
+    Plt.lattice_part plt
+    |> L.hermitize
+    |> IntLattice.generators
+  in
   let () =
-    if (IntLattice.basis (Plt.tiling_part plt) = []) then ()
+    if (IntLattice.generators (Plt.tiling_part plt) = []) then ()
     else failwith "Negative IsInt not handled; use [Syntax.eliminate_floor_mod_div_int]."
   in
   let max_dim =
@@ -2635,8 +2644,8 @@ let local_abstraction_of_lira_model how ~man srk terms symbols =
                  LocalAbstraction.apply
                    (MixedCooper.abstract_cooper ~elim ~round_up) m sharpened_plt in
                let p = P.enum_constraints (Plt.poly_part local_projection) |> BatList.of_enum in
-               let l = L.basis (Plt.lattice_part local_projection) in
-               let t = L.basis (Plt.tiling_part local_projection) in
+               let l = L.generators (Plt.lattice_part local_projection) in
+               let t = L.generators (Plt.tiling_part local_projection) in
                log_plt_constraints ~level:`debug "project_then_hull, projected"
                  (p, l, t);
                integer_hull_plt_assuming_integrality ~man hull_alg local_projection

@@ -12,7 +12,10 @@ module Plt = PolyhedronLatticeTiling
 
 type t = DD.closed DD.t
 
-let enable_lira = ref true
+(* Srk tests currently don't use LIRA.
+   TODO: Check if nonlinear can use LIRA.
+ *)
+let enable_lira = ref false
 
 let nb_hulls = ref 0
 let dump_hull = ref false

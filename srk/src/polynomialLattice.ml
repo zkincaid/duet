@@ -8,7 +8,7 @@ module L = Log.Make(struct let name = "srk.polyLattice" end)
  *)
 type t =
   { ideal : Rewrite.t
-  ; affine_lattice : IntLattice.t
+  ; affine_lattice : IntLattice.hnf IntLattice.t
   (* Maps lowest monomial per ideal's monomial order to least integer dimension *)
   ; affine_context : LinearQQXs.context
   }
@@ -38,7 +38,7 @@ let make_context monomial_order polys =
 
 let affine_basis t =
   List.map (LinearQQXs.sparsify_affine t.affine_context)
-    (IntLattice.basis t.affine_lattice)
+    (IntLattice.generators t.affine_lattice)
 
 let pp pp_dim fmt t =
   Format.fprintf fmt
@@ -62,7 +62,7 @@ let make_lattice ideal affine_polys : t =
   let affine_context = make_context order affine_polys in
   let vectors = List.map (LinearQQXs.densify_affine affine_context)
       affine_polys in
-  let affine_lattice = IntLattice.hermitize vectors in
+  let affine_lattice = IntLattice.of_generators vectors |> IntLattice.hermitize in
   { ideal ; affine_lattice ; affine_context }
 
 let change_monomial_ordering t order =
@@ -110,7 +110,9 @@ let restrict p t =
     BatEnum.find (fun i -> p (LinearQQXs.dim_of_int t.affine_context i))
       (LinearQQXs.dim t.affine_context --- 0)
   in
-  let affine_lattice = IntLattice.project_lower max_retained t.affine_lattice in
+  let affine_lattice =
+    IntLattice.project_as_dual ~keep:(fun dim -> dim <= max_retained)
+      t.affine_lattice in
   { ideal = Rewrite.restrict p t.ideal
   ; affine_lattice
   ; affine_context = copy_context_up_to max_retained t.affine_context

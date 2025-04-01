@@ -24,6 +24,8 @@ val disjunctive_normal_form:
   (standard plt list * 'a Syntax.arith_term SrkUtil.Int.Map.t)
  *)
 
+val eager_hermite: bool ref
+
 type abstraction_algorithm =
   | SubspaceCone of [`Standard | `WithHKMMZCone]
   | IntFrac of [`Standard]
@@ -42,7 +44,7 @@ type abstraction_algorithm =
   | LwCooperHKMMZCone
   | ProjectImplicant of
       [ `AssumeReal of [`FullProject | `Lw]
-      (** Sound when the formula [F] has no [Int] literals AND all variables
+      (** Correct when the formula [F] has no [Int] literals AND all variables
           are of real type.
           [`FullProject] corresponds to the convex hull algorithm in FMCAD'15;
           [`Lw] takes the convex hull of disjuncts computed by
@@ -52,8 +54,7 @@ type abstraction_algorithm =
           [ `HullThenProject of [`GomoryChvatal | `Normaliz]
           | `ProjectThenHull of [`GomoryChvatal | `Normaliz]
           ]
-        (** Sound when the formula [F] is equivalent modulo the theory of RR,
-            ignoring type constraints of symbols, to
+        (** Correct when the formula [F] is equivalent modulo the theory of RR to
             [F' /\ /\_{x in variables(F)} Int(x)], where [F'] is the formula
             obtained from [F] by deleting all [Int] literals.
             All variables [v] in [F] that are of integer type should be

@@ -68,10 +68,10 @@ let make_affine_basis ideal affine_polys : affine_basis =
                        affine_polys in
   let ctx = make_context affine_polys in
   let vectors = List.map (PV.densify_affine ctx) affine_polys in
-  let lattice = IntLattice.hermitize vectors in
+  let lattice = IntLattice.of_generators vectors |> IntLattice.hermitize in
   L.logf ~level:`trace "make_affine_basis: of polynomials: @[%a@]@."
     (pp_poly_list pp_dim) affine_polys;
-  let basis = IntLattice.basis lattice
+  let basis = IntLattice.generators lattice
               |> List.map (fun v -> PV.sparsify_affine ctx v)
   in
   { basis }
