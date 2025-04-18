@@ -24,23 +24,11 @@ module ART
     (Ctx : Srk.Syntax.Context)
     (K : sig
       type t
-      type var
 
-      val pp : Format.formatter -> t -> unit
       val guard : t -> Ctx.t formula
-      val transform : t -> (var * Ctx.t arith_term) BatEnum.t
-      val mem_transform : var -> t -> bool
-      val get_transform : var -> t -> Ctx.t arith_term
       val assume : Ctx.t formula -> t
       val mul : t -> t -> t
-      val conjunct : t -> t -> t
-      val add : t -> t -> t
-      val zero : t
-      val one : t
-      val star : t -> t
-      val exists : (var -> bool) -> t -> t
       val contains_havoc : t -> bool
-      val contextualize :  t -> t -> t  -> [ `Sat of t | `Unsat ]
       val interpolate_or_concrete_model : t list -> Ctx.t Syntax.formula 
             -> [`Valid of Ctx.t Syntax.formula list 
                  | `Invalid of Ctx.t Interpretation.interpretation | `Unknown ]
@@ -55,33 +43,6 @@ module ART
       type vertex
       type transition = K.t
       type t
-      type query
-      type reverse_query
-
-      val empty : t
-      val path_weight : query -> vertex -> transition
-      val call_weight : query -> vertex * vertex -> transition
-      val set_summary : query -> vertex * vertex -> transition -> unit
-      val get_summary : query -> vertex * vertex -> transition
-
-
-      val mk_reverse_query : query -> vertex -> reverse_query
-      val exit_summary : reverse_query -> vertex -> vertex -> K.t
-      val target_summary : reverse_query -> vertex -> K.t
-
-      val omega_path_weight :
-        query -> (transition, 'b) Srk.Pathexpr.omega_algebra -> 'b
-
-      val forward_invariants_ivl :
-        t -> vertex -> (vertex * Ctx.t Srk.Syntax.formula) list
-
-      val forward_invariants_ivl_pa :
-        Ctx.t Srk.Syntax.formula list ->
-        t ->
-        vertex ->
-        (vertex * Ctx.t Srk.Syntax.formula) list
-
-      val simplify : ?try_rtc:bool -> (vertex -> bool) -> t -> t
 
       val iter_succ_e :
         (vertex * transition TransitionSystem.label * vertex -> unit) ->
@@ -102,8 +63,6 @@ module ART
       type t 
 
       val make : TS.vertex * TS.vertex -> t
-      val string_of : t -> string
-      val of_string : string -> t
 
       (* lexicographic comparison using Stdlib.compare *)
       val compare : t -> t -> int
@@ -115,11 +74,6 @@ module ART
     (Summarizer : sig
       type t
       val over_proc_summary : t -> PN.t -> K.t
-      val under_proc_summary : t -> PN.t -> K.t
-      val set_over_proc_summary : t -> PN.t -> K.t -> unit
-      val set_under_proc_summary : t -> PN.t -> K.t -> unit
-      val refine_over_summary : t -> PN.t -> K.t -> unit
-      val refine_under_summary : t -> PN.t -> K.t -> unit
       val path_weight_intra : t -> TS.vertex -> TS.vertex -> K.t
       val path_weight_inter : t -> TS.vertex -> K.t
     end) = 
@@ -134,13 +88,11 @@ struct
   module DQ = BatDeque
   module ARR = Batteries.DynArray
 
-  type idq_t = int BatDeque.t
   type state_formula = Ctx.t Syntax.formula
 
   exception Mexception of string
 
   let mk_true () = Syntax.mk_true Ctx.context
-  let mk_false () = Syntax.mk_false Ctx.context
 
   let log_formulas prefix formulas =
     List.iteri
@@ -149,14 +101,6 @@ struct
           (Syntax.pp_expr Ctx.context)
           f)
       formulas
-
-  let log_weights prefix weights =
-    List.iteri
-      (fun i f -> logf "[weight] %s(%i): %a\n" prefix i K.pp f)
-      weights
-
-  let log_model prefix model =
-    logf "[model] %s: %a\n" prefix Interpretation.pp model
 
   type t = {
     graph : TS.t;
@@ -179,7 +123,7 @@ struct
 
   let root = 0
 
-  let make (g : TS.t) (entry : TS.vertex) (err_loc : TS.vertex) (pre_state: state_formula) interproc =
+  let make (g : TS.t) (entry : TS.vertex) (err_loc : TS.vertex) interproc =
     ref
       {
         graph = g;
@@ -239,8 +183,8 @@ struct
     let v_children = children art v in
     v :: List.fold_left (fun l ch -> descendants art ch @ l) [] v_children
 
-  (* return leaves of subtree rooted at v. *)
-  let leaves (art : t ref) (v : node) : node list = 
+  (* return leaves of the tree. *)
+  let leaves (art : t ref) : node list = 
     !art.leaves |> ISet.to_list 
 
   (* is a node in tree a leaf? *)
@@ -458,9 +402,10 @@ struct
                      !art.reverse_covers <- IntMap.remove y !art.reverse_covers;
                      (* Step 3: add xs to worklist. *)
                      ISet.iter
-                       (fun x ->
+                       (fun _x ->
                          (* add x's subtree leaves back to the worklist. *)
-                         let x_leaves = leaves art x in
+                         (* Zak: TODO: This adds *all* leaves back to the worklist *)
+                         let x_leaves = leaves art in
                          List.iter
                            (fun x_leaf ->
                             if not (is_leaf art x_leaf) then failwith "ERR: found non-leaf among leaves set of ART";
@@ -515,7 +460,8 @@ struct
                         x u;
                       !art.covers <- IntMap.remove x !art.covers;
                       (* add x's subtree leaves back to the worklist. *)
-                      let x_leaves = leaves art x in
+                      (* Zak: TODO: This adds *all* leaves back to the worklist *)
+                      let x_leaves = leaves art in
                       List.iter
                         (fun x_leaf ->
                           logf
@@ -544,29 +490,6 @@ struct
     | _ -> []
 
   
-
-  (* for w that is an ancestor of v, cover[v] stores w *)
-  let remove_from_cover art v w = 
-    match IntMap.find_opt v !art.covers with 
-    | Some u ->
-      begin if u <> w then failwith "remove_from_cover: node pair to remove not in cover"
-      else 
-        !art.covers <- IntMap.remove v !art.covers;
-        let w_coverers = IntMap.find w !art.reverse_covers |> ISet.remove v in  
-        !art.reverse_covers <- IntMap.add w w_coverers !art.reverse_covers;
-      end
-    | None -> failwith "remove_from_cover: node pair to remove not in cover ()"
-  
-  let add_to_cover art v w = 
-    match IntMap.find_opt v !art.covers with 
-    | Some r -> remove_from_cover art v r 
-    | None -> ();
-    !art.covers <- IntMap.add v w !art.covers;
-    !art.reverse_covers <- 
-      IntMap.add w 
-        (IntMap.find_default ISet.empty w !art.reverse_covers 
-          |> ISet.add v) !art.reverse_covers
-    
 
   (* convention: w is an ancestor of v. returns true if we can add (v, w) to covers such that label(v) |= label(w) *)
   let force_cover (art : t ref) v w = (* check if v_label -> w_label where v is an ancestor at w *)
@@ -628,7 +551,7 @@ struct
 
   (** TODO: [deprecated] procedures for lightweight verification of ART invariants *)
     
-  let verify_well_labelled_tree (t : t ref) =
+  let _verify_well_labelled_tree (t : t ref) =
     let rec aux v =
       let children = children t v in
       match children with
@@ -659,7 +582,7 @@ struct
     logf "...done verifying well-labelledness of ART\n";
     r
 
-  let check_covering_welformedness (t : t ref) =
+  let _check_covering_welformedness (t : t ref) =
     logf "checking welformedness of covering relations\n";
     IntMap.iter
       (fun dst covered_from ->

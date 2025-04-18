@@ -107,7 +107,7 @@ module ART :
       type t
       type state_formula = Ctx.t Srk.Syntax.formula
       exception Mexception of string
-      val make : TS.t -> TS.vertex -> TS.vertex -> state_formula -> Summarizer.t -> t ref
+      val make : TS.t -> TS.vertex -> TS.vertex -> Summarizer.t -> t ref
       val get_entry : t ref -> TS.vertex 
       val get_err_loc : t ref -> TS.vertex
       val get_summarizer : t ref -> Summarizer.t 
@@ -117,7 +117,7 @@ module ART :
       val tree_path : t ref -> ?src:node -> node -> node list
       val children : t ref -> node -> node list
       val descendants : t ref -> node -> node list
-      val leaves : t ref -> node -> node list
+      val leaves : t ref -> node list
       val is_leaf : t ref -> node -> bool
       val label : t ref -> node -> state_formula
       val set_label : t ref -> node -> state_formula -> unit

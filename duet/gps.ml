@@ -79,24 +79,6 @@ let make_ts_assertions_unreachable (ts : cfg_t) assertions =
   in
   (ts, err_loc)
 
-let instrument_with_rets (ts : cfg_t) : cfg_t = 
-  let mk_int k = Ctx.mk_real (QQ.of_int k) in 
-  let largest = ref (WG.fold_vertex (fun v max -> if v > max then v else max) ts 0) in 
-  let new_vtx () = 
-    largest := !largest + 1; !largest in
-  let hazard_var = Var.mk (Varinfo.mk_global "__duet_hazard" (Concrete (Int 8))) in 
-  let hazard_var_sym = Syntax.mk_symbol srk ~name:"__duet_hazard" `TyInt in 
-  let hazard_var_term = Syntax.mk_const srk hazard_var_sym in 
-    let open Syntax.Infix(Ctx) in 
-    let assume_true = K.assume (Syntax.mk_eq srk (hazard_var_term) (mk_int 1)) in
-    let assign_zero = K.assign (VVal hazard_var) (mk_int 0) in 
-    let assign_one  = K.assign (VVal hazard_var) (mk_int 1) in 
-  let all_succs u = WG.U.succ u in 
-  let _ = 
-    Hashtbl.add V.sym_to_var hazard_var_sym (VVal hazard_var);
-    ValueHT.add V.var_to_sym (VVal hazard_var) hazard_var_sym
-  in ts
-
 module Summarizer = 
   struct 
       module SMap = BatMap.Make(ProcName)
@@ -243,7 +225,7 @@ module GPS = struct
   module ReachTree = ReachTree.ART(Ctx)(K)(TS')(ProcName)(VN)(Summarizer)
   
   (** summary-guided testing *)
-  module SGT = SummaryGuidedTesting(Ctx)(K)(TS')(ProcName)(Summarizer)(ReachTree)
+  module SGT = SummaryGuidedTesting(Ctx)(K)(TS')(Summarizer)(ReachTree)
 
   (* to print the reachability tree (+ worklist), or not *) 
   (* RF 3/2/25: If you enable this flag, and even if     *)
@@ -321,7 +303,7 @@ module GPS = struct
       equalities = equalities;
       worklist = DQ.empty;
       execlist = DQ.empty;
-      art = ReachTree.make ts entry err_loc pre_state !gctx.interproc;
+      art = ReachTree.make ts entry err_loc !gctx.interproc;
       global_ctx = gctx;
     }
   and mk_mc_context (global_cfg: cfg_t) (global_src: int) (err_loc: int) enable_summary = 
@@ -355,7 +337,7 @@ module GPS = struct
     | _ -> []
 
   (* turn tree path into a sequence of CFG edges. *)
-  let rec cfg_path (ctx: intra_context ref) (p : ReachTree.node list) = 
+  let cfg_path (ctx: intra_context ref) (p : ReachTree.node list) = 
     art_cfg_path_pair ctx p 
     |> List.map (fun (_, (u, v), _) -> (u, v))
   
@@ -627,7 +609,7 @@ module GPS = struct
               |> List.fold_left (fun (has_call, l) (u, w, v) ->
                 match w with 
                 | Call _ -> (true, (u, w, v) :: l)
-                | _ -> (false, (u, w, v) :: l)
+                | _ -> (has_call, (u, w, v) :: l)
                 ) (false, []) 
             in
             logf " --- finished forming path to error, calling handle_path_to_error ... \n";
@@ -643,7 +625,7 @@ module GPS = struct
                   state := `Concretized (pathcond);
                   continue := false
                 end
-            | false, curr :: right -> 
+            | false, _::_ -> 
               state := `ConcretizedList (path_to_w);
               continue := false
             | true, []
@@ -662,7 +644,7 @@ module GPS = struct
       done; 
       match !state with 
       | `Continue -> Safe (extract_refinement ctx)
-      | `ConcretizedList w -> Unsafe (K.one) (* TODO: fix this *)
+      | `ConcretizedList _ -> Unsafe (K.one) (* TODO: fix this *)
       | `Concretized cond -> Unsafe (cond) 
   
 

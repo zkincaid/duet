@@ -3,7 +3,7 @@
 all: build
 
 build:
-	dune build --profile release duet
+	dune build duet
 
 clean:
 	dune clean

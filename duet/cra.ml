@@ -813,7 +813,7 @@ let create_gas_variable () =
 
 let new_vtx () = (Def.mk (Assume Bexpr.ktrue)).did 
 
-let instrument_with_gas (ts: TSG.t) (entry: int) gasexpr : TSG.t = 
+let instrument_with_gas (ts: TSG.t) gasexpr : TSG.t = 
   let modify_pre ts u =
     Printf.printf " --- %d is call edge\n" u;
     let g = ref ts in 
@@ -848,7 +848,7 @@ let instrument_with_gas (ts: TSG.t) (entry: int) gasexpr : TSG.t =
     let module L = Loop.Make(TSG) in 
       (List.map (fun loop -> L.header loop) @@ L.all_loops (L.loop_nest ts))
         |> List.map (fun x -> (x, true)) in 
-  let call_edge_headers, callees = 
+  let call_edge_headers, _ = 
     WG.fold_edges (fun (u, w, _) (headers, callees) -> 
           match w with 
           | Call (s, _) -> ISet.add u headers, ISet.add s callees 
@@ -954,7 +954,7 @@ let make_transition_system ?(simplify=true) ?(instr_gas=false) (main_entry: int)
         in
       (*  let _ = Printf.printf "Displaying pre-instrumented TG\n"; TSDisplay.display tg in *)
         let tg = if (instr_gas && entry = main_entry) then instrument_main tg entry init_gas_weight else tg in
-        let tg = if instr_gas then instrument_with_gas tg entry gasweight else tg in 
+        let tg = if instr_gas then instrument_with_gas tg gasweight else tg in 
        (* let _ = Printf.printf "Displaying post-instrumented TG\n"; TSDisplay.display tg in *)
         let predicates = if instr_gas then gasexpr :: predicates else predicates in  
         let tg = if simplify then TS.simplify point_of_interest tg else tg in
