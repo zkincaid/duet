@@ -3,7 +3,6 @@ open Srk
 open CfgIr
 open BatPervasives
 open Cra 
-open Sgt 
 
 module TS = TransitionSystem.Make(Ctx)(V)(K)
 
@@ -23,9 +22,12 @@ module ProcName = struct
     | _ -> failwith @@ Printf.sprintf "illegal procedure identifier %s" s
 
   (* lexicographic comparison using Stdlib.compare *)
-  let compare (p1: t) (p2: t) = Stdlib.compare p1 p2 
+  let compare (p1: t) (p2: t) = Stdlib.compare p1 p2
+  let hash = Hashtbl.hash
+  let equal = (=)
 end
 
+module ProcHT = BatHashtbl.Make(ProcName)
 module ProcMap = BatMap.Make(ProcName)
 module IntMap = BatMap.Make(Int)
 module StringMap = BatMap.Make(String)
@@ -83,8 +85,6 @@ module Summarizer =
   struct 
       module SMap = BatMap.Make(ProcName)
       type t = {
-        graph: cfg_t;
-        src: int;
         query: TS.query;
         rev_query: TS.reverse_query;
         mutable underapprox: K.t SMap.t;
@@ -95,9 +95,7 @@ module Summarizer =
       let init (graph: cfg_t) (src: int) (tgt: int) (enable_summary: bool) : t =
         let q = mk_query graph src in
         let rq = TS.mk_reverse_query q tgt in
-        { graph = graph
-        ; src = src
-        ; query = q
+        { query = q
         ; rev_query = rq
         ; underapprox = SMap.empty
         ; overapprox = SMap.empty  
@@ -184,48 +182,108 @@ module Summarizer =
       
   end
 
-
 type path_type = 
     | OverApprox 
     | UnderApprox
 
-let log_labelled_weights s uu prefix weights = 
-  List.iteri 
-    (fun i f -> 
-      match f with 
-      | Call (u, v)-> 
-        let p = 
-          begin match uu with 
-          | OverApprox -> Summarizer.over_proc_summary s (ProcName.make (u, v)) 
-          | UnderApprox -> Summarizer.under_proc_summary s (ProcName.make (u, v)) 
-        end in 
-        logf "[labelled weight] %s(%i, call(%d,%d)): %a\n" prefix i u v K.pp p
-      | Weight w -> 
-        logf "[labelled weight] %s(%i): %a\n" prefix i K.pp w) weights
-
 let srk = Ctx.context 
 
 module GPS = struct
-  (* vertex names module *)
-  module VN = struct 
-    let to_vertex (v : int) : TS.vertex = v 
-    let of_vertex (v : TS.vertex) : int = v
-  end
-  (* we need to augment the `TS` module to include some extra stuff. *)
-  module TS' = struct 
-    include TS
-    let iter_succ_e (f: (TS.vertex * (TS.transition label) * TS.vertex) -> unit) (g: TS.t) (v: TS.vertex) = WG.iter_succ_e f g v
-    
-    let fold_succ_e (f : (TS.vertex * (TS.transition label) * TS.vertex) -> 'b -> 'b) (g: TS.t) (u: TS.vertex) (s: 'b) = 
-      WG.fold_succ_e f g u s 
+  module Graph = struct
+    type t =
+      { graph : cfg_t
+      ; call_summary : ProcName.t -> K.t
+      ; target_summary : int -> K.t }
+      
+  type vertex = TS.vertex
 
-    let edge_weight g u v = WG.edge_weight g u v 
-  end
+  type weight = K.t
+
+  let edge_label g u v = WG.edge_weight g.graph u v
+
+  let weight g u v =
+    match WG.edge_weight g.graph u v with
+    | Call (src, dst) ->
+      g.call_summary (src, dst)
+    | Weight w -> w
+
+  let fold_succ f g u acc =
+    WG.U.fold_succ f (WG.forget_weights g.graph) u acc
+
+  let iter_succ_e f g v =
+    fold_succ (fun w () -> f (v, weight g v w, w)) g v ()
+
+  let summary g src = g.target_summary src
+
+  let compare_vertex = Stdlib.compare
+  let pp_vertex = Format.pp_print_int
+end
+
+module Label = struct
+  type t = Ctx.t Syntax.formula
+  let top = Ctx.mk_true
+  let bottom = Ctx.mk_false
+  let meet f g = Ctx.mk_and [f; g]
+  let leq f g =
+    match Smt.entails Ctx.context f g with
+    | `Yes -> true
+    | _ -> false
+  let pp = Syntax.Formula.pp srk
+end
+module Transition = struct
+  type t = K.t
+  type label = Ctx.t Syntax.formula
+  type state = Ctx.t Interpretation.interpretation
+  let check pre trs post =
+    K.interpolate_or_concrete_model ((K.assume pre)::trs) post
+
+  let is_deterministic =
+    let is_det tr =
+      not (K.contains_havoc tr) || K.is_deterministic tr
+    in
+    Memo.memo is_det
+
+  let post_model = K.get_post_model
+  let pp = K.pp
+  let mul = K.mul
+  let assume = K.assume
+  let guard = K.guard
+end
+
+
   (* ART module *)
-  module ReachTree = ReachTree.ART(Ctx)(K)(TS')(ProcName)(VN)(Summarizer)
+  (*  module ReachTree = ReachTree.ART(Ctx)(K)(TS')(ProcName)(VN)(Summarizer)*)
+  module ReachTree = ReachTree.ART(Graph)(Label)(Transition)
   
   (** summary-guided testing *)
-  module SGT = SummaryGuidedTesting(Ctx)(K)(TS')(Summarizer)(ReachTree)
+  module PT = struct
+    type t =
+      { summary : int -> K.t
+      ; art : ReachTree.t ref }
+    type node = ReachTree.node
+    type state = ReachTree.state
+    let expand pt node = ReachTree.expand pt.art node
+    let log_art pt = ReachTree.log_art pt.art
+    let is_err_loc pt node =
+      (ReachTree.maps_to pt.art node) = (ReachTree.get_err_loc pt.art)
+    let pp_state = Interpretation.pp
+    let pp_node pt formatter node =
+      Format.fprintf formatter "%a (%d)"
+        ReachTree.pp_node node
+        (ReachTree.maps_to pt.art node)
+    let check pt node =
+      let rec path_weight v =
+        match ReachTree.parent_weight pt.art v with
+        | Some (parent, w) -> K.mul (path_weight parent) w
+        | None -> K.one
+      in
+      let post = K.guard (pt.summary (ReachTree.maps_to pt.art node)) in
+      match K.interpolate_or_concrete_model [path_weight node] post with
+      | `Valid _ -> `Infeasible
+      | `Invalid m -> `Feasible m
+      | `Unknown -> `Unknown
+  end
+  module SGT = Sgt.SummaryGuidedTesting(PT)
 
   (* to print the reachability tree (+ worklist), or not *) 
   (* RF 3/2/25: If you enable this flag, and even if     *)
@@ -233,9 +291,11 @@ module GPS = struct
   (* performance penalty. *)
   let print_tree = false
 
-  type global_context = {
-    interproc: Summarizer.t;
-  }
+  type global_context =
+    { g_graph : cfg_t
+    ; g_summarizer : Summarizer.t
+    ; g_errloc : int }
+
   and mc_result = 
     | Safe of K.t 
     | Unsafe of K.t
@@ -245,11 +305,8 @@ module GPS = struct
   (* intraprocedural context *)
   type intra_context = {
     id : ProcName.t;
-    ts : cfg_t;
-    recurse_level : int;
-    precondition : K.t;
+    cfg : Graph.t;
     pre_state : Ctx.t Syntax.formula;
-    equalities: value ValueHT.t;
     mutable art : ReachTree.t ref;
     mutable worklist : ReachTree.node DQ.t;
     mutable execlist : (ReachTree.node * Ctx.t Interpretation.interpretation) DQ.t;
@@ -257,20 +314,39 @@ module GPS = struct
   } 
   (* global context *)
   (** some helper functions that operate on the context *)
+  let get_summarizer ctx = !(!ctx.global_ctx).g_summarizer
+
+  let log_labelled_weights ctx uu prefix weights = 
+  List.iteri 
+    (fun i f -> 
+      match f with 
+      | Call (u, v) ->
+        let p = 
+          begin match uu with 
+          | OverApprox -> Summarizer.over_proc_summary !ctx.g_summarizer (ProcName.make (u, v)) 
+          | UnderApprox -> Summarizer.under_proc_summary !ctx.g_summarizer (ProcName.make (u, v)) 
+        end in 
+        logf "[labelled weight] %s(%i, call(%d,%d)): %a\n" prefix i u v K.pp p
+      | Weight w -> 
+        logf "[labelled weight] %s(%i): %a\n" prefix i K.pp w) weights
 
 
-  let demote_precondition (precondition: K.t) =
-    let pre_guard, pre_transform = K.guard precondition, K.transform precondition in 
-    let pre_state = ref @@ pre_guard in 
-    let equalities = ValueHT.create 991 in 
-    BatEnum.iter (fun (var, asgn) -> 
-      let prophecy_var = V.prophesize var in 
-      let prophecy_sym = V.symbol_of prophecy_var in 
-      let prophecy_term = Syntax.mk_const srk prophecy_sym in 
-      ValueHT.add equalities var prophecy_var;
-      pre_state := Syntax.mk_and srk [!pre_state; (Syntax.mk_eq srk prophecy_term asgn)]) pre_transform;
-    !pre_state, equalities 
-  
+  (* Express a relational query as a precondition/postcondition pair over
+     prophecy variables *)
+  let demote_precondition (query : K.t) =
+    let preconditions, postconditions =
+    BatEnum.fold (fun (preconditions, postconditions) (var, asgn) ->
+        let prophecy_var = V.prophesize var in
+        let prophecy_sym = V.symbol_of prophecy_var in
+        let prophecy_term = Syntax.mk_const srk prophecy_sym in
+        let var_term = Syntax.mk_const srk (V.symbol_of var) in
+        (Syntax.mk_eq srk prophecy_term asgn::preconditions,
+         Syntax.mk_eq srk prophecy_term var_term::postconditions))
+      ([K.guard query], [])
+      (K.transform query)
+    in
+    (Syntax.mk_and srk preconditions, Syntax.mk_and srk postconditions)
+
 
   (* promote an arbitrary state formula (not necessarily the pre-state) to a transition formula. *)
   (* To do so, we substitute in fresh skolem symbols for all prophecy variables inside [f], and *)
@@ -292,41 +368,32 @@ module GPS = struct
     K.construct (Syntax.substitute_const srk substitute (Syntax.mk_not srk f)) (ValueHT.to_seq sym_map |> List.of_seq)
 
 
-  let mk_intra_context (gctx: global_context ref) (id: ProcName.t) (ts: cfg_t) (recurse_level: int) (precondition: K.t) (entry: int) (err_loc: int)  =
-    let pre_state, equalities = demote_precondition precondition in  
+  let mk_intra_context (gctx: global_context ref) ((src,tgt): ProcName.t) (query: K.t) =
+    let pre_state, equalities = demote_precondition query in
+    let target_summary v =
+      K.mul
+        (Summarizer.path_weight_intra !gctx.g_summarizer v tgt)
+        (K.assume equalities)
+    in
+    let tgt' = !gctx.g_errloc in
+    let graph =
+      Graph.{ graph = WG.add_edge (!gctx.g_graph) tgt (Weight (K.assume equalities)) tgt'
+            ; call_summary = Summarizer.over_proc_summary !gctx.g_summarizer
+            ; target_summary = target_summary }
+    in
     ref {
-      id = id;
-      ts = ts;
-      recurse_level = recurse_level;
-      precondition = precondition;
+      id = (src,tgt');
+      cfg = graph;
       pre_state = pre_state;
-      equalities = equalities;
       worklist = DQ.empty;
       execlist = DQ.empty;
-      art = ReachTree.make ts entry err_loc !gctx.interproc;
+      art = ReachTree.make graph src tgt';
       global_ctx = gctx;
     }
-  and mk_mc_context (global_cfg: cfg_t) (global_src: int) (err_loc: int) enable_summary = 
-    ref {
-      interproc = Summarizer.init global_cfg global_src err_loc enable_summary;
-    }
+
 
   (** place an element in front of the deque (worklist) *)
   let worklist_push  (i : 'a) (q : 'a DQ.t) = DQ.snoc q i 
-
-  let get_summarizer intra_ctx = 
-    !(!intra_ctx.global_ctx).interproc 
-
-  let make_equalities (ctx: intra_context ref) = 
-    ValueHT.fold (fun k v acc -> 
-      let s = V.symbol_of k |> Syntax.mk_const srk in 
-      let s' = V.symbol_of v |> Syntax.mk_const srk in 
-      Syntax.mk_eq srk s s' :: acc) !ctx.equalities [Syntax.mk_true srk]
-    |> Syntax.mk_and srk 
-
-  let oracle ctx u v = 
-    if !ctx.recurse_level = 0 then Summarizer.path_weight_inter (get_summarizer ctx) u
-      else Summarizer.path_weight_intra (get_summarizer ctx) u v
 
   let rec art_cfg_path_pair (ctx: intra_context ref) (p: ReachTree.node list) = 
     match p with 
@@ -357,23 +424,23 @@ module GPS = struct
   (* CFG path condition from art.src -> art.v *)
   let path_condition (ctx: intra_context ref) condition_type (v: ReachTree.node) =
     let art = !ctx.art in 
-    let summarizer = get_summarizer ctx in   
-    let cfg = !ctx.ts in 
-    let art_nodes = ReachTree.tree_path art v in 
+    let art_nodes = ReachTree.tree_path art v in
+    let ts = !ctx.cfg.Graph.graph in
     let cfg_nodes = List.map (fun x -> ReachTree.maps_to art x) art_nodes in 
     let rec to_weights l : K.t label list = 
       match l with 
       | a :: b :: t -> 
-        WG.edge_weight cfg a b :: (to_weights (b :: t)) 
+        WG.edge_weight ts a b :: (to_weights (b :: t)) 
       | _ -> []
-      in 
+    in
+    let summ = get_summarizer ctx in
     let pathcond = List.map (fun (weight: K.t label) -> 
       match weight with  
       | Call (src, dst) -> 
         begin match condition_type with 
-        | OverApprox -> Summarizer.over_proc_summary summarizer (ProcName.make (src, dst))
+        | OverApprox -> Summarizer.over_proc_summary summ (ProcName.make (src, dst))
         | UnderApprox -> 
-            let under = Summarizer.under_proc_summary summarizer (ProcName.make (src, dst)) in 
+            let under = Summarizer.under_proc_summary summ (ProcName.make (src, dst)) in 
               log_weights "underapproximate summary" [under];
               print_vocabulary under;
               under
@@ -383,18 +450,10 @@ module GPS = struct
     let l = (K.assume !ctx.pre_state) :: pathcond in 
         log_weights "path conditions " l; l
 
-  let mk_post (ctx: intra_context ref) (v: ReachTree.node) (sink: TS.vertex) = 
-    let art = !ctx.art in
-    let post_path_summary = oracle ctx (ReachTree.maps_to art v) sink in  
-    let equalities = make_equalities ctx |> K.assume in 
-    log_weights "\npost_path_summary: " [post_path_summary];
-    log_weights "\nequalities: " [equalities];
-    logf "\n";
-    K.guard (K.mul post_path_summary equalities) 
-
   (* Interpolate the path (entry) -> (CFG vertex corresponding to src node) -> (sink CFG vertex). If fail, then get model. *)
-  let interpolate_or_get_model (ctx: intra_context ref) (src : ReachTree.node) (sink: TS.vertex) = 
-    let suffix = mk_post ctx src sink |> Syntax.mk_not srk in
+  let interpolate_or_get_model (ctx: intra_context ref) (src : ReachTree.node) =
+    let src_v = ReachTree.maps_to !ctx.art src in
+    let suffix = K.guard (Graph.summary !ctx.cfg src_v) |> Syntax.mk_not srk in
     let prefix = path_condition ctx OverApprox src in 
     log_weights "\nprefix " prefix;
     log_formulas "\nsuffix " [suffix];
@@ -414,7 +473,7 @@ module GPS = struct
       in `Failure (m, path_condition) 
     in let art = !ctx.art in 
     let path = ReachTree.tree_path art v in 
-      match interpolate_or_get_model ctx v @@ ReachTree.get_err_loc art with 
+      match interpolate_or_get_model ctx v with 
       `Invalid v_model -> 
         logf "Unable to refine but got model\n";
         (* v is no longer a frontier node. *)
@@ -437,17 +496,13 @@ module GPS = struct
         logf " visit %d (%d)\n" (ReachTree.of_node u) (ReachTree.maps_to !ctx.art u);
         !ctx.execlist <- w;
         if (ReachTree.maps_to !ctx.art u) = (ReachTree.get_err_loc !ctx.art) then begin 
-          logf " *** found potential path-to-error, checking if prophesized pre-condition is sat...\n";
-          begin match Smt.is_sat srk (make_equalities ctx) with 
-          | `Sat -> 
+            logf " *** found potential path-to-error, checking if prophesized pre-condition is sat...\n";
             logf " *** SAT, done\n";
             `ErrorReached u
-          | _ -> !ctx.worklist <- worklist_push u !ctx.worklist; `Continue
-          end
         end else begin
             logf "model of %d (%d): \n" (ReachTree.of_node u) (ReachTree.maps_to !ctx.art u);
             log_model "" u_model;
-            let new_concolic_nodes, new_frontier_nodes = ReachTree.expand !ctx.recurse_level !ctx.art u u_model in 
+            let new_concolic_nodes, new_frontier_nodes = ReachTree.expand !ctx.art u u_model in 
               List.iter (fun concolic_node -> !ctx.execlist <- worklist_push concolic_node !ctx.execlist) new_concolic_nodes;
               List.iter (fun frontier_node -> !ctx.worklist <- worklist_push frontier_node !ctx.worklist) new_frontier_nodes;
               `Continue
@@ -532,7 +587,8 @@ module GPS = struct
         logf "\nlength of left path: %d" (List.length left);
         logf "\nlength of right path: %d" (List.length right);
         logf "\nPrinting left path... \n";
-        log_labelled_weights (get_summarizer ctx) UnderApprox "left path - " left;
+        
+        log_labelled_weights !ctx.global_ctx UnderApprox "left path - " left;
         logf "error: handle_path_to_error: cannot project path condition" ;
         `Safe in 
     let handle_left_case caller_id =
@@ -549,28 +605,29 @@ module GPS = struct
       | _, `Right, a :: right' -> handle_path_to_error ctx (curr :: left) a right' dir err_leaf 
       end
     | (u, (Call (src, dst)), _) ->
-      let prefix = path_condition ctx UnderApprox u |> seq in 
+      let prefix = path_condition ctx UnderApprox u |> seq in
+      let summ = get_summarizer ctx in
       let suffix = 
         List.map (fun (_, ew, _) -> 
           match ew with 
           | Weight w -> w 
-          | Call (s, t) -> Summarizer.over_proc_summary (get_summarizer ctx) (ProcName.make (s, t))) 
+          | Call (s, t) -> Summarizer.over_proc_summary summ (ProcName.make (s, t))) 
         right 
         |> seq in 
-      let summary = Summarizer.over_proc_summary (get_summarizer ctx) (ProcName.make (src, dst)) in 
+      let summary = Summarizer.over_proc_summary summ (ProcName.make (src, dst)) in 
       begin match K.contextualize prefix summary suffix with 
       | `Sat query -> 
         let answer =
-          mk_intra_context (!ctx.global_ctx) (ProcName.make (src, dst)) !ctx.ts  (!ctx.recurse_level + 1) query src dst 
+          mk_intra_context (!ctx.global_ctx) (ProcName.make (src, dst)) query
           |> intraproc_check 
         in begin match answer with 
-           | Safe r -> 
-            Summarizer.refine_over_summary (get_summarizer ctx) (ProcName.make (src, dst)) r;
+           | Safe r ->
+              Summarizer.refine_over_summary summ (ProcName.make (src, dst)) r;
             handle_path_to_error ctx left curr right dir err_leaf
            | Unsafe trs -> 
             begin match trs |> K.project_mbp (V.is_global) with 
-            | `Sat tr -> 
-              Summarizer.refine_under_summary (get_summarizer ctx) (ProcName.make (src, dst)) tr;
+            | `Sat tr ->
+               Summarizer.refine_under_summary summ (ProcName.make (src, dst)) tr;
               begin match right with 
               | a :: right' -> 
                 handle_path_to_error ctx (curr::left) a right' `Right err_leaf 
@@ -591,7 +648,6 @@ module GPS = struct
   
     
   and intraproc_check (ctx: intra_context ref) : mc_result = 
-    logf " *********************************************** recurse_level: %d\n" !ctx.recurse_level;
     let continue = ref true in 
     let state = ref `Continue in
       !ctx.worklist <- worklist_push (ReachTree.root) !ctx.worklist; 
@@ -605,7 +661,7 @@ module GPS = struct
             let has_calls, path_to_w = 
               ReachTree.tree_path !ctx.art w 
               |> art_cfg_path_pair ctx 
-              |> List.map (fun (u, (u_vtx, v_vtx), v) -> (u, WG.edge_weight !ctx.ts u_vtx v_vtx, v)) 
+              |> List.map (fun (u, (u_vtx, v_vtx), v) -> (u, WG.edge_weight !ctx.cfg.Graph.graph u_vtx v_vtx, v)) 
               |> List.fold_left (fun (has_call, l) (u, w, v) ->
                 match w with 
                 | Call _ -> (true, (u, w, v) :: l)
@@ -648,17 +704,44 @@ module GPS = struct
       | `Concretized cond -> Unsafe (cond) 
   
 
-  let execute (ts : cfg_t) (entry : int) (err_loc : int) (enable_summary:bool) : mc_result = 
-    (**
-    * Set up data structures used by the algorithm: worklist, 
-    * vtxcnt (keeps track of largest unused vertex number in tree), 
-    * ptt is a pointer to the reachability tree.
-    *)
-    let global_context = mk_mc_context ts entry err_loc enable_summary in 
+  let execute (ts : cfg_t) (entry : int) (err_loc : int) (enable_summary:bool) : mc_result =
+    let gctx =
+      ref { g_graph = ts
+          ; g_summarizer = Summarizer.init ts entry err_loc enable_summary
+          ; g_errloc = err_loc }
+    in
+    (* interproc_graph represents the language of interprocedural paths from
+       entry to err_loc (including interprocedural paths that make calls that
+       never return---i.e., the ``unbalanced left'' language of
+       interprocedurally-valid paths) *)
+    let interproc_graph =
+      WG.fold_edges (fun (u, w, _) interproc_graph ->
+          match w with
+          | Call (en, _) ->
+             WG.add_edge interproc_graph u (Weight K.one) en
+          | Weight _ -> interproc_graph)
+        ts
+        ts
+    in
+    let graph = 
+      Graph.{ graph = interproc_graph
+            ; call_summary = Summarizer.over_proc_summary !gctx.g_summarizer
+            ; target_summary = Summarizer.path_weight_inter !gctx.g_summarizer }
+    in
+    let main_context =
+      ref {
+          id = (entry,err_loc);
+          cfg = graph;
+          pre_state = Ctx.mk_true;
+          worklist = DQ.empty;
+          execlist = DQ.empty;
+          art = ReachTree.make graph entry err_loc;
+          global_ctx = gctx;
+        }
+    in
     logf "executing GPS: start\n";
-    let main_context = mk_intra_context global_context (entry, err_loc) ts 0 K.one entry err_loc in 
     intraproc_check main_context 
-    end
+end
 
 
 module BM = BatMap.Make(Int)
@@ -687,6 +770,7 @@ let analyze_mc enable_gas enable_summary file =
     end
   | _ -> assert false
 
+
 let analyze_sgt enable_gas enable_summary file = 
     let open Srk.Iteration in 
     populate_offset_table file;
@@ -702,7 +786,17 @@ let analyze_sgt enable_gas enable_summary file =
         logf "\nentry: %d\n" entry; 
         Printf.printf "testing reachability of location %d\n" err_loc ; 
         Printf.printf "------------------------------\n";
-        begin match GPS.SGT.execute ts entry err_loc (mk_true ()) enable_summary with 
+        let summ = Summarizer.init ts entry err_loc enable_summary in
+        let graph = 
+          GPS.Graph.{ graph = ts
+                    ; call_summary = (fun _ -> failwith "SGT: procedure call")
+                    ; target_summary = Summarizer.path_weight_inter summ }
+        in
+        let pt =
+          GPS.PT.{ summary = Summarizer.path_weight_inter summ
+                 ; art = GPS.ReachTree.make graph entry err_loc }
+        in
+        begin match GPS.SGT.execute pt GPS.ReachTree.root with 
         | `Safe  -> Printf.printf "  proven safe\n";
         | `Unsafe -> Printf.printf "  proven unsafe\n"
         | `Error s -> Printf.printf "ERR: %s\n" s
@@ -710,7 +804,7 @@ let analyze_sgt enable_gas enable_summary file =
         Printf.printf "------------------------------\n"
       end
     | _ -> assert false
-  
+
 
 (** dump simplified CFG before doing model checking / CRA / concolic execution *)
 let dump_cfg simplify instrument file = 
@@ -735,14 +829,16 @@ let _ =
     ("-gps-nosum", analyze_mc false false, "GPS with neither gas nor CRA-generated summary");
   CmdLine.register_pass 
     ("-gps-nosum-nogas", analyze_mc true false, "GPS with gas but without CRA-generated summary (i.e., refutation-complete)");
+
   CmdLine.register_pass 
-    ("-sgt", analyze_mc false true, "Summary-guided testing, without gas-instrumentation");
+    ("-sgt", analyze_sgt false true, "Summary-guided testing, without gas-instrumentation");
   CmdLine.register_pass
     ("-sgt-gas", analyze_sgt true true, "Summary-guided testing, with gas");
   CmdLine.register_pass
     ("-sgt-nosum", analyze_sgt false false, "Summary-guided testing without CRA-generated summary");
   CmdLine.register_pass 
     ("-sgt-nosum-nogas", analyze_sgt true false, "Summary-guided testing with gas but without CRA-generated summary");
+
   CmdLine.register_pass
     ("-dump-unsimplified-cfg", dump_cfg false false, "dump unsimplified CFG");
   CmdLine.register_pass

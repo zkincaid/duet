@@ -2,7 +2,6 @@
 
 open Srk
 open BatPervasives
-open Syntax
 module RG = Interproc.RG
 module WG = Srk.WeightedGraph
 module G = RG.G
@@ -21,109 +20,84 @@ end)
 type equery = OverApprox | UnderApprox
 
 module ART
-    (Ctx : Srk.Syntax.Context)
-    (K : sig
-      type t
-
-      val guard : t -> Ctx.t formula
-      val assume : Ctx.t formula -> t
-      val mul : t -> t -> t
-      val contains_havoc : t -> bool
-      val interpolate_or_concrete_model : t list -> Ctx.t Syntax.formula 
-            -> [`Valid of Ctx.t Syntax.formula list 
-                 | `Invalid of Ctx.t Interpretation.interpretation | `Unknown ]
-
-      val get_post_model :
-        Ctx.t Interpretation.interpretation ->
-        t ->
-        Ctx.t Interpretation.interpretation option
-      val is_deterministic : t -> bool
-    end)
-    (TS : sig
-      type vertex
-      type transition = K.t
-      type t
-
-      val iter_succ_e :
-        (vertex * transition TransitionSystem.label * vertex -> unit) ->
-        t ->
-        vertex ->
-        unit
-
-      val edge_weight : t -> vertex -> vertex -> K.t Srk.TransitionSystem.label
-
-      val fold_succ_e :
-        (vertex * K.t Srk.TransitionSystem.label * vertex -> 'b -> 'b) ->
-        t ->
-        vertex ->
-        'b ->
-        'b
-    end)
-    (PN : sig
-      type t 
-
-      val make : TS.vertex * TS.vertex -> t
-
-      (* lexicographic comparison using Stdlib.compare *)
-      val compare : t -> t -> int
-    end)
-    (VN : sig
-      val to_vertex : int -> TS.vertex
-      val of_vertex : TS.vertex -> int
-    end)
-    (Summarizer : sig
-      type t
-      val over_proc_summary : t -> PN.t -> K.t
-      val path_weight_intra : t -> TS.vertex -> TS.vertex -> K.t
-      val path_weight_inter : t -> TS.vertex -> K.t
-    end) = 
+    (G : sig
+       type t
+       type vertex
+       type weight
+       val fold_succ :  (vertex -> 'a -> 'a) -> t -> vertex -> 'a -> 'a
+       val iter_succ_e :  (vertex * weight * vertex -> unit) -> t -> vertex -> unit
+       val weight : t -> vertex -> vertex -> weight
+       val summary : t -> vertex -> weight
+       val compare_vertex : vertex -> vertex -> int
+       val pp_vertex : Format.formatter -> vertex -> unit
+     end)
+    (L : sig
+       type t
+       val top : t
+       val meet : t -> t -> t
+       val leq : t -> t -> bool
+       val pp : Format.formatter -> t -> unit
+     end)
+    (T : sig
+       type t
+       type label
+       type state
+       val check : label -> t list -> label -> [ `Valid of label list
+                                               | `Invalid of state
+                                               | `Unknown ]
+       val post_model : state -> t -> state option
+       val is_deterministic : t -> bool
+       val mul : t -> t -> t
+       val assume : label -> t
+       val guard : t -> label
+     end with type t = G.weight
+          and type label = L.t) =
 struct
   (* type for a tree node *)
   type node = int
+  type state = T.state
+  type weight = T.t
 
-  module ProcMap = BatMap.Make (PN)
   module IntMap = BatMap.Make (Int)
+  module VertexMap = BatMap.Make(struct
+                         type t = G.vertex
+                         let compare = G.compare_vertex
+                       end)
   module StringMap = BatMap.Make (String)
   module ISet = BatSet.Make (Int)
   module DQ = BatDeque
   module ARR = Batteries.DynArray
 
-  type state_formula = Ctx.t Syntax.formula
-
   exception Mexception of string
-
-  let mk_true () = Syntax.mk_true Ctx.context
 
   let log_formulas prefix formulas =
     List.iteri
       (fun i f ->
         logf "[formula] %s(%i): %a\n" prefix i
-          (Syntax.pp_expr Ctx.context)
-          f)
+          L.pp f)
       formulas
 
   type t = {
-    graph : TS.t;
-    entry : TS.vertex;
-    err_loc : TS.vertex;
+    graph : G.t;
+    entry : G.vertex;
+    err_loc : G.vertex;
     mutable vtxcnt : int;
-    mutable cfg_vertex : TS.vertex IntMap.t;
+    mutable cfg_vertex : G.vertex IntMap.t;
     mutable parents : int IntMap.t;
-    mutable labels : Ctx.t Syntax.formula IntMap.t;
+    mutable labels : L.t IntMap.t;
     mutable covers : int IntMap.t;
     mutable children : int list IntMap.t;
     (* also maintain reverse map for each y, storing (x, y) that are in cover. *)
     (* i.e. reverse_covers[y] returns all x such that (x,y) is in the cover. *)
     mutable reverse_covers : ISet.t IntMap.t;
     (* precedent_nodes[v] stores all tree nodes mapping to CFG vertex v. Used in mc_close. *)
-    mutable precedent_nodes : ISet.t IntMap.t;
-    interproc : Summarizer.t;
+    mutable precedent_nodes : ISet.t VertexMap.t;
     mutable leaves : ISet.t;
   }
 
   let root = 0
 
-  let make (g : TS.t) (entry : TS.vertex) (err_loc : TS.vertex) interproc =
+  let make (g : G.t) (entry : G.vertex) (err_loc : G.vertex) =
     ref
       {
         graph = g;
@@ -132,16 +106,14 @@ struct
         vtxcnt = 1;
         cfg_vertex = IntMap.add 0 entry IntMap.empty;
         parents = IntMap.add 0 (-1) IntMap.empty;
-        labels = IntMap.add 0 (mk_true ()) IntMap.empty;
+        labels = IntMap.add 0 L.top IntMap.empty;
         children = IntMap.add 0 [] IntMap.empty;
         covers = IntMap.empty; (* for (u, v) in cover, u is ancestor of v and label(v) |= label(u). v is covered if (u, v) in cover. Then cover[v] = u. *)
         reverse_covers = IntMap.empty; (* for each v, store the v's that cover it: i.e. cover[v] *)
-        precedent_nodes = IntMap.empty;
+        precedent_nodes = VertexMap.empty;
         leaves = ISet.empty;
-        interproc;
       }
 
-  let get_summarizer (art : t ref) = !art.interproc
   let get_err_loc (art : t ref) = !art.err_loc
   let get_entry (art: t ref) = !art.entry 
 
@@ -149,8 +121,8 @@ struct
   let print_tree (art : t ref) (indent : string) (v : node) =
     let rec print_tree_ (art : t ref) indent v =
       logf "%s|" indent;
-      logf "%s+-%d(%d)" indent v
-        (IntMap.find v !art.cfg_vertex |> VN.of_vertex);
+      logf "%s+-%d(%a)" indent v
+        G.pp_vertex (IntMap.find v !art.cfg_vertex);
       List.iter
         (fun x -> print_tree_ art (indent ^ " ") x)
         (IntMap.find_default [] v !art.children)
@@ -160,11 +132,19 @@ struct
 
   (*  [parent t i] gets parent of node i in tree t.  *)
   let parent (art : t ref) (i : node) : node = IntMap.find i !art.parents
+    
 
   (*  [t %-> i]: get CFG vertex mapped by node i in tree t. *)
-  let maps_to (art : t ref) (i : node) : TS.vertex =
+  let maps_to (art : t ref) (i : node) : G.vertex =
     try IntMap.find i !art.cfg_vertex
     with _ -> failwith @@ Printf.sprintf "maps_to: not found tree node %d\n" i
+
+  let parent_weight (art : t ref) (i : node) =
+    let parent = IntMap.find i !art.parents in
+    if parent < 0 then
+      None
+    else
+      Some (parent, G.weight !art.graph (maps_to art parent) (maps_to art i))
 
   (* [tree_path t u] returns list of tree nodes that form the corrsp. tree path from root of t to tree node u *)
   let tree_path (art : t ref) ?(src=root) (u : node) : node list =
@@ -193,10 +173,10 @@ struct
     List.length chs == 0
 
   (* [label t v] returns the node label of tree node v in tree t. *)
-  let label (art : t ref) (v : node) : state_formula = IntMap.find v !art.labels
+  let label (art : t ref) (v : node) : L.t = IntMap.find v !art.labels
 
   (* (replaces) sets a label at v *)
-  let set_label (art : t ref) (v : node) (lbl : state_formula) =
+  let set_label (art : t ref) (v : node) (lbl : L.t) =
     !art.labels <- IntMap.add v lbl !art.labels
 
   (* [get_precedent_nodes t v] retrieves a sequence of precedent nodes of tree node vin preorder in tree t. *)
@@ -204,8 +184,7 @@ struct
   let get_precedent_nodes (art : t ref) (v : node) =
     let cfg_vertex = maps_to art v in
     let precedents_set =
-      IntMap.find_default ISet.empty (VN.of_vertex cfg_vertex)
-        !art.precedent_nodes
+      VertexMap.find_default ISet.empty cfg_vertex !art.precedent_nodes
     in
     ISet.elements precedents_set
 
@@ -223,7 +202,7 @@ struct
       !art.leaves <- ISet.remove x !art.leaves 
 
   (* Add new tree leaf mapping to CFG vertex v and with parent tree node p. *)
-  let add_tree_vertex (art : t ref) ?(label = mk_true ()) (v : TS.vertex)
+  let add_tree_vertex (art : t ref) ?(label = L.top) (v : G.vertex)
       (p : node) =
     (* sequentially add v to the lists, indexed by !vtxcnt *)
     let new_vertex = get_id art in
@@ -238,29 +217,14 @@ struct
         IntMap.add p (new_vertex :: IntMap.find p !art.children) !art.children;
     (* Add v to precedent_nodes. *)
     let precedent_nodes =
-      IntMap.find_default ISet.empty (VN.of_vertex v) !art.precedent_nodes
+      VertexMap.find_default ISet.empty v !art.precedent_nodes
       |> ISet.add new_vertex
     in
     !art.precedent_nodes <-
-      IntMap.add (VN.of_vertex v) precedent_nodes !art.precedent_nodes;
+      VertexMap.add v precedent_nodes !art.precedent_nodes;
     update_leaf art p;
     update_leaf art new_vertex;
     new_vertex 
-
-  (* this is a helper primitive *)    
-  let is_deterministic =
-    let is_det tr =
-      not (K.contains_havoc tr) || K.is_deterministic tr
-    in
-    Memo.memo is_det
-
-
-  let get_weight art weight =     
-    match weight with 
-      | TransitionSystem.Weight w -> w 
-      | TransitionSystem.Call (u, v) ->
-          let proc = (VN.to_vertex u, VN.to_vertex v) |> PN.make in
-          Summarizer.over_proc_summary !art.interproc proc
 
   (** expand:  
         for every out-neighbor y of v, first try deriving a post-state model of v-> y, if successful, put it
@@ -274,67 +238,27 @@ struct
       is the identity transition. More specifically, for each out-neighbor u of G(v), we 
       first test if m /\ tr is SAT, if so, then this out-neighbor is non-frontier. Otherwise,
       this out neighbor is a frontier.  *)
-  let guarded_expand (art: t ref) (v: node) (m: Ctx.t Interpretation.interpretation) (tr: K.t) = 
+  let expand (art: t ref) (v: node) (m: T.state) =
     let vg = maps_to art v in 
     let new_concolic_nodes, new_frontier_nodes = (ref [], ref []) in 
     (* visit out-neighbors of v *)
-    TS.iter_succ_e 
+    G.iter_succ_e 
       (fun (_, weight, y) -> 
-          let weight = 
-            let w' = get_weight art weight in 
-              if is_deterministic w' then w' else 
-                K.mul w' (K.assume @@ K.guard (tr)) 
-              in 
-            match K.get_post_model m weight with
-            | Some y_model ->
-                let new_vtx = add_tree_vertex art y v in
-                new_concolic_nodes := (new_vtx, y_model) :: !new_concolic_nodes
-            | None ->
-                let new_node = add_tree_vertex art y v in
-                new_frontier_nodes := new_node :: !new_frontier_nodes)
+        let weight =
+          if T.is_deterministic weight then weight
+          else T.mul weight (T.assume @@ T.guard @@ G.summary !art.graph y)
+        in 
+        match T.post_model m weight with
+        | Some y_model ->
+           let new_vtx = add_tree_vertex art y v in
+           new_concolic_nodes := (new_vtx, y_model) :: !new_concolic_nodes
+        | None ->
+           let new_node = add_tree_vertex art y v in
+           new_frontier_nodes := new_node :: !new_frontier_nodes)
       !art.graph vg;
     (* make it FIFO *)
     (List.rev !new_concolic_nodes, List.rev !new_frontier_nodes)
     
-
-  (* returns (new nodes on concolic worklist, new nodes on frontier worklist) *)
-  (* a newly expanded node (leaf) is deemed a _concolic node_ if it can inherit
-     a post-state model from its parent by means of symbol substitution. It is deemed
-     a _frontier node_ if concrete execution cannot reach it from its parent node. A
-     frontier node does not have a model associated with it and is in need of refinement. *)
-  let expand recurse_level (art : t ref) (v : node) (m: Ctx.t Interpretation.interpretation) =
-    let oracle s src tgt =
-      if recurse_level = 0 then Summarizer.path_weight_inter s src
-      else Summarizer.path_weight_intra s src tgt
-    in
-    let vg = maps_to art v in
-    let new_concolic_nodes, new_frontier_nodes = (ref [], ref []) in
-    (* visit out neighbors of v *)
-    TS.iter_succ_e
-      (fun (_, weight, y) ->
-        let weight =
-          match weight with
-          | TransitionSystem.Weight w ->
-            if is_deterministic w then w
-            else
-              K.mul w
-                (K.assume
-                 @@ K.guard (oracle !art.interproc y !art.err_loc))
-
-          | TransitionSystem.Call (u, v) ->
-              let proc = (VN.to_vertex u, VN.to_vertex v) |> PN.make in
-              Summarizer.over_proc_summary !art.interproc proc
-        in
-        match K.get_post_model m weight with
-        | Some y_model ->
-            let new_vtx = add_tree_vertex art y v in
-            new_concolic_nodes := (new_vtx, y_model) :: !new_concolic_nodes
-        | None ->
-            let new_node = add_tree_vertex art y v in
-            new_frontier_nodes := new_node :: !new_frontier_nodes)
-      !art.graph vg;
-    (* make it FIFO *)
-    (List.rev !new_concolic_nodes, List.rev !new_frontier_nodes)
 
   (** maintenance of coverings *) 
 
@@ -346,12 +270,12 @@ struct
     let w_label = label art w in
     if maps_to art v <> maps_to art w then
       failwith
-      @@ Printf.sprintf "error: %d->%d but %d->%d\n" v
-           (maps_to art v |> VN.of_vertex)
+      @@ Format.asprintf "error: %d->%a but %d->%a\n"
+           v
+           G.pp_vertex (maps_to art v)
            w
-           (maps_to art w |> VN.of_vertex);
-    match Smt.entails Ctx.context v_label w_label with
-    | `Yes ->
+           G.pp_vertex (maps_to art w)
+    else if L.leq v_label w_label then begin
         logf "   cover success (v=%d, w=%d). \n" v w;
         log_formulas "        v label " [ v_label ];
         log_formulas "        w label " [ w_label ];
@@ -362,7 +286,7 @@ struct
         !art.reverse_covers <-
           IntMap.add w (ISet.add v reverse_covers_w) !art.reverse_covers;
         true
-    | `No | `Unknown -> false
+    end else false
 
 
   (*     it returns (`true`, wl) iff covering succeeds at v and wl is a worklist of nodes to be refined. *)
@@ -435,10 +359,10 @@ struct
     List.iter2
       (fun u interpolant ->
         let u_label = label art u in
-        let u_label' = Syntax.mk_and Ctx.context [ u_label; interpolant ] in
+        let u_label' = L.meet u_label interpolant in
         log_formulas
-          (Printf.sprintf "[relabelling %d CFG vertex %d] to label: " u
-             (maps_to art u |> VN.of_vertex))
+          (Format.asprintf "[relabelling %d CFG vertex %a] to label: " u
+             G.pp_vertex (maps_to art u))
           [ u_label' ];
         set_label art u u_label';
         (* remove ( * -> u) in covering relation; we just refined label(u) so implications of form label(y)->label(u)
@@ -453,8 +377,13 @@ struct
                   (* test if label(x) --> new label(u)*)
                   let x_label = label art x in
                   let u_label = label art u in
-                  match Smt.entails Ctx.context x_label u_label with
-                  | `No | `Unknown ->
+                  if L.leq x_label u_label then
+                    (logf
+                       "    refine: cover (x %d-> u %d) still holds\n" x u;
+                     log_formulas " x label: " [ x_label ];
+                     log_formulas " u label: " [ u_label ];
+                     ISet.add x coverers (* unchanged. *))
+                  else begin
                       (* remove (x, u) from covering. *)
                       logf "   refine: removing cover (%d->%d)\n"
                         x u;
@@ -471,13 +400,9 @@ struct
                           worklist := x_leaf :: !worklist)
                         x_leaves;
                       l
-                  | `Yes ->
-                      logf
-                        "    refine: cover (x %d-> u %d) still holds\n" x u;
-                      log_formulas " x label: " [ x_label ];
-                      log_formulas " u label: " [ u_label ];
-                      ISet.add x coverers (* unchanged. *))
-                l ISet.empty
+                    end)
+                l
+                ISet.empty
             in
             !art.reverse_covers <- IntMap.add u u_coverers !art.reverse_covers)
       path
@@ -498,20 +423,14 @@ struct
       logf "force_cover(%d, %d)\n" v w;
       (* let v_label = label art v in *)
       let w_label = label art w in 
-      let artpath = tree_path art ~src:w v in 
+      let artpath = tree_path art ~src:w v in
       let path_weights = 
         artpath 
         |> glue 
-        |> List.map (fun (x, y) ->
-            match TS.edge_weight !art.graph (maps_to art x) (maps_to art y) with
-            | TransitionSystem.Call (src, dst) ->
-              Summarizer.over_proc_summary
-                !art.interproc
-                (PN.make (VN.to_vertex src, VN.to_vertex dst))
-            | TransitionSystem.Weight wht -> wht)
+        |> List.map (fun (x, y) -> 
+               G.weight !art.graph (maps_to art x) (maps_to art y))
       in
-      let w_path_weights = (K.assume w_label) :: path_weights in
-      match K.interpolate_or_concrete_model w_path_weights w_label with
+      match T.check w_label path_weights w_label with
       | `Valid itps -> 
         let new_frontiers = refine art (List.tl artpath) (List.tl itps) in
         if cover art v w then
@@ -559,12 +478,13 @@ struct
           match IntMap.find_opt v !t.covers with
           | None ->
               logf "!!! found uncovered leaf: %d\n" v;
-              TS.fold_succ_e
-                (fun (x, _, y) _ ->
+              G.fold_succ
+                (fun y _ ->
                   logf
-                    "  ERROR ERROR ERROR: mapped cfg vertex %d has \
-                     out-neighbor %d\n"
-                    (VN.of_vertex x) (VN.of_vertex y);
+                    "  ERROR ERROR ERROR: mapped cfg vertex %a has \
+                     out-neighbor %a\n"
+                    G.pp_vertex (maps_to t v)
+                    G.pp_vertex y;
                   false)
                 !t.graph (maps_to t v) true
           | Some _ -> true)
@@ -622,9 +542,9 @@ struct
   (** pretty-printing functionalities *)
   let tree_printer_get_name (art : t ref) i =
     match IntMap.find_opt i !art.covers with
-    | None -> Printf.sprintf "%d(%d)" i (maps_to art i |> VN.of_vertex)
+    | None -> Format.asprintf "%d(%a)" i G.pp_vertex (maps_to art i)
     | Some j ->
-        Printf.sprintf "[%d(%d)]->%d" i (maps_to art i |> VN.of_vertex) j
+        Format.asprintf "[%d(%a)]->%d" i G.pp_vertex (maps_to art i) j
 
   let log_art (art : t ref) =
     logf " +----------------- ART ----------------+\n";
@@ -640,4 +560,6 @@ struct
     logf " node: visit %d\n" u 
   
   let of_node u = u
+
+  let pp_node = Format.pp_print_int
 end
