@@ -12,7 +12,7 @@ module type Var = sig
   val symbol_of : t -> symbol
   val of_symbol : symbol -> t option
 
-  val is_global : t -> bool 
+  val is_global : t -> bool
 end
 
 module Make
@@ -143,20 +143,20 @@ struct
         in
         M.merge merge left.transform right.transform
       in
-      let guard = match ty with 
-      | `Add -> 
+      let guard = match ty with
+      | `Add ->
         mk_or srk [mk_and srk (left.guard::(!left_eq));
                     mk_and srk (right.guard::(!right_eq))]
-      | `And -> 
+      | `And ->
         mk_and srk [mk_and srk (left.guard::(!left_eq));
                     mk_and srk (right.guard::(!right_eq))]
       in
       { guard; transform }
-  
-    let add left right = compose left right `Add 
+
+    let add left right = compose left right `Add
     let conjunct left right = compose left right `And
-  
-  
+
+
   (* Canonical names for post-state symbols.  Having canonical names
      simplifies equality testing and widening. *)
   let post_symbol =
@@ -453,10 +453,10 @@ struct
 
 
        let get_post_model m f =
-        let f_guard = guard f in 
-        let replacer (sym : Syntax.symbol) = 
-          if Var.of_symbol sym == None then Syntax.mk_const C.context sym 
-          else mk_real C.context @@ Interpretation.real m sym 
+        let f_guard = guard f in
+        let replacer (sym : Syntax.symbol) =
+          if Var.of_symbol sym == None then Syntax.mk_const C.context sym
+          else mk_real C.context @@ Interpretation.real m sym
         in
         let f_guard' = Syntax.substitute_const C.context replacer f_guard in
         let symbols = Syntax.symbols f_guard' |> Symbol.Set.elements in
@@ -498,7 +498,7 @@ struct
     { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
       guard = substitute_const srk fresh_skolem tr.guard }
 
-  let interpolate_unsat_core trs post guards core = 
+  let interpolate_unsat_core trs post guards core =
     let core_symbols =
       List.fold_left (fun core phi ->
           match Formula.destruct srk phi with
@@ -536,25 +536,25 @@ struct
         trs
         guards
         ([Quantifier.mbp srk (fun x -> Var.of_symbol x <> None) post], post)
-    in `Valid (List.tl itp)  
+    in `Valid (List.tl itp)
 
 
-  let interpolate_query trs post sat_callback unsat_callback = 
-    let solver = Smt.StdSolver.make C.context in 
+  let interpolate_query trs post sat_callback unsat_callback =
+    let solver = Smt.StdSolver.make C.context in
     (* Break guards into conjunctions, associate each conjunct with an indicator *)
     let guards =
       List.map (fun tr ->
           List.map
             (fun phi -> (mk_symbol srk `TyBool, phi))
             (destruct_and srk tr.guard))
-        trs in 
+        trs in
     let indicators, indicator_symbols =
       List.concat_map (List.map (fun (s, _) -> mk_const srk s)) guards,
       List.concat_map (List.map fst) guards |> Symbol.Set.of_list
     in
     let subscript_tbl = Hashtbl.create 991 in
-    let ss_inv = Hashtbl.create 991 in 
-    let sst = Hashtbl.create 991 in 
+    let ss_inv = Hashtbl.create 991 in
+    let sst = Hashtbl.create 991 in
     let subscript sym =
       try
         Hashtbl.find subscript_tbl sym
@@ -581,124 +581,124 @@ struct
           tr.transform
           ([], ss_guards)
       in
-      List.iter (fun (k, l, v) -> 
+      List.iter (fun (k, l, v) ->
         Hashtbl.add subscript_tbl k v;
         Hashtbl.add ss_inv l k;
         Hashtbl.add sst k l) ss;
       mk_and srk phis
     in
-    (* gather all symbols into a list, while adding formulas to the solver object *) 
-    let symbols, added_formulas = List.fold_left 
+    (* gather all symbols into a list, while adding formulas to the solver object *)
+    let symbols, added_formulas = List.fold_left
       (fun (symbols, added_formulas) (tr, guard) ->
-        let f = to_ss_formula tr guard in 
+        let f = to_ss_formula tr guard in
           Smt.StdSolver.add solver [f];
           (Syntax.symbols f) :: symbols, f::added_formulas)
-         ([], []) (List.combine trs guards) in 
-    let _ = List.iter (fun f -> 
+         ([], []) (List.combine trs guards) in
+    let _ = List.iter (fun f ->
       let f = substitute_const srk
-        (fun v -> 
-          match Hashtbl.find_opt ss_inv v with 
-          | None -> Syntax.mk_const srk v 
+        (fun v ->
+          match Hashtbl.find_opt ss_inv v with
+          | None -> Syntax.mk_const srk v
           | Some v' -> Syntax.mk_const srk v') f
-        in logf "added formula: %a\n" (Syntax.pp_expr srk) f) added_formulas  
-    (* subscript the symbols in the `post` formula, as well *) in 
+        in logf "added formula: %a\n" (Syntax.pp_expr srk) f) added_formulas
+    (* subscript the symbols in the `post` formula, as well *) in
     let target = substitute_const srk subscript (mk_not srk post) in
-    let symbols = (Syntax.symbols target) :: symbols 
+    let symbols = (Syntax.symbols target) :: symbols
       |> List.rev
-      |> List.map (fun ss -> Symbol.Set.diff ss indicator_symbols) in 
+      |> List.map (fun ss -> Symbol.Set.diff ss indicator_symbols) in
       Smt.StdSolver.add solver [target];
       logf "-----------------------------interpolation---\n";
-      List.iter (fun f -> 
+      List.iter (fun f ->
         let f = substitute_const srk
-          (fun v -> 
-            match Hashtbl.find_opt ss_inv v with 
-            | None -> Syntax.mk_const srk v 
+          (fun v ->
+            match Hashtbl.find_opt ss_inv v with
+            | None -> Syntax.mk_const srk v
             | Some v' -> Syntax.mk_const srk v') f
           in logf "indicator formula: %a\n" (Syntax.pp_expr srk) f) indicators;
           logf "-------------------interpolation end---\n";
       logf "--- indicator length %d\n" @@ List.length indicators;
       logf "\ntarget formula: %a\n" (Syntax.pp_expr srk) target;
-      match Smt.StdSolver.get_unsat_core_or_model solver indicators with 
-        | `Sat m ->  
+      match Smt.StdSolver.get_unsat_core_or_model solver indicators with
+        | `Sat m ->
           (sat_callback m symbols sst ss_inv)
         | `Unsat core -> (unsat_callback trs post guards core)
-        | `Unknown -> `Unknown 
+        | `Unknown -> `Unknown
 
 
  (* let interpolate trs post =
-    let trs = List.map rename_skolems trs in 
-    interpolate_query trs post (fun _ _ _ _ -> `Invalid) @@ interpolate_unsat_core 
+    let trs = List.map rename_skolems trs in
+    interpolate_query trs post (fun _ _ _ _ -> `Invalid) @@ interpolate_unsat_core
 *)
-  let interpolate_or_concrete_model trs post = 
+  let interpolate_or_concrete_model trs post =
     (* subst_model: rename skolem constants back to their appropriate names using reverse subscript table *)
-    let trs = List.map rename_skolems trs in 
-    let sat_model model (symbols: Symbol.Set.t list) ss ss_inv = 
-        let m = 
-          List.fold_left (fun m' symbols -> 
-            Symbol.Set.fold (fun s m -> 
+    let trs = List.map rename_skolems trs in
+    let sat_model model (symbols: Symbol.Set.t list) ss ss_inv =
+        let m =
+          List.fold_left (fun m' symbols ->
+            Symbol.Set.fold (fun s m ->
               (* the provided model is over both subscripted vocabulary and original vocabulary *)
-              begin match Hashtbl.find_opt ss_inv s with 
+              begin match Hashtbl.find_opt ss_inv s with
               | Some s' -> (* subscripted variable *)
                 Interpretation.add s' (Interpretation.value model s) m
               |  None -> (* non-subscripted; query directly *)
-                Interpretation.add s (Interpretation.value model s)  m 
+                Interpretation.add s (Interpretation.value model s)  m
               end) symbols m'
-          ) (Interpretation.wrap srk (fun s -> 
-              match Hashtbl.find_opt ss s with 
-              | Some sss -> Interpretation.value model sss 
-              | None -> `Real (Q.of_int 47))) (*(Interpretation.wrap srk (fun s -> 
-                match Hashtbl.find_opt ss s with 
-                | Some sss -> Interpretation.value model sss 
-                | None -> Interpretation.value model s))*) (*(Interpretation.empty srk)*) symbols in 
+          ) (Interpretation.wrap srk (fun s ->
+              match Hashtbl.find_opt ss s with
+              | Some sss -> Interpretation.value model sss
+              | None -> `Real (Q.of_int 47))) (*(Interpretation.wrap srk (fun s ->
+                match Hashtbl.find_opt ss s with
+                | Some sss -> Interpretation.value model sss
+                | None -> Interpretation.value model s))*) (*(Interpretation.empty srk)*) symbols in
           logf "hashtable length: %d\n" (Hashtbl.length ss_inv);
-          logf "%a" Interpretation.pp m; 
+          logf "%a" Interpretation.pp m;
           Format.print_flush ();
-      (* symbols is a list of subscripted symbols arranged in left-to-right order. 
+      (* symbols is a list of subscripted symbols arranged in left-to-right order.
          folding over this in left-to-right order amounts to forward concrete execution. *)
-      `Invalid (m 
-        |> Interpretation.restrict 
+      `Invalid (m
+        |> Interpretation.restrict
           (fun s ->
-            match Var.of_symbol s with 
-            | Some _ -> true 
+            match Var.of_symbol s with
+            | Some _ -> true
             | None -> false))
-    in interpolate_query trs post sat_model @@ interpolate_unsat_core 
+    in interpolate_query trs post sat_model @@ interpolate_unsat_core
 
 
-  let vocabulary tr = 
-    let tr_guard = guard tr in 
-    let tr_trans = transform tr in 
-    let guard_v = tr_guard |> Syntax.symbols in 
-    let trans_v = BatEnum.fold (fun s (var, term) -> 
-      let s = Symbol.Set.add (Var.symbol_of var) s in 
-      let t = Syntax.symbols term in 
+  let vocabulary tr =
+    let tr_guard = guard tr in
+    let tr_trans = transform tr in
+    let guard_v = tr_guard |> Syntax.symbols in
+    let trans_v = BatEnum.fold (fun s (var, term) ->
+      let s = Symbol.Set.add (Var.symbol_of var) s in
+      let t = Syntax.symbols term in
       Symbol.Set.union s t) Symbol.Set.empty tr_trans in
-    let v = Symbol.Set.union guard_v trans_v in 
-    let globals = Symbol.Set.filter (fun x -> 
-      match Var.of_symbol x with 
+    let v = Symbol.Set.union guard_v trans_v in
+    let globals = Symbol.Set.filter (fun x ->
+      match Var.of_symbol x with
       | Some var -> Var.is_global var
-      | None -> false ) v in 
-    let locals = Symbol.Set.diff v globals in 
+      | None -> false ) v in
+    let locals = Symbol.Set.diff v globals in
     (Symbol.Set.to_list globals, Symbol.Set.to_list locals)
 
 
   let contextualize t1 t2 t3 : [`Sat of t | `Unsat ] =
-    let t1 = rename_skolems t1 
-    in let t2 = rename_skolems t2 
-    in let t3 = rename_skolems t3 
+    let t1 = rename_skolems t1
+    in let t2 = rename_skolems t2
+    in let t3 = rename_skolems t3
     in let subscript subscript_tbl sym =
       try
         Hashtbl.find subscript_tbl sym
-      with Not_found -> 
+      with Not_found ->
         mk_const srk sym
     in
     (* preprocess each formula to get rid of certain undesirable things *)
-    let preprocess_formula f = 
+    let preprocess_formula f =
       let pos_rewriter = Syntax.pos_rewriter srk in
-      f |> Syntax.eliminate_ite srk 
+      f |> Syntax.eliminate_ite srk
         |> Syntax.eliminate_floor_mod_div srk
-        |> Syntax.rewrite srk ~down:pos_rewriter  in 
+        |> Syntax.rewrite srk ~down:pos_rewriter  in
     (* Convert tr into a formula, and simultaneously update the subscript
-        table *) 
+        table *)
     let to_ss_formula tr subscript_tbl reverse_subscript_tbl =
       let ss_guard = substitute_const srk (subscript subscript_tbl) (guard tr)
       in let (ss, phis) =
@@ -712,118 +712,118 @@ struct
           tr.transform
           ([], [ ss_guard ])
       in
-      List.iter (fun (k, v, l) -> 
+      List.iter (fun (k, v, l) ->
         Hashtbl.add subscript_tbl k v; Hashtbl.add reverse_subscript_tbl l k) ss;
       mk_and srk phis |> preprocess_formula, Hashtbl.copy reverse_subscript_tbl
-    in let subscript_tbl = Hashtbl.create 991 
-    in let reverse_subscript_tbl = Hashtbl.create 991 
-    in let ss_t1, reverse_subscript_tbl1 = to_ss_formula t1 subscript_tbl reverse_subscript_tbl 
+    in let subscript_tbl = Hashtbl.create 991
+    in let reverse_subscript_tbl = Hashtbl.create 991
+    in let ss_t1, reverse_subscript_tbl1 = to_ss_formula t1 subscript_tbl reverse_subscript_tbl
     in let ss_t2, reverse_subscript_tbl2 = to_ss_formula t2 subscript_tbl reverse_subscript_tbl
     in let ss_t3, _ = to_ss_formula t3 subscript_tbl reverse_subscript_tbl
     in let conj = mk_and srk [ss_t1; ss_t2; ss_t3]
-    in let is_global t x = 
-      try 
-        begin match Var.of_symbol (Hashtbl.find t x) with 
-        | None -> false 
-        | Some v -> 
-          if Var.is_global v then begin 
-            logf "symbol %s is global\n" (Syntax.show_symbol srk (Hashtbl.find reverse_subscript_tbl x)); true 
+    in let is_global t x =
+      try
+        begin match Var.of_symbol (Hashtbl.find t x) with
+        | None -> false
+        | Some v ->
+          if Var.is_global v then begin
+            logf "symbol %s is global\n" (Syntax.show_symbol srk (Hashtbl.find reverse_subscript_tbl x)); true
           end else false
         end
-      with Not_found -> false  
+      with Not_found -> false
     in let symbols_t1 = Syntax.symbols ss_t1
     in let symbols_t2 = Syntax.symbols ss_t2
-    in let symbols_t3 = Syntax.symbols ss_t3  
+    in let symbols_t3 = Syntax.symbols ss_t3
     in let symbols_t1_t2 =
       Syntax.symbols ss_t1 (* symbols in t1 that are either globals _and_ in t2 are preserved during projection *)
-        |> Symbol.Set.filter 
+        |> Symbol.Set.filter
             (fun x -> (is_global reverse_subscript_tbl1 x))
-    in let symbols_t3_t2 = 
+    in let symbols_t3_t2 =
         symbols_t3 (* symbols in t3 that are globals _and_ in t2, t1 are preserved during projection *)
         |> Symbol.Set.filter (fun x -> (is_global reverse_subscript_tbl2 x) && (Symbol.Set.mem x symbols_t2))
     in let symbols_conj = Symbol.Set.union symbols_t1 (Symbol.Set.union symbols_t2 symbols_t3)
     in
-    let project srk (f1: 'a formula) (f3: 'a formula) symbols_f1 symbols_f3 all_symbols model = 
-      let open Polyhedron in 
+    let project srk (f1: 'a formula) (f3: 'a formula) symbols_f1 symbols_f3 all_symbols model =
+      let open Polyhedron in
       (* first do POS conversion on f1, f3 before computing their implicants *)
       (* rjf Mar '24: we do this as part of preprocessing to avoid rewriting the formula after an SMT query to get `model`*)
       (*let pos_rewriter = Syntax.pos_rewriter srk in
-      let f1 = Syntax.rewrite srk ~down:(pos_rewriter) f1 in 
-      let f3 = Syntax.rewrite srk ~down:(pos_rewriter) f3 in*) 
+      let f1 = Syntax.rewrite srk ~down:(pos_rewriter) f1 in
+      let f3 = Syntax.rewrite srk ~down:(pos_rewriter) f3 in*)
       let implicant_o1 = Interpretation.select_implicant model f1 in
-      let implicant_o2 = Interpretation.select_implicant model f3 in 
-        match implicant_o1, implicant_o2 with 
+      let implicant_o2 = Interpretation.select_implicant model f3 in
+        match implicant_o1, implicant_o2 with
         | Some f1, Some f2 ->
           let cube = of_cube srk (f1@f2) in
           let value_of_coord = (* coord (int) -> x (symbol) -> m[x] (value in R) *)
             fun coord ->
-              Syntax.symbol_of_int coord 
+              Syntax.symbol_of_int coord
               |> Interpretation.real model
-          in let xs = 
+          in let xs =
             Symbol.Set.diff all_symbols (Symbol.Set.union symbols_f1 symbols_f3)
-            |> Symbol.Set.elements 
-            |> List.map Syntax.int_of_symbol 
-          in let projected = local_project value_of_coord xs cube 
+            |> Symbol.Set.elements
+            |> List.map Syntax.int_of_symbol
+          in let projected = local_project value_of_coord xs cube
         in cube_of srk projected |> Syntax.mk_and srk
-        | None, Some f  ->  
+        | None, Some f  ->
           logf "contextualize: select_implicant failed on left formula: \n";
           logf "\n-- left formula: %a\n" (Syntax.pp_expr srk) f1;
           logf "\n-- right formula:%a\n" (Syntax.pp_expr srk) f3;
           List.iteri (fun _ x -> logf "\n  -- impicant of right formula:%a\n" (Syntax.pp_expr srk) x) f;
           logf "\n *  model: %a\n" (Interpretation.pp) model;
           failwith "error extrapolating: select_implicant failed on left formula"
-        | Some f, None -> 
+        | Some f, None ->
           logf "contextualize: select_implicant failed on right formula: \n";
           logf "\n-- left formula: %a\n" (Syntax.pp_expr srk) f1;
           List.iteri (fun _ x -> logf "\n  -- impicant of left formula:%a\n" (Syntax.pp_expr srk) x) f;
           logf "\n-- right formula:%a\n" (Syntax.pp_expr srk) f3;
           logf "\n *  model: %a\n" (Interpretation.pp) model;
           failwith "error extrapolating: select_implicant failed on right formula"
-        | None, None -> 
+        | None, None ->
           logf "left: %a\n" (Syntax.pp_expr srk) f1;
           Format.print_flush ();
           logf "right: %a\n" (Syntax.pp_expr srk) f3;
-          Format.print_flush (); 
+          Format.print_flush ();
           logf "\n *  model: %a\n" (Interpretation.pp) model;
           Format.print_flush ();
-          failwith "error extrapolating: select_implicant failed on both formulae" 
-        in 
-      match Smt.get_model ~symbols:(symbols_conj |> Symbol.Set.elements) srk conj with 
-      | `Sat m -> 
-        let prepost = project srk ss_t1 ss_t3 symbols_t1_t2 symbols_t3_t2 symbols_conj m in 
-        let reverse_rename_t1 s = 
-          begin match Hashtbl.find_opt reverse_subscript_tbl1 s with 
+          failwith "error extrapolating: select_implicant failed on both formulae"
+        in
+      match Smt.get_model ~symbols:(symbols_conj |> Symbol.Set.elements) srk conj with
+      | `Sat m ->
+        let prepost = project srk ss_t1 ss_t3 symbols_t1_t2 symbols_t3_t2 symbols_conj m in
+        let reverse_rename_t1 s =
+          begin match Hashtbl.find_opt reverse_subscript_tbl1 s with
           | Some s' -> mk_const srk s'
-          | None -> mk_const srk s end in 
-        let r_guard = substitute_const srk (reverse_rename_t1) prepost in 
-        let r_transform = 
-          (* for each skolem symbol in r_guard, see if it can be mapped back to a variable. *) 
-          let r_symbols = Syntax.symbols r_guard |> Symbol.Set.to_list in 
-          List.fold_left (fun m x -> 
-            match Hashtbl.find_opt reverse_subscript_tbl x with 
-            | Some y -> 
-              begin match Var.of_symbol y with 
+          | None -> mk_const srk s end in
+        let r_guard = substitute_const srk (reverse_rename_t1) prepost in
+        let r_transform =
+          (* for each skolem symbol in r_guard, see if it can be mapped back to a variable. *)
+          let r_symbols = Syntax.symbols r_guard |> Symbol.Set.to_list in
+          List.fold_left (fun m x ->
+            match Hashtbl.find_opt reverse_subscript_tbl x with
+            | Some y ->
+              begin match Var.of_symbol y with
               | Some var -> M.add var (mk_const srk x) m
-              | None -> m 
-              end 
-            | None -> m) M.empty r_symbols  in         
+              | None -> m
+              end
+            | None -> m) M.empty r_symbols  in
         let r = {transform=r_transform; guard=r_guard}
         in
           `Sat r
       | `Unknown -> failwith "contextualize status unknown"
-      | `Unsat ->  `Unsat 
+      | `Unsat ->  `Unsat
 
 
 
   (** underapproximate existential quantification. Given a transition formula tr over vocabulary X,
       use model-based projection to project out any variable v in X such that f(v) = false. *)
-    let project_mbp (f : var -> bool) tr = 
-      let ss_to_sym = Hashtbl.create 991 in 
+    let project_mbp (f : var -> bool) tr =
+      let ss_to_sym = Hashtbl.create 991 in
       (* preprocessing of a formula *)
       let preprocess f =
-        let pos_rewriter = Syntax.pos_rewriter srk in 
+        let pos_rewriter = Syntax.pos_rewriter srk in
         f |> Syntax.eliminate_ite srk |> Syntax.eliminate_floor_mod_div srk
-          |> Syntax.rewrite srk ~down:pos_rewriter   in 
+          |> Syntax.rewrite srk ~down:pos_rewriter   in
       let phis =
         M.fold (fun var term phis ->
             let var_sym = Var.symbol_of var in
@@ -832,59 +832,59 @@ struct
             Hashtbl.add ss_to_sym var_ss_sym var_sym;
             (mk_eq srk var_ss_term term)::phis)
           tr.transform
-          [ guard tr ] in 
-      let tr_formula = mk_and srk phis |> preprocess in 
-      let tr_symbols = Syntax.symbols tr_formula in 
-      let tr_symbols_preserved = 
-        tr_symbols 
-        |> Symbol.Set.filter (fun s -> 
-          match Hashtbl.find_opt ss_to_sym s with 
-          | Some sym -> 
-            begin match Var.of_symbol sym with 
+          [ guard tr ] in
+      let tr_formula = mk_and srk phis |> preprocess in
+      let tr_symbols = Syntax.symbols tr_formula in
+      let tr_symbols_preserved =
+        tr_symbols
+        |> Symbol.Set.filter (fun s ->
+          match Hashtbl.find_opt ss_to_sym s with
+          | Some sym ->
+            begin match Var.of_symbol sym with
             | Some v -> f v
-            | None -> false 
+            | None -> false
             end
-          | None -> false (* discard any skolem constants *)) in 
-      let tr_symbols_removed = Symbol.Set.diff tr_symbols tr_symbols_preserved in 
-      let prj formula voc model = 
-        let open Polyhedron in 
+          | None -> false (* discard any skolem constants *)) in
+      let tr_symbols_removed = Symbol.Set.diff tr_symbols tr_symbols_preserved in
+      let prj formula voc model =
+        let open Polyhedron in
         (* first do POS conversion on [formula] before computing their implicants *)
         (* rjf Mar '24: This is done using the preprocess function defined above.*)
         (*let pos_rewriter = Syntax.pos_rewriter srk in
-        let formula' = 
-          formula 
-          |> Syntax.eliminate_ite srk 
-          |> Syntax.eliminate_floor_mod_div srk 
+        let formula' =
+          formula
+          |> Syntax.eliminate_ite srk
+          |> Syntax.eliminate_floor_mod_div srk
           |> Syntax.rewrite srk ~down:(pos_rewriter) in*)
         let implicant = Interpretation.select_implicant model formula in
-          match implicant with 
+          match implicant with
           | Some i ->
             let cube = of_cube srk i in
             let value_of_coord = (* coord (int) -> x (symbol) -> m[x] (value in R) *)
               fun coord ->
-                Syntax.symbol_of_int coord 
+                Syntax.symbol_of_int coord
                 |> Interpretation.real model
             in let xs = (* coordinates to be projected out *)
               voc
-              |> Symbol.Set.elements 
-              |> List.map Syntax.int_of_symbol 
-            in let projected = local_project value_of_coord xs cube 
+              |> Symbol.Set.elements
+              |> List.map Syntax.int_of_symbol
+            in let projected = local_project value_of_coord xs cube
             in cube_of srk projected |> Syntax.mk_and srk
-          | _ -> 
+          | _ ->
             logf "\n--select_implicant formula: %a\n" (Syntax.pp_expr srk) formula;
             Format.print_flush ();
             logf "\n--select_implicant model: %a\n" (Interpretation.pp) model;
             Format.print_flush();
-            failwith "error projecting: select_implicant returned None"    
-      in match Smt.get_model ~symbols:(tr_symbols |> Symbol.Set.elements) srk tr_formula with 
-      | `Sat m -> 
-          let projected = prj tr_formula tr_symbols_removed m in 
-          let tr_transform = 
-            Hashtbl.fold (fun ss sym acc -> 
-              let ss_term = mk_const srk ss in 
-                match Var.of_symbol sym with 
+            failwith "error projecting: select_implicant returned None"
+      in match Smt.get_model ~symbols:(tr_symbols |> Symbol.Set.elements) srk tr_formula with
+      | `Sat m ->
+          let projected = prj tr_formula tr_symbols_removed m in
+          let tr_transform =
+            Hashtbl.fold (fun ss sym acc ->
+              let ss_term = mk_const srk ss in
+                match Var.of_symbol sym with
                 | Some v -> M.add v ss_term acc
-                | None -> failwith "u_exists: shoul not get here: subscript invariant broken") 
+                | None -> failwith "u_exists: shoul not get here: subscript invariant broken")
                 ss_to_sym M.empty
           in
           `Sat {guard=projected;transform=tr_transform}
@@ -944,17 +944,17 @@ struct
 
 
 
-  let contains_havoc tr = 
-    M.fold (fun _ rhs acc -> 
-      if acc then acc 
-      else begin 
-        Symbol.Set.fold 
-          (fun s acc -> 
-            match Var.of_symbol s with 
-            | Some _ -> acc 
+  let contains_havoc tr =
+    M.fold (fun _ rhs acc ->
+      if acc then acc
+      else begin
+        Symbol.Set.fold
+          (fun s acc ->
+            match Var.of_symbol s with
+            | Some _ -> acc
             | None -> true || acc) (Syntax.symbols rhs) false
       end
-      ) tr.transform false    
+      ) tr.transform false
 
   let linearize tr =
     let (transform, defs) =
