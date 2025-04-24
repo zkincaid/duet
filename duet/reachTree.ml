@@ -68,8 +68,6 @@ struct
   module DQ = BatDeque
   module ARR = Batteries.DynArray
 
-  exception Mexception of string
-
   let log_formulas prefix formulas =
     List.iteri
       (fun i f ->
@@ -92,7 +90,6 @@ struct
     mutable reverse_covers : ISet.t IntMap.t;
     (* precedent_nodes[v] stores all tree nodes mapping to CFG vertex v. Used in mc_close. *)
     mutable precedent_nodes : ISet.t VertexMap.t;
-    mutable leaves : ISet.t;
   }
 
   let root = 0
@@ -110,7 +107,6 @@ struct
       covers = IntMap.empty; (* for (u, v) in cover, u is ancestor of v and label(v) |= label(u). v is covered if (u, v) in cover. Then cover[v] = u. *)
       reverse_covers = IntMap.empty; (* for each v, store the v's that cover it: i.e. cover[v] *)
       precedent_nodes = VertexMap.empty;
-      leaves = ISet.empty;
     }
 
   let get_err_loc (art : t) = art.err_loc
@@ -162,14 +158,11 @@ struct
     let v_children = children art v in
     v :: List.fold_left (fun l ch -> descendants art ch @ l) [] v_children
 
-  (* return leaves of the tree. *)
-  let leaves (art : t) : node list = 
-    art.leaves |> ISet.to_list 
-
   (* is a node in tree a leaf? *)
   let is_leaf (art : t) (v : node) : bool =
-    let chs = children art v in
-    List.length chs == 0
+    match children art v with
+    | [] -> true
+    | _ -> false
 
   (* [label t v] returns the node label of tree node v in tree t. *)
   let label (art : t) (v : node) : L.t = IntMap.find v art.labels
@@ -193,13 +186,6 @@ struct
     art.vtxcnt <- art.vtxcnt + 1;
     new_id
 
-  (* [update_leaf art x] attempts to update leaf structure; if x is a leaf then x is marked as leaf, otherwise x is unmarked as leaf. *)
-  let update_leaf (art: t) (x: node) = 
-    if is_leaf art x then 
-      art.leaves <- ISet.add x art.leaves 
-    else 
-      art.leaves <- ISet.remove x art.leaves 
-
   (* Add new tree leaf mapping to CFG vertex v and with parent tree node p. *)
   let add_tree_vertex (art : t) ?(label = L.top) (v : G.vertex)
       (p : node) =
@@ -221,8 +207,6 @@ struct
     in
     art.precedent_nodes <-
       VertexMap.add v precedent_nodes art.precedent_nodes;
-    update_leaf art p;
-    update_leaf art new_vertex;
     new_vertex 
 
   (** expand:  
@@ -288,6 +272,17 @@ struct
     end else false
 
 
+  let fold_leaves art f v acc =
+    let rec go worklist acc =
+      match worklist with
+      | [] -> acc
+      | v::worklist ->
+         match children art v with
+         | [] -> go worklist (f v acc)
+         | children -> go (List.rev_append children worklist) acc
+    in
+    go [v] acc
+
   (*     it returns (`true`, wl) iff covering succeeds at v and wl is a worklist of nodes to be refined. *)
 
   (** [close art v] visits precedents of v in tree and attempts to derive covering relations from v. *)
@@ -325,18 +320,17 @@ struct
                      art.reverse_covers <- IntMap.remove y art.reverse_covers;
                      (* Step 3: add xs to worklist. *)
                      ISet.iter
-                       (fun _x ->
+                       (fun x ->
                          (* add x's subtree leaves back to the worklist. *)
-                         (* Zak: TODO: This adds *all* leaves back to the worklist *)
-                         let x_leaves = leaves art in
-                         List.iter
-                           (fun x_leaf ->
-                            if not (is_leaf art x_leaf) then failwith "ERR: found non-leaf among leaves set of ART";
-                              logf
+                         fold_leaves
+                           art
+                           (fun x_leaf () ->
+                             logf
                                "         close: adding %d back to worklist \n"
                                x_leaf;
                              wl' := x_leaf :: !wl')
-                           x_leaves)
+                           x
+                           ())
                        xs))
                  v_descendants);
             (cover_success, !wl'))
@@ -388,17 +382,16 @@ struct
                         x u;
                       art.covers <- IntMap.remove x art.covers;
                       (* add x's subtree leaves back to the worklist. *)
-                      (* Zak: TODO: This adds *all* leaves back to the worklist *)
-                      let x_leaves = leaves art in
-                      List.iter
-                        (fun x_leaf ->
+                      fold_leaves
+                        art
+                        (fun x_leaf () ->
                           logf
                             "         refine: adding %d back to worklist \n"
                             x_leaf;
-                            if not (is_leaf art x_leaf) then failwith "ERROR: found a non-leaf node in leaves set of ART";
                           worklist := x_leaf :: !worklist)
-                        x_leaves;
-                      l
+                        x
+                        ();
+                      coverers
                     end)
                 l
                 ISet.empty
