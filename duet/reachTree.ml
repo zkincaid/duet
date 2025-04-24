@@ -98,56 +98,55 @@ struct
   let root = 0
 
   let make (g : G.t) (entry : G.vertex) (err_loc : G.vertex) =
-    ref
-      {
-        graph = g;
-        entry;
-        err_loc;
-        vtxcnt = 1;
-        cfg_vertex = IntMap.add 0 entry IntMap.empty;
-        parents = IntMap.add 0 (-1) IntMap.empty;
-        labels = IntMap.add 0 L.top IntMap.empty;
-        children = IntMap.add 0 [] IntMap.empty;
-        covers = IntMap.empty; (* for (u, v) in cover, u is ancestor of v and label(v) |= label(u). v is covered if (u, v) in cover. Then cover[v] = u. *)
-        reverse_covers = IntMap.empty; (* for each v, store the v's that cover it: i.e. cover[v] *)
-        precedent_nodes = VertexMap.empty;
-        leaves = ISet.empty;
-      }
+    {
+      graph = g;
+      entry;
+      err_loc;
+      vtxcnt = 1;
+      cfg_vertex = IntMap.add 0 entry IntMap.empty;
+      parents = IntMap.add 0 (-1) IntMap.empty;
+      labels = IntMap.add 0 L.top IntMap.empty;
+      children = IntMap.add 0 [] IntMap.empty;
+      covers = IntMap.empty; (* for (u, v) in cover, u is ancestor of v and label(v) |= label(u). v is covered if (u, v) in cover. Then cover[v] = u. *)
+      reverse_covers = IntMap.empty; (* for each v, store the v's that cover it: i.e. cover[v] *)
+      precedent_nodes = VertexMap.empty;
+      leaves = ISet.empty;
+    }
 
-  let get_err_loc (art : t ref) = !art.err_loc
-  let get_entry (art: t ref) = !art.entry 
+  let get_err_loc (art : t) = art.err_loc
+  let get_entry (art: t) = art.entry 
 
   (** [print_tree t ident v] prints an ART t with indentation `ident` rooted at node v *)
-  let print_tree (art : t ref) (indent : string) (v : node) =
-    let rec print_tree_ (art : t ref) indent v =
+  let print_tree (art : t) (indent : string) (v : node) =
+    let rec print_tree_ (art : t) indent v =
       logf "%s|" indent;
       logf "%s+-%d(%a)" indent v
-        G.pp_vertex (IntMap.find v !art.cfg_vertex);
+        G.pp_vertex (IntMap.find v art.cfg_vertex);
       List.iter
         (fun x -> print_tree_ art (indent ^ " ") x)
-        (IntMap.find_default [] v !art.children)
+        (IntMap.find_default [] v art.children)
     in
     logf "*";
     print_tree_ art indent v
 
   (*  [parent t i] gets parent of node i in tree t.  *)
-  let parent (art : t ref) (i : node) : node = IntMap.find i !art.parents
+  let parent (art : t) (i : node) : node = IntMap.find i art.parents
     
 
   (*  [t %-> i]: get CFG vertex mapped by node i in tree t. *)
-  let maps_to (art : t ref) (i : node) : G.vertex =
-    try IntMap.find i !art.cfg_vertex
+  let maps_to (art : t) (i : node) : G.vertex =
+    try IntMap.find i art.cfg_vertex
     with _ -> failwith @@ Printf.sprintf "maps_to: not found tree node %d\n" i
 
-  let parent_weight (art : t ref) (i : node) =
-    let parent = IntMap.find i !art.parents in
+  let parent_weight (art : t) (i : node) =
+    let parent = IntMap.find i art.parents in
     if parent < 0 then
       None
     else
-      Some (parent, G.weight !art.graph (maps_to art parent) (maps_to art i))
+      Some (parent, G.weight art.graph (maps_to art parent) (maps_to art i))
 
   (* [tree_path t u] returns list of tree nodes that form the corrsp. tree path from root of t to tree node u *)
-  let tree_path (art : t ref) ?(src=root) (u : node) : node list =
+  let tree_path (art : t) ?(src=root) (u : node) : node list =
     let rec tree_path_rev art u =
       if u = root || u = src then [ u ]
       else u :: tree_path_rev art (parent art u)
@@ -155,73 +154,73 @@ struct
     List.rev @@ tree_path_rev art u
 
   (* [children t v] returns children of tree node v in tree t. *)
-  let children (art : t ref) (v : node) : node list =
-    IntMap.find v !art.children
+  let children (art : t) (v : node) : node list =
+    IntMap.find v art.children
 
   (* [descendants t v] returns descendants of tree node v in tree t in DFS order. *)
-  let rec descendants (art : t ref) (v : node) : node list =
+  let rec descendants (art : t) (v : node) : node list =
     let v_children = children art v in
     v :: List.fold_left (fun l ch -> descendants art ch @ l) [] v_children
 
   (* return leaves of the tree. *)
-  let leaves (art : t ref) : node list = 
-    !art.leaves |> ISet.to_list 
+  let leaves (art : t) : node list = 
+    art.leaves |> ISet.to_list 
 
   (* is a node in tree a leaf? *)
-  let is_leaf (art : t ref) (v : node) : bool =
+  let is_leaf (art : t) (v : node) : bool =
     let chs = children art v in
     List.length chs == 0
 
   (* [label t v] returns the node label of tree node v in tree t. *)
-  let label (art : t ref) (v : node) : L.t = IntMap.find v !art.labels
+  let label (art : t) (v : node) : L.t = IntMap.find v art.labels
 
   (* (replaces) sets a label at v *)
-  let set_label (art : t ref) (v : node) (lbl : L.t) =
-    !art.labels <- IntMap.add v lbl !art.labels
+  let set_label (art : t) (v : node) (lbl : L.t) =
+    art.labels <- IntMap.add v lbl art.labels
 
   (* [get_precedent_nodes t v] retrieves a sequence of precedent nodes of tree node vin preorder in tree t. *)
   (* the list of precedent nodes for a cfg vertex is a list of tree nodes which map to the same cfg location, ordered by < on integers. *)
-  let get_precedent_nodes (art : t ref) (v : node) =
+  let get_precedent_nodes (art : t) (v : node) =
     let cfg_vertex = maps_to art v in
     let precedents_set =
-      VertexMap.find_default ISet.empty cfg_vertex !art.precedent_nodes
+      VertexMap.find_default ISet.empty cfg_vertex art.precedent_nodes
     in
     ISet.elements precedents_set
 
   (** retrieves a new ART node ID, ensuring all ART nodes have distinct IDs in increasing order according to their creation *)
-  let get_id (art : t ref) : node =
-    let new_id = !art.vtxcnt in
-    !art.vtxcnt <- !art.vtxcnt + 1;
+  let get_id (art : t) : node =
+    let new_id = art.vtxcnt in
+    art.vtxcnt <- art.vtxcnt + 1;
     new_id
 
   (* [update_leaf art x] attempts to update leaf structure; if x is a leaf then x is marked as leaf, otherwise x is unmarked as leaf. *)
-  let update_leaf (art: t ref) (x: node) = 
+  let update_leaf (art: t) (x: node) = 
     if is_leaf art x then 
-      !art.leaves <- ISet.add x !art.leaves 
+      art.leaves <- ISet.add x art.leaves 
     else 
-      !art.leaves <- ISet.remove x !art.leaves 
+      art.leaves <- ISet.remove x art.leaves 
 
   (* Add new tree leaf mapping to CFG vertex v and with parent tree node p. *)
-  let add_tree_vertex (art : t ref) ?(label = L.top) (v : G.vertex)
+  let add_tree_vertex (art : t) ?(label = L.top) (v : G.vertex)
       (p : node) =
-    (* sequentially add v to the lists, indexed by !vtxcnt *)
+    (* sequentially add v to the lists, indexed by vtxcnt *)
     let new_vertex = get_id art in
     (* note that new_vertex refers to a new tree vertex, where as v is a corresp. cfg location. *)
-    !art.cfg_vertex <- IntMap.add new_vertex v !art.cfg_vertex;
-    !art.parents <- IntMap.add new_vertex p !art.parents;
-    !art.labels <- IntMap.add new_vertex label !art.labels;
-    !art.children <- IntMap.add new_vertex [] !art.children;
-    (* set children of parent to be !vtxcnt :: children. *)
+    art.cfg_vertex <- IntMap.add new_vertex v art.cfg_vertex;
+    art.parents <- IntMap.add new_vertex p art.parents;
+    art.labels <- IntMap.add new_vertex label art.labels;
+    art.children <- IntMap.add new_vertex [] art.children;
+    (* set children of parent to be vtxcnt :: children. *)
     if p >= 0 then
-      !art.children <-
-        IntMap.add p (new_vertex :: IntMap.find p !art.children) !art.children;
+      art.children <-
+        IntMap.add p (new_vertex :: IntMap.find p art.children) art.children;
     (* Add v to precedent_nodes. *)
     let precedent_nodes =
-      VertexMap.find_default ISet.empty v !art.precedent_nodes
+      VertexMap.find_default ISet.empty v art.precedent_nodes
       |> ISet.add new_vertex
     in
-    !art.precedent_nodes <-
-      VertexMap.add v precedent_nodes !art.precedent_nodes;
+    art.precedent_nodes <-
+      VertexMap.add v precedent_nodes art.precedent_nodes;
     update_leaf art p;
     update_leaf art new_vertex;
     new_vertex 
@@ -238,7 +237,7 @@ struct
       is the identity transition. More specifically, for each out-neighbor u of G(v), we 
       first test if m /\ tr is SAT, if so, then this out-neighbor is non-frontier. Otherwise,
       this out neighbor is a frontier.  *)
-  let expand (art: t ref) (v: node) (m: T.state) =
+  let expand (art: t) (v: node) (m: T.state) =
     let vg = maps_to art v in 
     let new_concolic_nodes, new_frontier_nodes = (ref [], ref []) in 
     (* visit out-neighbors of v *)
@@ -246,7 +245,7 @@ struct
       (fun (_, weight, y) -> 
         let weight =
           if T.is_deterministic weight then weight
-          else T.mul weight (T.assume @@ T.guard @@ G.summary !art.graph y)
+          else T.mul weight (T.assume @@ T.guard @@ G.summary art.graph y)
         in 
         match T.post_model m weight with
         | Some y_model ->
@@ -255,7 +254,7 @@ struct
         | None ->
            let new_node = add_tree_vertex art y v in
            new_frontier_nodes := new_node :: !new_frontier_nodes)
-      !art.graph vg;
+      art.graph vg;
     (* make it FIFO *)
     (List.rev !new_concolic_nodes, List.rev !new_frontier_nodes)
     
@@ -265,7 +264,7 @@ struct
   (* for w that is an ancestor/precedent of v, *)
   (* Adds (v -> w) to covering relation if possible and returns true, false otherwise. *)
   (* note that (v, w) in covering if stateLabel(v) IMPLIES stateLabel(w) *)
-  let cover (art : t ref) v w =
+  let cover (art : t) v w =
     let v_label = label art v in
     let w_label = label art w in
     if maps_to art v <> maps_to art w then
@@ -280,11 +279,11 @@ struct
         log_formulas "        v label " [ v_label ];
         log_formulas "        w label " [ w_label ];
         let reverse_covers_w =
-          IntMap.find_default ISet.empty w !art.reverse_covers
+          IntMap.find_default ISet.empty w art.reverse_covers
         in
-        !art.covers <- IntMap.add v w !art.covers;
-        !art.reverse_covers <-
-          IntMap.add w (ISet.add v reverse_covers_w) !art.reverse_covers;
+        art.covers <- IntMap.add v w art.covers;
+        art.reverse_covers <-
+          IntMap.add w (ISet.add v reverse_covers_w) art.reverse_covers;
         true
     end else false
 
@@ -292,7 +291,7 @@ struct
   (*     it returns (`true`, wl) iff covering succeeds at v and wl is a worklist of nodes to be refined. *)
 
   (** [close art v] visits precedents of v in tree and attempts to derive covering relations from v. *)
-  let close (art : t ref) (v : node) =
+  let close (art : t) (v : node) =
     (* A _precedent_ of v in tree is any vertex u<v such that u, v map to the same CFG locations, where < is integer less than. *)
     let precedents = get_precedent_nodes art v in
     (* Fold from first node in preorder to the right. If covering succeeds, do not continue covering. *)
@@ -315,15 +314,15 @@ struct
                    if y <> v then (
                      (* xs = {x | x -> y} *)
                      let xs =
-                       IntMap.find_default ISet.empty y !art.reverse_covers
+                       IntMap.find_default ISet.empty y art.reverse_covers
                      in
                      (* Iterate through and remove pairs (x, y) from covering relation. *)
-                     (* Step 1: Remove (x |-> y) from !ptt.covers. *)
+                     (* Step 1: Remove (x |-> y) from ptt.covers. *)
                      ISet.iter
-                       (fun x -> !art.covers <- IntMap.remove x !art.covers)
+                       (fun x -> art.covers <- IntMap.remove x art.covers)
                        xs;
-                     (* Step 2: Remove (y |-> xs) from !pthit.reverse_covers. *)
-                     !art.reverse_covers <- IntMap.remove y !art.reverse_covers;
+                     (* Step 2: Remove (y |-> xs) from pthit.reverse_covers. *)
+                     art.reverse_covers <- IntMap.remove y art.reverse_covers;
                      (* Step 3: add xs to worklist. *)
                      ISet.iter
                        (fun _x ->
@@ -346,15 +345,15 @@ struct
     result
 
   (* Checks if tree node v is covered. It is covered if its ancestors or it is in covering relation. *)
-  let rec is_covered (art : t ref) v =
-    match IntMap.find_opt v !art.covers with
+  let rec is_covered (art : t) v =
+    match IntMap.find_opt v art.covers with
     | None -> if v == 0 then false else is_covered art (parent art v)
     | Some u ->
         logf "  | covered by %d\n" u;
         true
 
   (* refine the label of each tree node u along path from tree root to v. *)
-  let refine (art : t ref) path interpolants : node list =
+  let refine (art : t) path interpolants : node list =
     let worklist = ref [] in
     List.iter2
       (fun u interpolant ->
@@ -365,9 +364,9 @@ struct
              G.pp_vertex (maps_to art u))
           [ u_label' ];
         set_label art u u_label';
-        (* remove ( * -> u) in covering relation; we just refined label(u) so implications of form label(y)->label(u)
+        (* remove ( * -> u) in covering relation; we justined label(u) so implications of form label(y)->label(u)
            might not hold anymore. *)
-        match IntMap.find_opt u !art.reverse_covers with
+        match IntMap.find_opt u art.reverse_covers with
         | None -> ()
         | Some l ->
             (* remove covers (List.iter (fun x -> Printf.printf " (%d->%d)" x u) l *)
@@ -387,7 +386,7 @@ struct
                       (* remove (x, u) from covering. *)
                       logf "   refine: removing cover (%d->%d)\n"
                         x u;
-                      !art.covers <- IntMap.remove x !art.covers;
+                      art.covers <- IntMap.remove x art.covers;
                       (* add x's subtree leaves back to the worklist. *)
                       (* Zak: TODO: This adds *all* leaves back to the worklist *)
                       let x_leaves = leaves art in
@@ -404,7 +403,7 @@ struct
                 l
                 ISet.empty
             in
-            !art.reverse_covers <- IntMap.add u u_coverers !art.reverse_covers)
+            art.reverse_covers <- IntMap.add u u_coverers art.reverse_covers)
       path
       interpolants;
     !worklist
@@ -417,7 +416,7 @@ struct
   
 
   (* convention: w is an ancestor of v. returns true if we can add (v, w) to covers such that label(v) |= label(w) *)
-  let force_cover (art : t ref) v w = (* check if v_label -> w_label where v is an ancestor at w *)
+  let force_cover (art : t) v w = (* check if v_label -> w_label where v is an ancestor at w *)
     if maps_to art v <> maps_to art w then (false, []) 
     else begin 
       logf "force_cover(%d, %d)\n" v w;
@@ -428,7 +427,7 @@ struct
         artpath 
         |> glue 
         |> List.map (fun (x, y) -> 
-               G.weight !art.graph (maps_to art x) (maps_to art y))
+               G.weight art.graph (maps_to art x) (maps_to art y))
       in
       match T.check w_label path_weights w_label with
       | `Valid itps -> 
@@ -436,7 +435,7 @@ struct
         if cover art v w then
           (true, new_frontiers)
         else
-          failwith "error: force_cover is buggy!"
+          failwith "error: force_cover is buggy"
 
       | `Invalid _ -> (false, []) 
       | `Unknown -> failwith "force_cover: interpolation failed with status UNKNOWN."
@@ -444,7 +443,7 @@ struct
   
 
   (** a more lightweight version of close *)
-  let lclose (art: t ref) v =
+  let lclose (art: t) v =
     let rec go u = 
       if u = -1 then (false, [])
       else begin   
@@ -470,12 +469,12 @@ struct
 
   (** TODO: [deprecated] procedures for lightweight verification of ART invariants *)
     
-  let _verify_well_labelled_tree (t : t ref) =
+  let _verify_well_labelled_tree (t : t) =
     let rec aux v =
       let children = children t v in
       match children with
       | [] (* leaf node *) -> (
-          match IntMap.find_opt v !t.covers with
+          match IntMap.find_opt v t.covers with
           | None ->
               logf "!!! found uncovered leaf: %d\n" v;
               G.fold_succ
@@ -486,10 +485,10 @@ struct
                     G.pp_vertex (maps_to t v)
                     G.pp_vertex y;
                   false)
-                !t.graph (maps_to t v) true
+                t.graph (maps_to t v) true
           | Some _ -> true)
       | _ -> (
-          match IntMap.find_opt v !t.covers with
+          match IntMap.find_opt v t.covers with
           | None ->
               logf "node %d uncovered\n" v;
               List.fold_left (fun acc u -> aux u && acc) true children
@@ -502,25 +501,25 @@ struct
     logf "...done verifying well-labelledness of ART\n";
     r
 
-  let _check_covering_welformedness (t : t ref) =
+  let _check_covering_welformedness (t : t) =
     logf "checking welformedness of covering relations\n";
     IntMap.iter
       (fun dst covered_from ->
         ISet.iter
           (fun src ->
             logf "checking if (%d, %d) in covering\n" src dst;
-            match IntMap.find_opt src !t.covers with
+            match IntMap.find_opt src t.covers with
             | Some dst' ->
                 if dst' <> dst then
                   failwith
                   @@ Printf.sprintf "ERROR: (%d, %d) in covering\n" src dst'
             | None -> failwith "ERROR: not in covering")
           covered_from)
-      !t.reverse_covers;
+      t.reverse_covers;
     logf "performing a reverse check\n";
     IntMap.iter
       (fun src dst ->
-        match IntMap.find_opt dst !t.reverse_covers with
+        match IntMap.find_opt dst t.reverse_covers with
         | Some reverse_covers -> (
             match ISet.mem src reverse_covers with
             | false ->
@@ -536,17 +535,17 @@ struct
                  "ERROR: (%d, %d) in t.covers but no list found in \
                   reverse_covers\n"
                  src dst)
-      !t.covers;
+      t.covers;
     logf "...done checking welformedness of covering relations\n"
 
   (** pretty-printing functionalities *)
-  let tree_printer_get_name (art : t ref) i =
-    match IntMap.find_opt i !art.covers with
+  let tree_printer_get_name (art : t) i =
+    match IntMap.find_opt i art.covers with
     | None -> Format.asprintf "%d(%a)" i G.pp_vertex (maps_to art i)
     | Some j ->
         Format.asprintf "[%d(%a)]->%d" i G.pp_vertex (maps_to art i) j
 
-  let log_art (art : t ref) =
+  let log_art (art : t) =
     logf " +----------------- ART ----------------+\n";
     let string_of_art =
       Tree_printer.to_string ~line_prefix:"* "

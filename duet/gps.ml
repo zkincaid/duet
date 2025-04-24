@@ -258,7 +258,7 @@ module GPS = struct
   module PT = struct
     type t =
       { summary : int -> K.t
-      ; art : ReachTree.t ref }
+      ; art : ReachTree.t }
     type node = ReachTree.node
     type state = ReachTree.state
     let expand pt node = ReachTree.expand pt.art node
@@ -306,14 +306,14 @@ module GPS = struct
     id : ProcName.t;
     cfg : Graph.t;
     pre_state : Ctx.t Syntax.formula;
-    mutable art : ReachTree.t ref;
+    mutable art : ReachTree.t;
     mutable worklist : ReachTree.node DQ.t;
     mutable execlist : (ReachTree.node * Ctx.t Interpretation.interpretation) DQ.t;
-    global_ctx : global_context ref;
+    global_ctx : global_context;
   }
   (* global context *)
   (** some helper functions that operate on the context *)
-  let get_summarizer ctx = !(!ctx.global_ctx).g_summarizer
+  let get_summarizer ctx = ctx.global_ctx.g_summarizer
 
   let log_labelled_weights ctx uu prefix weights =
   List.iteri
@@ -322,8 +322,8 @@ module GPS = struct
       | Call (u, v) ->
         let p =
           begin match uu with
-          | OverApprox -> Summarizer.over_proc_summary !ctx.g_summarizer (ProcName.make (u, v))
-          | UnderApprox -> Summarizer.under_proc_summary !ctx.g_summarizer (ProcName.make (u, v))
+          | OverApprox -> Summarizer.over_proc_summary ctx.g_summarizer (ProcName.make (u, v))
+          | UnderApprox -> Summarizer.under_proc_summary ctx.g_summarizer (ProcName.make (u, v))
         end in
         logf "[labelled weight] %s(%i, call(%d,%d)): %a\n" prefix i u v K.pp p
       | Weight w ->
@@ -367,20 +367,20 @@ module GPS = struct
     K.construct (Syntax.substitute_const srk substitute (Syntax.mk_not srk f)) (ValueHT.to_seq sym_map |> List.of_seq)
 
 
-  let mk_intra_context (gctx: global_context ref) ((src,tgt): ProcName.t) (query: K.t) =
+  let mk_intra_context (gctx: global_context) ((src,tgt): ProcName.t) (query: K.t) =
     let pre_state, equalities = demote_precondition query in
     let target_summary v =
       K.mul
-        (Summarizer.path_weight_intra !gctx.g_summarizer v tgt)
+        (Summarizer.path_weight_intra gctx.g_summarizer v tgt)
         (K.assume equalities)
     in
-    let tgt' = !gctx.g_errloc in
+    let tgt' = gctx.g_errloc in
     let graph =
-      Graph.{ graph = WG.add_edge (!gctx.g_graph) tgt (Weight (K.assume equalities)) tgt'
-            ; call_summary = Summarizer.over_proc_summary !gctx.g_summarizer
+      Graph.{ graph = WG.add_edge (gctx.g_graph) tgt (Weight (K.assume equalities)) tgt'
+            ; call_summary = Summarizer.over_proc_summary gctx.g_summarizer
             ; target_summary = target_summary }
     in
-    ref {
+    {
       id = (src,tgt');
       cfg = graph;
       pre_state = pre_state;
@@ -394,16 +394,16 @@ module GPS = struct
   (** place an element in front of the deque (worklist) *)
   let worklist_push  (i : 'a) (q : 'a DQ.t) = DQ.snoc q i
 
-  let rec art_cfg_path_pair (ctx: intra_context ref) (p: ReachTree.node list) =
+  let rec art_cfg_path_pair (ctx: intra_context) (p: ReachTree.node list) =
     match p with
     | u :: v :: t ->
-      let u_vtx = ReachTree.maps_to !ctx.art u in
-      let v_vtx = ReachTree.maps_to !ctx.art v in
+      let u_vtx = ReachTree.maps_to ctx.art u in
+      let v_vtx = ReachTree.maps_to ctx.art v in
       (u, (u_vtx, v_vtx), v) :: (art_cfg_path_pair ctx (v :: t))
     | _ -> []
 
   (* turn tree path into a sequence of CFG edges. *)
-  let cfg_path (ctx: intra_context ref) (p : ReachTree.node list) =
+  let cfg_path (ctx: intra_context) (p : ReachTree.node list) =
     art_cfg_path_pair ctx p
     |> List.map (fun (_, (u, v), _) -> (u, v))
 
@@ -421,10 +421,10 @@ module GPS = struct
     List.iter (fun x -> logf "     %s %s\n" (Syntax.show_symbol srk x) (vname x)) l_vocab
 
   (* CFG path condition from art.src -> art.v *)
-  let path_condition (ctx: intra_context ref) condition_type (v: ReachTree.node) =
-    let art = !ctx.art in
+  let path_condition (ctx: intra_context) condition_type (v: ReachTree.node) =
+    let art = ctx.art in
     let art_nodes = ReachTree.tree_path art v in
-    let ts = !ctx.cfg.Graph.graph in
+    let ts = ctx.cfg.Graph.graph in
     let cfg_nodes = List.map (fun x -> ReachTree.maps_to art x) art_nodes in
     let rec to_weights l : K.t label list =
       match l with
@@ -446,31 +446,32 @@ module GPS = struct
         end
       | Weight w -> w) (to_weights cfg_nodes) in
       logf " ---- path_condition: path length: %d, before add1: %d\n" ((List.length pathcond)+1) (List.length pathcond);
-    let l = (K.assume !ctx.pre_state) :: pathcond in
+    let l = (K.assume ctx.pre_state) :: pathcond in
         log_weights "path conditions " l; l
 
   (* Interpolate the path (entry) -> (CFG vertex corresponding to src node) -> (sink CFG vertex). If fail, then get model. *)
-  let interpolate_or_get_model (ctx: intra_context ref) (src : ReachTree.node) =
-    let src_v = ReachTree.maps_to !ctx.art src in
-    let suffix = K.guard (Graph.summary !ctx.cfg src_v) |> Syntax.mk_not srk in
+  let interpolate_or_get_model (ctx: intra_context) (src : ReachTree.node) =
+    let src_v = ReachTree.maps_to ctx.art src in
+    let suffix = K.guard (Graph.summary ctx.cfg src_v) |> Syntax.mk_not srk in
     let prefix = path_condition ctx OverApprox src in
     log_weights "\nprefix " prefix;
     log_formulas "\nsuffix " [suffix];
     logf "\n";
     K.interpolate_or_concrete_model prefix suffix
 
-  let get_global_ctx (ctx: intra_context ref) = (!ctx.global_ctx)
+  let get_global_ctx (ctx: intra_context) = ctx.global_ctx
 
   (* refine path to (tree) node v.
      Returns `Failure (u, m) with (u, m) being a new item to the concolic worklist if unable to refine.
      Returns `Success if refine is able to refine. *)
-  let mc_refine (ctx: intra_context ref) (v: ReachTree.node) =
+  let mc_refine (ctx: intra_context) (v: ReachTree.node) =
     logf "refining node %d\n" (ReachTree.of_node v);
     let handle_failure v m =
       logf " *********************** REFINEMENT FAILED *************************\n";
       let path_condition = path_condition ctx OverApprox v
       in `Failure (m, path_condition)
-    in let art = !ctx.art in
+    in
+    let art = ctx.art in
     let path = ReachTree.tree_path art v in
       match interpolate_or_get_model ctx v with
       `Invalid v_model ->
@@ -482,34 +483,34 @@ module GPS = struct
         logf "--- mc_refine: interpolation succeeded. path length %d, interpolant length %d" (List.length path) (List.length interpolants);
         log_formulas "interpolants - " interpolants;
         ReachTree.refine art path interpolants
-        |> List.iter (fun x -> !ctx.worklist <- worklist_push x !ctx.worklist);
+        |> List.iter (fun x -> ctx.worklist <- worklist_push x ctx.worklist);
         `Success
 
   (* concolic phase of our model checking algorithm *)
-  let concolic_phase (ctx: intra_context ref) =
+  let concolic_phase (ctx: intra_context) =
     let round ctx =
-      match DQ.front (!ctx.execlist) with
+      match DQ.front (ctx.execlist) with
       | Some ((u, u_model), w) ->
         if print_tree then (* XXX: if this is enabled, the performance penalty is huge. *)
-        ReachTree.log_art !ctx.art;
-        logf " visit %d (%d)\n" (ReachTree.of_node u) (ReachTree.maps_to !ctx.art u);
-        !ctx.execlist <- w;
-        if (ReachTree.maps_to !ctx.art u) = (ReachTree.get_err_loc !ctx.art) then begin
+        ReachTree.log_art ctx.art;
+        logf " visit %d (%d)\n" (ReachTree.of_node u) (ReachTree.maps_to ctx.art u);
+        ctx.execlist <- w;
+        if (ReachTree.maps_to ctx.art u) = (ReachTree.get_err_loc ctx.art) then begin
             logf " *** found potential path-to-error, checking if prophesized pre-condition is sat...\n";
             logf " *** SAT, done\n";
             `ErrorReached u
         end else begin
-            logf "model of %d (%d): \n" (ReachTree.of_node u) (ReachTree.maps_to !ctx.art u);
+            logf "model of %d (%d): \n" (ReachTree.of_node u) (ReachTree.maps_to ctx.art u);
             log_model "" u_model;
-            let new_concolic_nodes, new_frontier_nodes = ReachTree.expand !ctx.art u u_model in
-              List.iter (fun concolic_node -> !ctx.execlist <- worklist_push concolic_node !ctx.execlist) new_concolic_nodes;
-              List.iter (fun frontier_node -> !ctx.worklist <- worklist_push frontier_node !ctx.worklist) new_frontier_nodes;
+            let new_concolic_nodes, new_frontier_nodes = ReachTree.expand ctx.art u u_model in
+              List.iter (fun concolic_node -> ctx.execlist <- worklist_push concolic_node ctx.execlist) new_concolic_nodes;
+              List.iter (fun frontier_node -> ctx.worklist <- worklist_push frontier_node ctx.worklist) new_frontier_nodes;
               `Continue
         end
       | None -> failwith "err: concolic_phase is reading from empty execution worklist" (* cannot happen *)
       in
     let rtn = ref `Continue in
-    while !rtn = `Continue && ((DQ.size !ctx.execlist) > 0) do
+    while !rtn = `Continue && ((DQ.size ctx.execlist) > 0) do
       rtn := round ctx
     done;
     match !rtn with
@@ -518,19 +519,19 @@ module GPS = struct
 
 
   (* refinement phase of our model checking algorithm *)
-  let refinement_phase (ctx: intra_context ref) =
+  let refinement_phase (ctx: intra_context) =
     let worklist_push_all ls =
-      List.iter (fun x -> !ctx.worklist <- worklist_push x !ctx.worklist) ls in
-    match DQ.front (!ctx.worklist) with
+      List.iter (fun x -> ctx.worklist <- worklist_push x ctx.worklist) ls in
+    match DQ.front (ctx.worklist) with
     | Some (u, w) ->
       if print_tree then
-      ReachTree.log_art !ctx.art;
-      !ctx.worklist <- w;
+      ReachTree.log_art ctx.art;
+      ctx.worklist <- w;
       (* Fetched tree node u from work list. First attempt to close it. *)
-      if not (ReachTree.is_covered !ctx.art u) then
+      if not (ReachTree.is_covered ctx.art u) then
         begin
           logf " uncovered. try close %d\n" (ReachTree.of_node u);
-          begin match ReachTree.lclose !ctx.art u with (* Close succeeded. No need to further explore it. *)
+          begin match ReachTree.lclose ctx.art u with (* Close succeeded. No need to further explore it. *)
           | true, leaves ->
             logf "Close succeeded.\n";
             worklist_push_all leaves;
@@ -542,16 +543,16 @@ module GPS = struct
               | `Success -> (* refinement succeeded *)
                 logf "refinement_phase: refinement succeeded\n";
                 (* for every node along path of refinement try close *)
-                let path = ReachTree.tree_path !ctx.art u in
+                let path = ReachTree.tree_path ctx.art u in
                   List.iter
-                    (fun x -> let (_, ls) = ReachTree.close !ctx.art x in
+                    (fun x -> let (_, ls) = ReachTree.close ctx.art x in
                       worklist_push_all ls) path;
                   `Continue
               | `Failure (u_m, _) ->
-                !ctx.execlist <- worklist_push (u, u_m) !ctx.execlist; (* put u onto execlist since it now has a model. *)
+                ctx.execlist <- worklist_push (u, u_m) ctx.execlist; (* put u onto execlist since it now has a model. *)
                 (* for every node along path of refinement try close *)
-                let path = ReachTree.tree_path !ctx.art u in
-                  List.iter (fun x -> let (_, ls) = ReachTree.close !ctx.art x in
+                let path = ReachTree.tree_path ctx.art u in
+                  List.iter (fun x -> let (_, ls) = ReachTree.close ctx.art x in
                     worklist_push_all ls) path
                 ; `Continue
               end
@@ -564,8 +565,8 @@ module GPS = struct
     | None -> failwith "refinement_phase: encountered an empty worklist for refinement\n" (* cannot happen *)
 
 
-  let extract_refinement (ctx: intra_context ref) =
-    let art = !ctx.art in
+  let extract_refinement (ctx: intra_context) =
+    let art = ctx.art in
     let rfn = ReachTree.label art ReachTree.root |> promote in
     log_weights "refinement: " [rfn];
     K.exists (fun v -> V.is_global v) (rfn)
@@ -587,7 +588,7 @@ module GPS = struct
         logf "\nlength of right path: %d" (List.length right);
         logf "\nPrinting left path... \n";
 
-        log_labelled_weights !ctx.global_ctx UnderApprox "left path - " left;
+        log_labelled_weights ctx.global_ctx UnderApprox "left path - " left;
         logf "error: handle_path_to_error: cannot project path condition" ;
         `Safe in
     let handle_left_case caller_id =
@@ -617,7 +618,7 @@ module GPS = struct
       begin match K.contextualize prefix summary suffix with
       | `Sat query ->
         let answer =
-          mk_intra_context (!ctx.global_ctx) (ProcName.make (src, dst)) query
+          mk_intra_context (ctx.global_ctx) (ProcName.make (src, dst)) query
           |> intraproc_check
         in begin match answer with
            | Safe r ->
@@ -646,21 +647,21 @@ module GPS = struct
       end
 
 
-  and intraproc_check (ctx: intra_context ref) : mc_result =
+  and intraproc_check (ctx: intra_context) : mc_result =
     let continue = ref true in
     let state = ref `Continue in
-      !ctx.worklist <- worklist_push (ReachTree.root) !ctx.worklist;
-      while !continue && (DQ.size (!ctx.worklist) > 0 || DQ.size (!ctx.execlist) > 0) do
-        if DQ.size (!ctx.execlist) > 0 then begin
+      ctx.worklist <- worklist_push (ReachTree.root) ctx.worklist;
+      while !continue && (DQ.size (ctx.worklist) > 0 || DQ.size (ctx.execlist) > 0) do
+        if DQ.size (ctx.execlist) > 0 then begin
           (* concolic phase *)
           begin match concolic_phase ctx with
           | `Unsafe w ->
-            logf "--- GPS: found path-to-error at tree node %d (cfg vertex %d) \n" (ReachTree.of_node w) (ReachTree.maps_to !ctx.art w);
+            logf "--- GPS: found path-to-error at tree node %d (cfg vertex %d) \n" (ReachTree.of_node w) (ReachTree.maps_to ctx.art w);
             logf " --- forming path to error... \n";
             let has_calls, path_to_w =
-              ReachTree.tree_path !ctx.art w
+              ReachTree.tree_path ctx.art w
               |> art_cfg_path_pair ctx
-              |> List.map (fun (u, (u_vtx, v_vtx), v) -> (u, WG.edge_weight !ctx.cfg.Graph.graph u_vtx v_vtx, v))
+              |> List.map (fun (u, (u_vtx, v_vtx), v) -> (u, WG.edge_weight ctx.cfg.Graph.graph u_vtx v_vtx, v))
               |> List.fold_left (fun (has_call, l) (u, w, v) ->
                 match w with
                 | Call _ -> (true, (u, w, v) :: l)
@@ -673,7 +674,7 @@ module GPS = struct
               begin match handle_path_to_error ctx [] curr right `Right w with
                 | `Safe -> (* path-to-error concretization failed. frontier_node is the src node of a call-edge. *)
                   (* we can mark `w` as a frontier node to be refined, and continue. *)
-                  !ctx.worklist <- worklist_push w !ctx.worklist;
+                  ctx.worklist <- worklist_push w ctx.worklist;
                   continue := true
                 | `Unsafe pathcond ->
                   logf "--- GPS: managed to concretize an intraprocedural path-to-error. returning... ";
@@ -705,9 +706,9 @@ module GPS = struct
 
   let execute (ts : cfg_t) (entry : int) (err_loc : int) (enable_summary:bool) : mc_result =
     let gctx =
-      ref { g_graph = ts
-          ; g_summarizer = Summarizer.init ts entry err_loc enable_summary
-          ; g_errloc = err_loc }
+      { g_graph = ts
+      ; g_summarizer = Summarizer.init ts entry err_loc enable_summary
+      ; g_errloc = err_loc }
     in
     (* interproc_graph represents the language of interprocedural paths from
        entry to err_loc (including interprocedural paths that make calls that
@@ -724,19 +725,19 @@ module GPS = struct
     in
     let graph =
       Graph.{ graph = interproc_graph
-            ; call_summary = Summarizer.over_proc_summary !gctx.g_summarizer
-            ; target_summary = Summarizer.path_weight_inter !gctx.g_summarizer }
+            ; call_summary = Summarizer.over_proc_summary gctx.g_summarizer
+            ; target_summary = Summarizer.path_weight_inter gctx.g_summarizer }
     in
     let main_context =
-      ref {
-          id = (entry,err_loc);
-          cfg = graph;
-          pre_state = Ctx.mk_true;
-          worklist = DQ.empty;
-          execlist = DQ.empty;
-          art = ReachTree.make graph entry err_loc;
-          global_ctx = gctx;
-        }
+      {
+        id = (entry,err_loc);
+        cfg = graph;
+        pre_state = Ctx.mk_true;
+        worklist = DQ.empty;
+        execlist = DQ.empty;
+        art = ReachTree.make graph entry err_loc;
+        global_ctx = gctx;
+      }
     in
     logf "executing GPS: start\n";
     intraproc_check main_context
