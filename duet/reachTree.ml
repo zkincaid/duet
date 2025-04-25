@@ -75,16 +75,17 @@ struct
           L.pp f)
       formulas
 
+  type node_info =
+    { parent : int
+    ; cfg_vertex : G.vertex
+    ; mutable label : L.t
+    ; mutable children : int list }
+
   type t = {
     graph : G.t;
-    entry : G.vertex;
     err_loc : G.vertex;
-    mutable vtxcnt : int;
-    mutable cfg_vertex : G.vertex IntMap.t;
-    mutable parents : int IntMap.t;
-    mutable labels : L.t IntMap.t;
+    nodes : node_info ARR.t;
     mutable covers : int IntMap.t;
-    mutable children : int list IntMap.t;
     (* also maintain reverse map for each y, storing (x, y) that are in cover. *)
     (* i.e. reverse_covers[y] returns all x such that (x,y) is in the cover. *)
     mutable reverse_covers : ISet.t IntMap.t;
@@ -95,47 +96,43 @@ struct
   let root = 0
 
   let make (g : G.t) (entry : G.vertex) (err_loc : G.vertex) =
-    {
-      graph = g;
-      entry;
-      err_loc;
-      vtxcnt = 1;
-      cfg_vertex = IntMap.add 0 entry IntMap.empty;
-      parents = IntMap.add 0 (-1) IntMap.empty;
-      labels = IntMap.add 0 L.top IntMap.empty;
-      children = IntMap.add 0 [] IntMap.empty;
-      covers = IntMap.empty; (* for (u, v) in cover, u is ancestor of v and label(v) |= label(u). v is covered if (u, v) in cover. Then cover[v] = u. *)
-      reverse_covers = IntMap.empty; (* for each v, store the v's that cover it: i.e. cover[v] *)
-      precedent_nodes = VertexMap.empty;
-    }
+    let nodes = ARR.make 65536 in
+    ARR.add nodes { parent = -1
+                  ; cfg_vertex = entry
+                  ; label = L.top
+                  ; children = [] };
+    { graph = g
+    ; err_loc
+    ; nodes = nodes
+    ; covers = IntMap.empty (* for (u, v) in cover, u is ancestor of v and label(v) |= label(u). v is covered if (u, v) in cover. Then cover[v] = u. *)
+    ; reverse_covers = IntMap.empty (* for each v, store the v's that cover it: i.e. cover[v] *)
+    ; precedent_nodes = VertexMap.empty }
 
   let get_err_loc (art : t) = art.err_loc
-  let get_entry (art: t) = art.entry 
+  let get_entry (art: t) = (ARR.get art.nodes 0).cfg_vertex
 
   (** [print_tree t ident v] prints an ART t with indentation `ident` rooted at node v *)
   let print_tree (art : t) (indent : string) (v : node) =
     let rec print_tree_ (art : t) indent v =
       logf "%s|" indent;
       logf "%s+-%d(%a)" indent v
-        G.pp_vertex (IntMap.find v art.cfg_vertex);
+        G.pp_vertex (ARR.get art.nodes v).cfg_vertex;
       List.iter
         (fun x -> print_tree_ art (indent ^ " ") x)
-        (IntMap.find_default [] v art.children)
+        (ARR.get art.nodes v).children
     in
     logf "*";
     print_tree_ art indent v
 
   (*  [parent t i] gets parent of node i in tree t.  *)
-  let parent (art : t) (i : node) : node = IntMap.find i art.parents
+  let parent (art : t) (i : node) : node = (ARR.get art.nodes i).parent
     
 
   (*  [t %-> i]: get CFG vertex mapped by node i in tree t. *)
-  let maps_to (art : t) (i : node) : G.vertex =
-    try IntMap.find i art.cfg_vertex
-    with _ -> failwith @@ Printf.sprintf "maps_to: not found tree node %d\n" i
+  let maps_to (art : t) (i : node) : G.vertex = (ARR.get art.nodes i).cfg_vertex
 
   let parent_weight (art : t) (i : node) =
-    let parent = IntMap.find i art.parents in
+    let parent = (ARR.get art.nodes i).parent in
     if parent < 0 then
       None
     else
@@ -150,8 +147,7 @@ struct
     List.rev @@ tree_path_rev art u
 
   (* [children t v] returns children of tree node v in tree t. *)
-  let children (art : t) (v : node) : node list =
-    IntMap.find v art.children
+  let children (art : t) (v : node) : node list = (ARR.get art.nodes v).children
 
   (* [descendants t v] returns descendants of tree node v in tree t in DFS order. *)
   let rec descendants (art : t) (v : node) : node list =
@@ -165,11 +161,7 @@ struct
     | _ -> false
 
   (* [label t v] returns the node label of tree node v in tree t. *)
-  let label (art : t) (v : node) : L.t = IntMap.find v art.labels
-
-  (* (replaces) sets a label at v *)
-  let set_label (art : t) (v : node) (lbl : L.t) =
-    art.labels <- IntMap.add v lbl art.labels
+  let label (art : t) (v : node) : L.t = (ARR.get art.nodes v).label
 
   (* [get_precedent_nodes t v] retrieves a sequence of precedent nodes of tree node vin preorder in tree t. *)
   (* the list of precedent nodes for a cfg vertex is a list of tree nodes which map to the same cfg location, ordered by < on integers. *)
@@ -180,34 +172,28 @@ struct
     in
     ISet.elements precedents_set
 
-  (** retrieves a new ART node ID, ensuring all ART nodes have distinct IDs in increasing order according to their creation *)
-  let get_id (art : t) : node =
-    let new_id = art.vtxcnt in
-    art.vtxcnt <- art.vtxcnt + 1;
-    new_id
-
   (* Add new tree leaf mapping to CFG vertex v and with parent tree node p. *)
   let add_tree_vertex (art : t) ?(label = L.top) (v : G.vertex)
       (p : node) =
-    (* sequentially add v to the lists, indexed by vtxcnt *)
-    let new_vertex = get_id art in
     (* note that new_vertex refers to a new tree vertex, where as v is a corresp. cfg location. *)
-    art.cfg_vertex <- IntMap.add new_vertex v art.cfg_vertex;
-    art.parents <- IntMap.add new_vertex p art.parents;
-    art.labels <- IntMap.add new_vertex label art.labels;
-    art.children <- IntMap.add new_vertex [] art.children;
+    let id = ARR.length art.nodes in
+    ARR.add art.nodes { cfg_vertex = v
+                      ; parent = p
+                      ; label = label
+                      ; children = [] };
+
     (* set children of parent to be vtxcnt :: children. *)
-    if p >= 0 then
-      art.children <-
-        IntMap.add p (new_vertex :: IntMap.find p art.children) art.children;
+    begin if p >= 0 then
+            let parent = ARR.get art.nodes p in
+            parent.children <- id::parent.children
+    end;
     (* Add v to precedent_nodes. *)
     let precedent_nodes =
       VertexMap.find_default ISet.empty v art.precedent_nodes
-      |> ISet.add new_vertex
+      |> ISet.add id
     in
-    art.precedent_nodes <-
-      VertexMap.add v precedent_nodes art.precedent_nodes;
-    new_vertex 
+    art.precedent_nodes <- VertexMap.add v precedent_nodes art.precedent_nodes;
+    id
 
   (** expand:  
         for every out-neighbor y of v, first try deriving a post-state model of v-> y, if successful, put it
@@ -351,13 +337,13 @@ struct
     let worklist = ref [] in
     List.iter2
       (fun u interpolant ->
-        let u_label = label art u in
-        let u_label' = L.meet u_label interpolant in
+        let u_info = ARR.get art.nodes u in
+        let u_label' = L.meet u_info.label interpolant in
         log_formulas
           (Format.asprintf "[relabelling %d CFG vertex %a] to label: " u
              G.pp_vertex (maps_to art u))
           [ u_label' ];
-        set_label art u u_label';
+        u_info.label <- u_label';
         (* remove ( * -> u) in covering relation; we justined label(u) so implications of form label(y)->label(u)
            might not hold anymore. *)
         match IntMap.find_opt u art.reverse_covers with
