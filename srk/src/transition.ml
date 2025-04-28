@@ -447,7 +447,11 @@ struct
              (wp::itp, wp))
            trs
            guards
-           ([post], post)
+          ([
+            mk_not srk post 
+            |> Quantifier.mbp srk (fun x -> Var.of_symbol x <> None)
+            |> mk_not srk 
+          ], post)
        in
        `Valid (List.tl itp)
 
@@ -535,8 +539,12 @@ struct
           (wp::itp, wp))
         trs
         guards
-        ([Quantifier.mbp srk (fun x -> Var.of_symbol x <> None) post], post)
-    in `Valid (List.tl itp)
+          ([
+            mk_not srk post 
+            |> Quantifier.mbp srk (fun x -> Var.of_symbol x <> None)
+            |> mk_not srk 
+          ], post)
+    in `Valid (List.tl itp)  
 
 
   let interpolate_query trs post sat_callback unsat_callback =
