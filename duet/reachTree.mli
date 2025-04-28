@@ -45,6 +45,7 @@ module ART
   val make : G.t -> L.t -> src:G.vertex -> dst:G.vertex -> t
   val get_entry : t -> G.vertex 
   val get_err_loc : t -> G.vertex
+  val get_precondition : t -> L.t
   val print_tree : t -> string -> node -> unit
   val parent : t -> node -> node
   val parent_weight : t -> node -> (node * weight) option

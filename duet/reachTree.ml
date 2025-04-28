@@ -115,6 +115,7 @@ struct
 
   let get_err_loc (art : t) = art.err_loc
   let get_entry (art: t) = (ARR.get art.nodes 0).cfg_vertex
+  let get_precondition (art : t) = art.precondition
 
   (** [print_tree t ident v] prints an ART t with indentation `ident` rooted at node v *)
   let print_tree (art : t) (indent : string) (v : node) =

@@ -303,10 +303,7 @@ module GPS = struct
   type intra_context = {
     id : ProcName.t;
     cfg : Graph.t;
-    pre_state : Ctx.t Syntax.formula;
     mutable art : ReachTree.t;
-    mutable worklist : ReachTree.node DQ.t;
-    mutable execlist : (ReachTree.node * Ctx.t Interpretation.interpretation) DQ.t;
     global_ctx : global_context;
   }
   (* global context *)
@@ -381,16 +378,9 @@ module GPS = struct
     {
       id = (src,dst);
       cfg = graph;
-      pre_state = pre_state;
-      worklist = DQ.empty;
-      execlist = DQ.empty;
       art = ReachTree.make graph pre_state ~src ~dst;
       global_ctx = gctx;
     }
-
-
-  (** place an element in front of the deque (worklist) *)
-  let worklist_push  (i : 'a) (q : 'a DQ.t) = DQ.snoc q i
 
   let rec art_cfg_path_pair (ctx: intra_context) (p: ReachTree.node list) =
     match p with
@@ -400,10 +390,6 @@ module GPS = struct
       (u, (u_vtx, v_vtx), v) :: (art_cfg_path_pair ctx (v :: t))
     | _ -> []
 
-  (* turn tree path into a sequence of CFG edges. *)
-  let cfg_path (ctx: intra_context) (p : ReachTree.node list) =
-    art_cfg_path_pair ctx p
-    |> List.map (fun (_, (u, v), _) -> (u, v))
 
   let print_vocabulary tr =
     let g_vocab, l_vocab = K.vocabulary tr in
@@ -444,21 +430,10 @@ module GPS = struct
         end
       | Weight w -> w) (to_weights cfg_nodes) in
       logf " ---- path_condition: path length: %d, before add1: %d\n" ((List.length pathcond)+1) (List.length pathcond);
-    let l = (K.assume ctx.pre_state) :: pathcond in
+    let l = (K.assume (ReachTree.get_precondition ctx.art)) :: pathcond in
         log_weights "path conditions " l; l
 
-  (* Interpolate the path (entry) -> (CFG vertex corresponding to src node) -> (sink CFG vertex). If fail, then get model. *)
-  let interpolate_or_get_model (ctx: intra_context) (src : ReachTree.node) =
-    let src_v = ReachTree.maps_to ctx.art src in
-    let suffix = K.guard (Graph.summary ctx.cfg src_v) |> Syntax.mk_not srk in
-    let prefix = path_condition ctx OverApprox src in
-    log_weights "\nprefix " prefix;
-    log_formulas "\nsuffix " [suffix];
-    logf "\n";
-    K.interpolate_or_concrete_model prefix suffix
-
   let get_global_ctx (ctx: intra_context) = ctx.global_ctx
-
 
   let extract_refinement (ctx: intra_context) =
     let art = ctx.art in
@@ -564,7 +539,7 @@ module GPS = struct
           begin match handle_path_to_error ctx [] curr right `Right w with
           | `Safe -> (* path-to-error concretization failed. frontier_node is the src node of a call-edge. *)
              (* we can mark `w` as a frontier node to be refined, and continue. *)
-             ctx.worklist <- worklist_push w ctx.worklist;
+             ReachTree.add_frontier ctx.art w;
              intraproc_check ctx
           | `Unsafe pathcond ->
              logf "--- GPS: managed to concretize an intraprocedural path-to-error. returning... ";
@@ -613,9 +588,6 @@ module GPS = struct
       {
         id = (entry,err_loc);
         cfg = graph;
-        pre_state = Ctx.mk_true;
-        worklist = DQ.empty;
-        execlist = DQ.empty;
         art = ReachTree.make graph Ctx.mk_true ~src:entry ~dst:err_loc;
         global_ctx = gctx;
       }
