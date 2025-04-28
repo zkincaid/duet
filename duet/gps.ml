@@ -682,6 +682,52 @@ let analyze_sgt enable_gas enable_summary file =
       end
     | _ -> assert false
 
+let analyze_impact file =
+    let open Srk.Iteration in
+    populate_offset_table file;
+    K.domain := split (product [ PolyhedronGuard.exp
+                               ; LossyTranslation.exp ]);
+    match file.entry_points with
+    | [main] -> begin
+        let rg = Interproc.make_recgraph file in
+        let entry = (RG.block_entry rg main).did in
+        let (ts, assertions) = make_transition_system ~simplify:true entry rg in
+        let ts, err_loc = make_ts_assertions_unreachable ts assertions in
+        if !CmdLine.display_graphs then TSDisplay.display ts;
+        logf "\nentry: %d\n" entry;
+        Printf.printf "testing reachability of location %d\n" err_loc ;
+        Printf.printf "------------------------------\n";
+        let graph =
+          GPS.Graph.{ graph = ts
+                    ; call_summary = (fun _ -> failwith "IMPACT: procedure call")
+                    ; target_summary = (fun _ -> K.one) }
+        in
+        let module ART = GPS.ReachTree in
+        let art = ART.make graph Ctx.mk_true ~src:entry ~dst:err_loc in
+        let rec loop () =
+          match ART.deque_frontier art with
+          | None -> `Safe
+          | Some u ->
+             (* Fetched tree node u from work list. First attempt to close it. *)
+             if ART.is_covered art u then loop ()
+             else if ART.lclose art u then loop ()
+             else if ART.maps_to art u == err_loc then
+               match ART.generate_test art u with
+               | `Pruned ->
+                  List.iter (fun v -> ignore (ART.close art v)) (ART.tree_path art u);
+                  loop ()
+               | `Test _ -> `Unsafe
+             else (ART.expand art u; loop ())
+        in
+        begin match loop () with
+        | `Safe  -> Printf.printf "  proven safe\n";
+        | `Unsafe -> Printf.printf "  proven unsafe\n"
+        | `Error s -> Printf.printf "ERR: %s\n" s
+        end;
+        Printf.printf "------------------------------\n"
+      end
+    | _ -> assert false
+
 
 (** dump simplified CFG before doing model checking / CRA / concolic execution *)
 let dump_cfg simplify instrument file =
@@ -715,6 +761,9 @@ let _ =
     ("-sgt-nosum", analyze_sgt false false, "Summary-guided testing without CRA-generated summary");
   CmdLine.register_pass
     ("-sgt-nosum-nogas", analyze_sgt true false, "Summary-guided testing with gas but without CRA-generated summary");
+
+    CmdLine.register_pass
+    ("-impact", analyze_impact, "Lazy abstraction with interpolants");
 
   CmdLine.register_pass
     ("-dump-unsimplified-cfg", dump_cfg false false, "dump unsimplified CFG");
