@@ -678,7 +678,7 @@ module Make
     List.map invariants (L.all_loops (L.loop_nest tg))
 
 
-  let simplify ?(try_rtc=false) p tg =
+  let simplify ?(try_rtc=true) p tg =
     let rec go tg =
       let continue = ref false in
       let tg' =

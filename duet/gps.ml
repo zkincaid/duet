@@ -210,9 +210,6 @@ module GPS = struct
     let fold_succ f g u acc =
       WG.U.fold_succ f (WG.forget_weights g.graph) u acc
 
-    let iter_succ_e f g v =
-      fold_succ (fun w () -> f (v, weight g v w, w)) g v ()
-
     let summary g src = g.target_summary src
 
     let compare_vertex = Stdlib.compare
@@ -228,6 +225,7 @@ module GPS = struct
       match Smt.entails Ctx.context f g with
       | `Yes -> true
       | _ -> false
+    let negate f = Ctx.mk_not f
     let pp = Syntax.Formula.pp srk
   end
   module Transition = struct
@@ -248,41 +246,41 @@ module GPS = struct
     let mul = K.mul
     let assume = K.assume
     let guard = K.guard
+    let pp_state = Interpretation.pp
   end
 
   (* ART module *)
   (*  module ReachTree = ReachTree.ART(Ctx)(K)(TS')(ProcName)(VN)(Summarizer)*)
   module ReachTree = ReachTree.ART(Graph)(Label)(Transition)
 
-  (** summary-guided testing *)
-  module PT = struct
-    type t =
-      { summary : int -> K.t
-      ; art : ReachTree.t }
-    type node = ReachTree.node
-    type state = ReachTree.state
-    let expand pt node = ReachTree.expand pt.art node
-    let log_art pt = ReachTree.log_art pt.art
-    let is_err_loc pt node =
-      (ReachTree.maps_to pt.art node) = (ReachTree.get_err_loc pt.art)
-    let pp_state = Interpretation.pp
-    let pp_node pt formatter node =
-      Format.fprintf formatter "%a (%d)"
-        ReachTree.pp_node node
-        (ReachTree.maps_to pt.art node)
-    let check pt node =
-      let rec path_weight v =
-        match ReachTree.parent_weight pt.art v with
-        | Some (parent, w) -> K.mul (path_weight parent) w
-        | None -> K.one
-      in
-      let post = K.guard (pt.summary (ReachTree.maps_to pt.art node)) in
-      match K.interpolate_or_concrete_model [path_weight node] post with
-      | `Valid _ -> `Infeasible
-      | `Invalid m -> `Feasible m
-      | `Unknown -> `Unknown
-  end
-  module SGT = Sgt.SummaryGuidedTesting(PT)
+  let generate_test_sgt art node =
+    logf "Generating test @ %a\n" ReachTree.pp_node node;
+    let post = Ctx.mk_not (K.guard (ReachTree.path_to_error art node)) in
+    let rec path_weight v =
+      match ReachTree.parent_weight art v with
+      | Some (parent, w) -> K.mul (path_weight parent) w
+      | None -> K.one
+    in
+    match K.interpolate_or_concrete_model [path_weight node] post with
+    | `Invalid v_model -> `Test v_model
+    | `Unknown -> failwith "generate_test_sgt: got UNKNOWN as a result for interpolate_or_get_model"
+    | `Valid _ -> `Pruned
+
+  let sgt graph src dst =
+    let art = ReachTree.make graph Ctx.mk_true ~src ~dst in
+    let rec loop () =
+      match ReachTree.deque_frontier art with
+      | None -> `Safe
+      | Some node ->
+         match generate_test_sgt art node with
+         | `Pruned -> loop ()
+         | `Test state ->
+            match ReachTree.execute art node state with
+            | `Safe -> loop ()
+            | `Unsafe _ -> `Unsafe
+    in
+    loop ()
+
 
   (* to print the reachability tree (+ worklist), or not *)
   (* RF 3/2/25: If you enable this flag, and even if     *)
@@ -374,19 +372,19 @@ module GPS = struct
         (Summarizer.path_weight_intra gctx.g_summarizer v tgt)
         (K.assume equalities)
     in
-    let tgt' = gctx.g_errloc in
+    let dst = gctx.g_errloc in
     let graph =
-      Graph.{ graph = WG.add_edge (gctx.g_graph) tgt (Weight (K.assume equalities)) tgt'
+      Graph.{ graph = WG.add_edge (gctx.g_graph) tgt (Weight (K.assume equalities)) dst
             ; call_summary = Summarizer.over_proc_summary gctx.g_summarizer
             ; target_summary = target_summary }
     in
     {
-      id = (src,tgt');
+      id = (src,dst);
       cfg = graph;
       pre_state = pre_state;
       worklist = DQ.empty;
       execlist = DQ.empty;
-      art = ReachTree.make graph src tgt';
+      art = ReachTree.make graph pre_state ~src ~dst;
       global_ctx = gctx;
     }
 
@@ -460,109 +458,6 @@ module GPS = struct
     K.interpolate_or_concrete_model prefix suffix
 
   let get_global_ctx (ctx: intra_context) = ctx.global_ctx
-
-  (* refine path to (tree) node v.
-     Returns `Failure (u, m) with (u, m) being a new item to the concolic worklist if unable to refine.
-     Returns `Success if refine is able to refine. *)
-  let mc_refine (ctx: intra_context) (v: ReachTree.node) =
-    logf "refining node %d\n" (ReachTree.of_node v);
-    let handle_failure v m =
-      logf " *********************** REFINEMENT FAILED *************************\n";
-      let path_condition = path_condition ctx OverApprox v
-      in `Failure (m, path_condition)
-    in
-    let art = ctx.art in
-    let path = ReachTree.tree_path art v in
-      match interpolate_or_get_model ctx v with
-      `Invalid v_model ->
-        logf "Unable to refine but got model\n";
-        (* v is no longer a frontier node. *)
-        handle_failure v v_model
-      | `Unknown -> failwith "mc_refine: got UNKNOWN as a result for interpolate_or_get_model"
-      | `Valid interpolants ->
-        logf "--- mc_refine: interpolation succeeded. path length %d, interpolant length %d" (List.length path) (List.length interpolants);
-        log_formulas "interpolants - " interpolants;
-        ReachTree.refine art path interpolants
-        |> List.iter (fun x -> ctx.worklist <- worklist_push x ctx.worklist);
-        `Success
-
-  (* concolic phase of our model checking algorithm *)
-  let concolic_phase (ctx: intra_context) =
-    let round ctx =
-      match DQ.front (ctx.execlist) with
-      | Some ((u, u_model), w) ->
-        if print_tree then (* XXX: if this is enabled, the performance penalty is huge. *)
-        ReachTree.log_art ctx.art;
-        logf " visit %d (%d)\n" (ReachTree.of_node u) (ReachTree.maps_to ctx.art u);
-        ctx.execlist <- w;
-        if (ReachTree.maps_to ctx.art u) = (ReachTree.get_err_loc ctx.art) then begin
-            logf " *** found potential path-to-error, checking if prophesized pre-condition is sat...\n";
-            logf " *** SAT, done\n";
-            `ErrorReached u
-        end else begin
-            logf "model of %d (%d): \n" (ReachTree.of_node u) (ReachTree.maps_to ctx.art u);
-            log_model "" u_model;
-            let new_concolic_nodes, new_frontier_nodes = ReachTree.expand ctx.art u u_model in
-              List.iter (fun concolic_node -> ctx.execlist <- worklist_push concolic_node ctx.execlist) new_concolic_nodes;
-              List.iter (fun frontier_node -> ctx.worklist <- worklist_push frontier_node ctx.worklist) new_frontier_nodes;
-              `Continue
-        end
-      | None -> failwith "err: concolic_phase is reading from empty execution worklist" (* cannot happen *)
-      in
-    let rtn = ref `Continue in
-    while !rtn = `Continue && ((DQ.size ctx.execlist) > 0) do
-      rtn := round ctx
-    done;
-    match !rtn with
-    | `Continue -> `Safe
-    | `ErrorReached u -> `Unsafe u
-
-
-  (* refinement phase of our model checking algorithm *)
-  let refinement_phase (ctx: intra_context) =
-    let worklist_push_all ls =
-      List.iter (fun x -> ctx.worklist <- worklist_push x ctx.worklist) ls in
-    match DQ.front (ctx.worklist) with
-    | Some (u, w) ->
-      if print_tree then
-      ReachTree.log_art ctx.art;
-      ctx.worklist <- w;
-      (* Fetched tree node u from work list. First attempt to close it. *)
-      if not (ReachTree.is_covered ctx.art u) then
-        begin
-          logf " uncovered. try close %d\n" (ReachTree.of_node u);
-          begin match ReachTree.lclose ctx.art u with (* Close succeeded. No need to further explore it. *)
-          | true, leaves ->
-            logf "Close succeeded.\n";
-            worklist_push_all leaves;
-            `Continue
-          | false, leaves -> (* u is uncovered. *)
-            logf " ... close failed in refining node %d, try refining it\n" (ReachTree.of_node u);
-            worklist_push_all leaves;
-            begin match mc_refine ctx u with
-              | `Success -> (* refinement succeeded *)
-                logf "refinement_phase: refinement succeeded\n";
-                (* for every node along path of refinement try close *)
-                let path = ReachTree.tree_path ctx.art u in
-                  List.iter
-                    (fun x -> let (_, ls) = ReachTree.close ctx.art x in
-                      worklist_push_all ls) path;
-                  `Continue
-              | `Failure (u_m, _) ->
-                ctx.execlist <- worklist_push (u, u_m) ctx.execlist; (* put u onto execlist since it now has a model. *)
-                (* for every node along path of refinement try close *)
-                let path = ReachTree.tree_path ctx.art u in
-                  List.iter (fun x -> let (_, ls) = ReachTree.close ctx.art x in
-                    worklist_push_all ls) path
-                ; `Continue
-              end
-          end
-        end
-      else begin
-        logf "refinement_phase: %d is covered\n" (ReachTree.of_node u);
-        `Continue
-      end
-    | None -> failwith "refinement_phase: encountered an empty worklist for refinement\n" (* cannot happen *)
 
 
   let extract_refinement (ctx: intra_context) =
@@ -648,60 +543,46 @@ module GPS = struct
 
 
   and intraproc_check (ctx: intra_context) : mc_result =
-    let continue = ref true in
-    let state = ref `Continue in
-      ctx.worklist <- worklist_push (ReachTree.root) ctx.worklist;
-      while !continue && (DQ.size (ctx.worklist) > 0 || DQ.size (ctx.execlist) > 0) do
-        if DQ.size (ctx.execlist) > 0 then begin
-          (* concolic phase *)
-          begin match concolic_phase ctx with
-          | `Unsafe w ->
-            logf "--- GPS: found path-to-error at tree node %d (cfg vertex %d) \n" (ReachTree.of_node w) (ReachTree.maps_to ctx.art w);
-            logf " --- forming path to error... \n";
-            let has_calls, path_to_w =
-              ReachTree.tree_path ctx.art w
-              |> art_cfg_path_pair ctx
-              |> List.map (fun (u, (u_vtx, v_vtx), v) -> (u, WG.edge_weight ctx.cfg.Graph.graph u_vtx v_vtx, v))
-              |> List.fold_left (fun (has_call, l) (u, w, v) ->
+    match ReachTree.gps ctx.art with
+    | `Safe -> Safe (extract_refinement ctx)
+    | `Unsafe w ->
+       logf "--- GPS: found path-to-error at tree node %d (cfg vertex %d) \n" (ReachTree.of_node w) (ReachTree.maps_to ctx.art w);
+       logf " --- forming path to error... \n";
+       let has_calls, path_to_w =
+         ReachTree.tree_path ctx.art w
+         |> art_cfg_path_pair ctx
+         |> List.map (fun (u, (u_vtx, v_vtx), v) -> (u, WG.edge_weight ctx.cfg.Graph.graph u_vtx v_vtx, v))
+         |> List.fold_left (fun (has_call, l) (u, w, v) ->
                 match w with
                 | Call _ -> (true, (u, w, v) :: l)
                 | _ -> (has_call, (u, w, v) :: l)
-                ) (false, [])
-            in
-            logf " --- finished forming path to error, calling handle_path_to_error ... \n";
-            begin match has_calls, path_to_w with
-            | true, curr :: right ->
-              begin match handle_path_to_error ctx [] curr right `Right w with
-                | `Safe -> (* path-to-error concretization failed. frontier_node is the src node of a call-edge. *)
-                  (* we can mark `w` as a frontier node to be refined, and continue. *)
-                  ctx.worklist <- worklist_push w ctx.worklist;
-                  continue := true
-                | `Unsafe pathcond ->
-                  logf "--- GPS: managed to concretize an intraprocedural path-to-error. returning... ";
-                  state := `Concretized (pathcond);
-                  continue := false
-                end
-            | false, _::_ ->
-              state := `ConcretizedList (path_to_w);
-              continue := false
-            | true, []
-            | false, [] ->
-              (* corner case: either no calls along the path, or if the path to error is of length 0. *)
-              state := `Concretized (K.one);
-              continue := false
-            end
-          | `Safe ->
-            state := `Continue
-          end
-        end else begin
-          (* refinement phase *)
-          state := refinement_phase ctx
-        end
-      done;
-      match !state with
-      | `Continue -> Safe (extract_refinement ctx)
-      | `ConcretizedList _ -> Unsafe (K.one) (* TODO: fix this *)
-      | `Concretized cond -> Unsafe (cond)
+              ) (false, [])
+       in
+       logf " --- finished forming path to error, calling handle_path_to_error ... \n";
+       begin match has_calls, path_to_w with
+       | true, curr :: right ->
+          begin match handle_path_to_error ctx [] curr right `Right w with
+          | `Safe -> (* path-to-error concretization failed. frontier_node is the src node of a call-edge. *)
+             (* we can mark `w` as a frontier node to be refined, and continue. *)
+             ctx.worklist <- worklist_push w ctx.worklist;
+             intraproc_check ctx
+          | `Unsafe pathcond ->
+             logf "--- GPS: managed to concretize an intraprocedural path-to-error. returning... ";
+             Unsafe pathcond end
+       | false, _::_ ->
+          (* TODO! *)
+(*          Unsafe (seq (List.map (fun (_, w, _) ->
+                           match w with
+                           | Weight w -> w
+                           | _ -> assert false)
+                         path_to_w))
+ *)
+
+          Unsafe K.one
+       | _, [] ->
+          (* corner case: either no calls along the path, or if the path to error is of length 0. *)
+          Unsafe K.one
+       end
 
 
   let execute (ts : cfg_t) (entry : int) (err_loc : int) (enable_summary:bool) : mc_result =
@@ -735,7 +616,7 @@ module GPS = struct
         pre_state = Ctx.mk_true;
         worklist = DQ.empty;
         execlist = DQ.empty;
-        art = ReachTree.make graph entry err_loc;
+        art = ReachTree.make graph Ctx.mk_true ~src:entry ~dst:err_loc;
         global_ctx = gctx;
       }
     in
@@ -792,11 +673,7 @@ let analyze_sgt enable_gas enable_summary file =
                     ; call_summary = (fun _ -> failwith "SGT: procedure call")
                     ; target_summary = Summarizer.path_weight_inter summ }
         in
-        let pt =
-          GPS.PT.{ summary = Summarizer.path_weight_inter summ
-                 ; art = GPS.ReachTree.make graph entry err_loc }
-        in
-        begin match GPS.SGT.execute pt GPS.ReachTree.root with
+        begin match GPS.sgt graph entry err_loc with
         | `Safe  -> Printf.printf "  proven safe\n";
         | `Unsafe -> Printf.printf "  proven unsafe\n"
         | `Error s -> Printf.printf "ERR: %s\n" s

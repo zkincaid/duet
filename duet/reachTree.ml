@@ -25,7 +25,6 @@ module ART
        type vertex
        type weight
        val fold_succ :  (vertex -> 'a -> 'a) -> t -> vertex -> 'a -> 'a
-       val iter_succ_e :  (vertex * weight * vertex -> unit) -> t -> vertex -> unit
        val weight : t -> vertex -> vertex -> weight
        val summary : t -> vertex -> weight
        val compare_vertex : vertex -> vertex -> int
@@ -36,6 +35,7 @@ module ART
        val top : t
        val meet : t -> t -> t
        val leq : t -> t -> bool
+       val negate : t -> t
        val pp : Format.formatter -> t -> unit
      end)
     (T : sig
@@ -50,6 +50,7 @@ module ART
        val mul : t -> t -> t
        val assume : label -> t
        val guard : t -> label
+       val pp_state : Format.formatter -> state -> unit
      end with type t = G.weight
           and type label = L.t) =
 struct
@@ -85,28 +86,32 @@ struct
     graph : G.t;
     err_loc : G.vertex;
     nodes : node_info ARR.t;
+    precondition : L.t;
     mutable covers : int IntMap.t;
     (* also maintain reverse map for each y, storing (x, y) that are in cover. *)
     (* i.e. reverse_covers[y] returns all x such that (x,y) is in the cover. *)
     mutable reverse_covers : ISet.t IntMap.t;
     (* precedent_nodes[v] stores all tree nodes mapping to CFG vertex v. Used in mc_close. *)
     mutable precedent_nodes : ISet.t VertexMap.t;
+    mutable frontier : node DQ.t;
   }
 
   let root = 0
 
-  let make (g : G.t) (entry : G.vertex) (err_loc : G.vertex) =
+  let make (g : G.t) (precondition : L.t) ~(src : G.vertex) ~(dst : G.vertex) =
     let nodes = ARR.make 65536 in
     ARR.add nodes { parent = -1
-                  ; cfg_vertex = entry
+                  ; cfg_vertex = src
                   ; label = L.top
                   ; children = [] };
     { graph = g
-    ; err_loc
+    ; err_loc = dst
     ; nodes = nodes
+    ; precondition = precondition
     ; covers = IntMap.empty (* for (u, v) in cover, u is ancestor of v and label(v) |= label(u). v is covered if (u, v) in cover. Then cover[v] = u. *)
     ; reverse_covers = IntMap.empty (* for each v, store the v's that cover it: i.e. cover[v] *)
-    ; precedent_nodes = VertexMap.empty }
+    ; precedent_nodes = VertexMap.empty
+    ; frontier = DQ.cons root DQ.empty }
 
   let get_err_loc (art : t) = art.err_loc
   let get_entry (art: t) = (ARR.get art.nodes 0).cfg_vertex
@@ -195,39 +200,22 @@ struct
     art.precedent_nodes <- VertexMap.add v precedent_nodes art.precedent_nodes;
     id
 
-  (** expand:  
-        for every out-neighbor y of v, first try deriving a post-state model of v-> y, if successful, put it
-          on the concolic execution worklist. Otherwise, it is a frontier node, and put it on the 
-          refinement worklist. *)
+  let deque_frontier art =
+    match DQ.front art.frontier with
+    | None -> None
+    | Some (u, frontier') ->
+       art.frontier <- frontier';
+       Some u
 
+  let add_frontier art node = art.frontier <- DQ.snoc art.frontier node
 
-  (* New (more general) API for expansion that supports summary-guided testing 
-    * and an IMPACT-style algorithm. The expansion is performed guarded by the pre-image
-      of [tr], where, in GPS and SGT, [tr] is a single-target path summary, in IMPACT, [tr]
-      is the identity transition. More specifically, for each out-neighbor u of G(v), we 
-      first test if m /\ tr is SAT, if so, then this out-neighbor is non-frontier. Otherwise,
-      this out neighbor is a frontier.  *)
-  let expand (art: t) (v: node) (m: T.state) =
-    let vg = maps_to art v in 
-    let new_concolic_nodes, new_frontier_nodes = (ref [], ref []) in 
-    (* visit out-neighbors of v *)
-    G.iter_succ_e 
-      (fun (_, weight, y) -> 
-        let weight =
-          if T.is_deterministic weight then weight
-          else T.mul weight (T.assume @@ T.guard @@ G.summary art.graph y)
-        in 
-        match T.post_model m weight with
-        | Some y_model ->
-           let new_vtx = add_tree_vertex art y v in
-           new_concolic_nodes := (new_vtx, y_model) :: !new_concolic_nodes
-        | None ->
-           let new_node = add_tree_vertex art y v in
-           new_frontier_nodes := new_node :: !new_frontier_nodes)
-      art.graph vg;
-    (* make it FIFO *)
-    (List.rev !new_concolic_nodes, List.rev !new_frontier_nodes)
-    
+  let expand (art : t) (v : node) =
+    G.fold_succ (fun succ () ->
+        let new_node = add_tree_vertex art succ v in
+        add_frontier art new_node)
+      art.graph
+      (maps_to art v)
+      ()
 
   (** maintenance of coverings *) 
 
@@ -268,8 +256,6 @@ struct
          | children -> go (List.rev_append children worklist) acc
     in
     go [v] acc
-
-  (*     it returns (`true`, wl) iff covering succeeds at v and wl is a worklist of nodes to be refined. *)
 
   (** [close art v] visits precedents of v in tree and attempts to derive covering relations from v. *)
   let close (art : t) (v : node) =
@@ -333,8 +319,7 @@ struct
         true
 
   (* refine the label of each tree node u along path from tree root to v. *)
-  let refine (art : t) path interpolants : node list =
-    let worklist = ref [] in
+  let refine (art : t) path interpolants =
     List.iter2
       (fun u interpolant ->
         let u_info = ARR.get art.nodes u in
@@ -374,7 +359,7 @@ struct
                           logf
                             "         refine: adding %d back to worklist \n"
                             x_leaf;
-                          worklist := x_leaf :: !worklist)
+                          add_frontier art x_leaf)
                         x
                         ();
                       coverers
@@ -384,8 +369,8 @@ struct
             in
             art.reverse_covers <- IntMap.add u u_coverers art.reverse_covers)
       path
-      interpolants;
-    !worklist
+      interpolants
+
   
   let rec glue l = 
     match l with 
@@ -396,7 +381,7 @@ struct
 
   (* convention: w is an ancestor of v. returns true if we can add (v, w) to covers such that label(v) |= label(w) *)
   let force_cover (art : t) v w = (* check if v_label -> w_label where v is an ancestor at w *)
-    if maps_to art v <> maps_to art w then (false, []) 
+    if maps_to art v <> maps_to art w then false
     else begin 
       logf "force_cover(%d, %d)\n" v w;
       (* let v_label = label art v in *)
@@ -410,13 +395,11 @@ struct
       in
       match T.check w_label path_weights w_label with
       | `Valid itps -> 
-        let new_frontiers = refine art (List.tl artpath) (List.tl itps) in
-        if cover art v w then
-          (true, new_frontiers)
-        else
-          failwith "error: force_cover is buggy"
+         refine art (List.tl artpath) (List.tl itps);
+         assert (cover art v w);
+         true
 
-      | `Invalid _ -> (false, []) 
+      | `Invalid _ -> false
       | `Unknown -> failwith "force_cover: interpolation failed with status UNKNOWN."
     end
   
@@ -424,26 +407,23 @@ struct
   (** a more lightweight version of close *)
   let lclose (art: t) v =
     let rec go u = 
-      if u = -1 then (false, [])
+      if u = -1 then false
       else begin   
-        if maps_to art u <> maps_to art v then 
-          try let p = parent art u in go p 
-          with Not_found -> (false, []) 
-         else 
-          begin match force_cover art v u with 
-        | (true, frontiers) -> (true, frontiers)
-        | (false, _) -> 
-          try 
-            let p = parent art u in go p 
-          with Not_found -> (false, [])
+          if maps_to art u <> maps_to art v then 
+            try go (parent art u)
+            with Not_found -> false
+          else
+            if force_cover art v u then true
+            else
+              try go (parent art u)
+              with Not_found -> false
         end 
-      end
     in
-      let res = match v with 
-      | 0 -> (false, [])
-      | _ -> go (parent art v) in 
-      let bb, _ = res in 
-      logf " --- lclose result of %d : %b ---\n" v  bb ; res
+    let res = match v with
+      | 0 -> false
+      | _ -> go (parent art v)
+    in
+    logf " --- lclose result of %d : %b ---\n" v  res ; res
 
 
   (** TODO: [deprecated] procedures for lightweight verification of ART invariants *)
@@ -537,7 +517,99 @@ struct
   let log_node u = 
     logf " node: visit %d\n" u 
   
+  let pp_node = Format.pp_print_int
+
   let of_node u = u
 
-  let pp_node = Format.pp_print_int
+  let execute art node state =
+    let rec loop worklist =
+      match worklist with
+      | [] -> `Safe
+      | (u, u_model)::worklist ->
+        logf " visit %d (%a)\n" u G.pp_vertex (maps_to art u);
+        if (maps_to art u) = (get_err_loc art) then begin
+            logf " *** found path-to-error";
+            (* We're abandoning the search without exhausting worklist, so
+               worklist must be added to frontier. *)
+            List.iter (fun (v, _) -> art.frontier <- DQ.snoc art.frontier v) worklist;
+            `Unsafe u
+        end else begin
+            logf "model of %d (%a): @[%a@]"
+              u
+              G.pp_vertex (maps_to art u)
+              T.pp_state u_model;
+            let u_v = maps_to art u in
+            let worklist =
+              G.fold_succ (fun succ worklist ->
+                  let succ_node = add_tree_vertex art succ u in
+                  let weight = G.weight art.graph u_v succ in
+                  let weight =
+                    if T.is_deterministic weight then weight
+                    else
+                      T.mul weight (T.assume @@ T.guard @@ G.summary art.graph succ)
+                  in
+                  match T.post_model u_model weight with
+                  | Some model -> (succ_node,model)::worklist
+                  | None -> add_frontier art succ_node; worklist)
+                art.graph
+                u_v
+                worklist
+            in
+            loop worklist
+        end
+    in
+    loop [(node, state)]
+
+  let path_to_error art node = G.summary art.graph (maps_to art node)
+
+  let generate_test art node =
+    let post = L.negate (T.guard (path_to_error art node)) in
+    let rec get_path rest node =
+      match parent_weight art node with
+      | Some (p, weight) -> get_path (weight::rest) p
+      | None -> rest
+    in
+    let path = get_path [] node in
+    match T.check art.precondition path post with
+    | `Invalid v_model ->
+       logf ~level:`trace "-> found test";
+       `Test v_model
+    | `Unknown -> failwith "generate_test: got UNKNOWN as a result for interpolate_or_get_model"
+    | `Valid interpolants ->
+       logf ~level:`trace "-> pruned";
+       log_formulas "interpolants - " interpolants;
+       refine art (tree_path art node) interpolants;
+       `Pruned
+
+  let gps art =
+    let rec loop () =
+      match deque_frontier art with
+      | None -> `Safe
+      | Some u ->
+         (* Fetched tree node u from work list. First attempt to close it. *)
+         logf ~level:`trace "At frontier node %d:" u;
+         if is_covered art u then
+           (logf ~level:`trace "-> covered";
+            loop ())
+         else begin
+             if lclose art u then (* Close succeeded. No need to further explore it. *)
+               (logf ~level:`trace "-> closed"; loop ())
+             else begin
+                 (* u is uncovered. *)
+                 match generate_test art u with
+                 | `Pruned -> (* refinement succeeded *)
+                    (* for every node along path of refinement try close *)
+                    List.iter (fun v -> ignore (close art v)) (tree_path art u);
+
+                    loop ()
+                 | `Test state ->
+                    logf ~level:`trace "-> found test";
+                    match execute art u state with
+                    | `Safe -> loop ()
+                    | `Unsafe n -> `Unsafe n
+               end
+           end
+    in
+    loop ()
+
 end
