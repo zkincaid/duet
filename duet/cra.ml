@@ -1187,6 +1187,7 @@ let lift_universals srk phi =
   quantify_universals (Formula.eval srk alg phi)
 
 let prove_termination_main file =
+  ConvexHull.dump_hull_prefix := file.filename;
   populate_offset_table file;
   match file.entry_points with
   | [main] -> begin
