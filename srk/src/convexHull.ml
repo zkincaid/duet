@@ -130,10 +130,8 @@ let of_model_lirr solver man terms =
         | None -> ());
     DD.of_constraints_closed ~man dim constraints
 
-let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =
+let dump_hull_obligations srk phi terms =
   if !dump_hull then begin
-      let phi = Abstract.Solver.get_formula solver in
-      let srk = Abstract.Solver.get_context solver in
       let query =
         List.fold_left (fun definitions term ->
             let s = mk_symbol srk ?name:(Some "term_to_project_onto") `TyReal
@@ -161,12 +159,16 @@ let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =
       Stdlib.close_out chan;
       incr nb_hulls
     end;
+  ()
 
+let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =
+  let srk = Solver.get_context solver in
+  let phi = Solver.get_formula solver in
+  dump_hull_obligations srk phi terms;
   match Solver.get_theory solver with
   | `LIRR ->
      let join = DD.join in
      let dim = Array.length terms in
-     let srk = Solver.get_context solver in
      let top = DD.of_constraints_closed ~man dim (BatEnum.empty ()) in
      let bottom = match bottom with
        | Some bot -> bot
@@ -197,8 +199,6 @@ let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =
   | `LIRA ->
      match !enable_lira with
      | true ->
-        let srk = Solver.get_context solver in
-        let phi = Solver.get_formula solver in
         Solver.add solver [Syntax.mk_and srk (Syntax.explicit_ints srk phi)];
         Plt.abstract (SubspaceCone `Standard) ~man ~bottom solver terms
      | false ->
@@ -210,9 +210,10 @@ let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =
         Plt.convex_hull_of_real_relaxation `Lw ~man srk phi terms
 
 let conv_hull ?(man=Polka.manager_alloc_loose ()) srk phi terms =
+  dump_hull_obligations srk phi terms;
   match !enable_lira with
   | true ->
      let phi_with_ints = Syntax.mk_and srk (Syntax.explicit_ints srk phi) in
-     Plt.convex_hull (SubspaceCone `Standard) ~man srk phi_with_ints terms
+     Plt.convex_hull (SubspaceCone `WithHKMMZCone) ~man srk phi_with_ints terms
   | false ->
      Plt.convex_hull_of_real_relaxation `Lw ~man srk phi terms
