@@ -11,6 +11,14 @@
    - Run experiments to verify that everything is consistent.
  *)
 
+(* Running the following on
+   tasks/convhull/termination-monotone-no-phase-svcomp-reach-safety/loop-new/count_by_k.ihull0.smt2
+   takes very long to converge; probably 10^6 models to find.
+   But removing some logging lines (marked with comments below) somehow helps Z3 find
+   different models; the fourth model is different, and the algorithm immediately terminates
+   with it.
+ *)
+
 open Syntax
 module P = Polyhedron
 module L = IntLattice
@@ -171,11 +179,11 @@ let log_plt_constraints ~level str (p, l, t) =
     (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "@\n")
        pp_vector) t
 
-let test_point_in_polyhedron str m p =
-  if Log.level_leq !my_verbosity_level !test_level then
+let test_point_in_polyhedron ?(level = !test_level) str m p =
+  if Log.level_leq !my_verbosity_level level then
     List.iter
       (fun (kind, v) ->
-        logf ~level:`debug "%s: testing @[%a@]" str pp_pconstr (kind, v);
+        logf ~level:!my_verbosity_level "%s: testing @[%a@]" str pp_pconstr (kind, v);
         let result = Linear.evaluate_affine m v in
         match kind with
         | `Zero ->
@@ -190,11 +198,11 @@ let test_point_in_polyhedron str m p =
       p
   else ()
 
-let test_point_in_lattice is_int str m l =
-  if Log.level_leq !my_verbosity_level !test_level then
+let test_point_in_lattice ?(level = !test_level) is_int str m l =
+  if Log.level_leq !my_verbosity_level level then
     List.iter
       (fun v ->
-        logf ~level:`debug "%s: testing %a(%a)"
+        logf ~level:!my_verbosity_level "%s: testing %a(%a)"
           str
           (fun fmt is_int -> match is_int with
                              | `IsInt -> Format.fprintf fmt "Int"
@@ -217,8 +225,8 @@ let test_point_in_lattice is_int str m l =
       l
   else ()
 
-let test_implication str solver consequence =
-  if Log.level_leq !my_verbosity_level !test_level then
+let test_implication ?(level = !test_level) str solver consequence =
+  if Log.level_leq !my_verbosity_level level then
     begin
       logf str;
       let srk = Abstract.Solver.get_context solver in
@@ -239,8 +247,8 @@ let test_implication str solver consequence =
     end
   else ()
 
-let test_hull solver terms dd =
-  if Log.level_leq !my_verbosity_level !test_level && !test_convex_hull then
+let test_hull ?(level = !test_level) solver terms dd =
+  if Log.level_leq !my_verbosity_level level && !test_convex_hull then
     let srk = Abstract.Solver.get_context solver in
     let consequence = formula_of_dd srk (fun dim -> terms.(dim)) dd in
     test_implication
@@ -961,16 +969,22 @@ end = struct
     let abstract interp phi =
       logf ~level:`debug "abstract_to_plt...";
       let implicant = Interpretation.select_implicant interp phi in
-      logf ~level:`debug "abstract_to_plt: abstracting @[%a@]"
+
+      (* Remove this logging to get faster convergence for count_by_k *)
+      logf ~level:`info "abstract_to_plt: abstracting @[%a@]"
         (Format.pp_print_list
            ~pp_sep: (fun fmt () -> Format.fprintf fmt ", ")
            (fun fmt atom -> Syntax.Formula.pp srk fmt atom)
         )
         (Option.get implicant);
+
       let (lincond, post_expansion) =
         plt_implicant_of_implicant srk univ_translation expansion interp implicant in
-      log_plt_constraints ~level:`debug "abstract_to_plt: abstracted: "
+
+      (* Remove this logging to get faster convergence for count_by_k *)
+      log_plt_constraints ~level:`info "abstract_to_plt: abstracted: "
         (lincond.p_cond, lincond.l_cond, lincond.t_cond);
+
       let imp_p =
         Polyhedron.of_constraints
           (BatEnum.append (BatList.enum universe_p) (BatList.enum lincond.p_cond))
@@ -1021,15 +1035,18 @@ end = struct
            in
            expand_univ_translation univ_translation interp new_dimensions
       in
-      test_point_in_polyhedron "abstract_to_plt"
+
+      (* Remove one of the first two tests below to get faster convergence *)
+      test_point_in_polyhedron ~level:`info "abstract_to_plt"
         (expanded_univ_translation interp)
         (BatList.of_enum (P.enum_constraints plt.poly_part));
-      test_point_in_lattice `IsInt "abstract_to_plt"
+      test_point_in_lattice ~level:`info `IsInt "abstract_to_plt"
         (expanded_univ_translation interp)
         (L.generators plt.lattice_part);
-      test_point_in_lattice `NotInt "abstract_to_plt"
+      test_point_in_lattice ~level:`info `NotInt "abstract_to_plt"
         (expanded_univ_translation interp)
         (L.generators plt.tiling_part);
+
       (plt, expanded_univ_translation)
     in
     LocalAbstraction.{ abstract }
@@ -1405,7 +1422,7 @@ end = struct
         let l' = (term, Interpretation.evaluate_term interp term) :: l in
         evaluate (n - 1) l'
     in
-    logf ~level:`debug "model: @[%a@]@;"
+    logf ~level:`info "model: @[%a@]@;"
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
          (fun fmt (t, value) ->
@@ -1430,10 +1447,17 @@ end = struct
          let () = show m in
          models := m :: !models;
          counter := !counter + 1;
-         logf ~level:`debug "Abstraction loop iteration: %d" !counter;
+
+         (* This line needs to be kept when we remove one of the other lines above/below
+            to get faster convergence for count_by_k *)
+         logf ~level:`info "Abstraction loop iteration: %d" !counter;
+
          let points = BatEnum.map model_translation (BatList.enum !models) in
          let result = local_abstraction points src in
-         logf ~level:`debug "Abstraction loop iteration %d done" (!counter - 1);
+
+         (* This line needs to be kept when we remove one of the other marked lines above/below
+            to get faster convergence for count_by_k *)
+         logf ~level:`info "Abstraction loop iteration %d done" !counter;
          result
     in
     let (of_model, solver) =
@@ -1466,7 +1490,10 @@ end = struct
         ~local_abstraction input =
     let formula_of_target dd =
       let fml = formula_of_dd srk term_of_dim dd in
-      logf ~level:`debug "Blocking %a" (Syntax.Formula.pp srk) fml;
+
+      (* Remove this logging to get faster convergence for count_by_k *)
+      logf ~level:`info "Blocking %a" (Syntax.Formula.pp srk) fml;
+
       fml
     in
     let top = P.dd_of ~man (max_dim + 1) P.top in
@@ -2013,6 +2040,7 @@ end = struct
   let abstract_sc ~man ~max_dim_in_projected ~diversify_in_dd =
     let abstract m plt =
       logf ~level:`debug "abstract_sc...";
+
       let abstract_lw =
         let abstract =
           LW.abstract_lw ~elim:(fun dim -> dim > max_dim_in_projected)

@@ -115,6 +115,7 @@ module ConvHull : sig
   val convex_hull:
     'a context ->
     [ `Precise of Plt.abstraction_algorithm
+    | `NoElimFMDScHKMMZ
     | `RealRelaxation of [`FullProject | `Lw]
     | `ElimFMDLw
     ] ->
@@ -124,10 +125,12 @@ module ConvHull : sig
     'a context ->
     (DD.closed DD.t -> DD.closed DD.t -> bool) ->
     [ `Precise of Plt.abstraction_algorithm
+    | `NoElimFMDScHKMMZ
     | `RealRelaxation of [`FullProject | `Lw]
     | `ElimFMDLw
     ] ->
     [ `Precise of Plt.abstraction_algorithm
+    | `NoElimFMDScHKMMZ
     | `RealRelaxation of [`FullProject | `Lw]
     | `ElimFMDLw
     ] ->
@@ -238,6 +241,8 @@ end = struct
     | `RealRelaxation `FullProject ->
        Format.fprintf fmt
          "Desugar LIA terms and Ints into LRA, drop integrality constraints, and compute the convex hull by doing a full projection on each implicant (FMCAD'15)"
+    | `NoElimFMDScHKMMZ ->
+       Format.fprintf fmt "SubspaceCone with HKMMZ without elimination of floor-mod-div terms"
     | `RealRelaxation `Lw ->
        Format.fprintf fmt
          "Desugar LIA terms and Ints into LRA, drop integrality constraints, and compute the convex hull by doing Loos-Weispfenning model-based projection on each implicant and convexifying"
@@ -262,9 +267,13 @@ end = struct
        and free of floor, mod, div.
      *)
     let phi =
-      Syntax.rewrite srk ~down:(nnf_rewriter srk) phi
-      |> rewrite srk ~down:(pos_rewriter srk)
-      |> Syntax.eliminate_floor_mod_div srk
+      begin match how with
+      | `NoElimFMDScHKMMZ -> phi
+      | _ ->
+         Syntax.rewrite srk ~down:(nnf_rewriter srk) phi
+         |> rewrite srk ~down:(pos_rewriter srk)
+         |> Syntax.eliminate_floor_mod_div srk
+      end
     in
     let symbols = Syntax.symbols phi in
 
@@ -299,6 +308,8 @@ end = struct
     let result = match how with
       | `Precise how ->
          Plt.convex_hull how srk phi terms
+      | `NoElimFMDScHKMMZ ->
+         Plt.convex_hull (Plt.SubspaceCone `WithHKMMZCone) srk phi terms
       | `RealRelaxation how -> Plt.convex_hull_of_real_relaxation how srk phi terms
       | `ElimFMDLw ->
          let expanded_phi = Syntax.eliminate_floor_mod_div_int srk phi in
@@ -535,6 +546,14 @@ let spec_list = [
   , "Test convex hulls computed by -lira-convex-hull-sc-hkmmzcone with that of -lira-convex-hull-intfrac"
   );
 
+  ("-compare-convex-hull-sc-hkmmzcone-vs-noelimfmd-sc-hkmmzcone"
+  , Arg.String (fun file ->
+        ConvHull.compare srk
+          DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`NoElimFMDScHKMMZ)
+          (load_formula file))
+  , "Compare convex hulls computed by -lira-convex-hull-sc-hkmmzcone with the same algorithm without floor-mod-div elimination"
+  );
+
   ("-compare-convex-hull-sc-hkmmzcone-vs-real-relaxation-lw"
   , Arg.String (fun file ->
         ConvHull.compare srk
@@ -570,7 +589,7 @@ let spec_list = [
           (`Precise (SubspaceCone `WithHKMMZCone))
           (`RealRelaxation `Lw)
           (load_formula file))
-  , "Compare convex hull of a LIRA formula against that of -lira-convex-hull-elimfmd-lw"
+  , "Compare convex hull of a LIRA formula against that of -lira-convex-hull-real-relaxation-lw"
   );
 
   ("-compare-convex-hull-elimfmd-lw-vs-real-relaxation-lw"
