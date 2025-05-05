@@ -200,7 +200,7 @@ let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =
      match !enable_lira with
      | true ->
         Solver.add solver [Syntax.mk_and srk (Syntax.explicit_ints srk phi)];
-        Plt.abstract (SubspaceCone `Standard) ~man ~bottom solver terms
+        Plt.abstract (SubspaceCone `WithHKMMZCone) ~man ~bottom solver terms
      | false ->
         (* The caller should probably be responsible for relaxing the formula
            in the solver.
@@ -213,7 +213,7 @@ let conv_hull ?(man=Polka.manager_alloc_loose ()) srk phi terms =
   dump_hull_obligations srk phi terms;
   match !enable_lira with
   | true ->
-     let phi_with_ints = Syntax.mk_and srk (Syntax.explicit_ints srk phi) in
+     let phi_with_ints = Syntax.mk_and srk (phi :: Syntax.explicit_ints srk phi) in
      Plt.convex_hull (SubspaceCone `WithHKMMZCone) ~man srk phi_with_ints terms
   | false ->
      Plt.convex_hull_of_real_relaxation `Lw ~man srk phi terms
