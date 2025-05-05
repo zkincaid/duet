@@ -1464,9 +1464,14 @@ let _ =
      Arg.Set Srk.ConvexHull.dump_hull,
      " Output convex hull goals in SMTLIB2 format");
   CmdLine.register_config
-    ("-disable-lira"
+    ("-disable-lira-convex-hull"
     , Arg.Clear ConvexHull.enable_lira
     , " Use real relaxation when computing convex hulls"
+    );
+  CmdLine.register_config
+    ("-enable-lira-convex-hull"
+    , Arg.Set ConvexHull.enable_lira
+    , " Respect integrality constraints when computing convex hulls"
     )
 
 let _ =
