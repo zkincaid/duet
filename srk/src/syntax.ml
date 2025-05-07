@@ -1878,7 +1878,7 @@ let eliminate_is_int srk phi =
             let s = mk_symbol srk ~name:"for_not_int" `TyInt in
             let bound = mk_const srk s in
             mk_and srk [ mk_lt srk bound t
-                       ; mk_leq srk t (mk_add srk [bound; mk_real srk QQ.one])
+                       ; mk_lt srk t (mk_add srk [bound; mk_real srk QQ.one])
               ]
          | _ -> expr
          end
