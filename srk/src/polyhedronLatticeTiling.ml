@@ -971,7 +971,7 @@ end = struct
       let implicant = Interpretation.select_implicant interp phi in
 
       (* Remove this logging to get faster convergence for count_by_k *)
-      logf ~level:`info "abstract_to_plt: abstracting @[%a@]"
+      logf ~level:`debug "abstract_to_plt: abstracting @[%a@]"
         (Format.pp_print_list
            ~pp_sep: (fun fmt () -> Format.fprintf fmt ", ")
            (fun fmt atom -> Syntax.Formula.pp srk fmt atom)
@@ -982,7 +982,7 @@ end = struct
         plt_implicant_of_implicant srk univ_translation expansion interp implicant in
 
       (* Remove this logging to get faster convergence for count_by_k *)
-      log_plt_constraints ~level:`info "abstract_to_plt: abstracted: "
+      log_plt_constraints ~level:`debug "abstract_to_plt: abstracted: "
         (lincond.p_cond, lincond.l_cond, lincond.t_cond);
 
       let imp_p =
@@ -1037,13 +1037,13 @@ end = struct
       in
 
       (* Remove one of the first two tests below to get faster convergence *)
-      test_point_in_polyhedron ~level:`info "abstract_to_plt"
+      test_point_in_polyhedron ~level:`debug "abstract_to_plt"
         (expanded_univ_translation interp)
         (BatList.of_enum (P.enum_constraints plt.poly_part));
-      test_point_in_lattice ~level:`info `IsInt "abstract_to_plt"
+      test_point_in_lattice ~level:`debug `IsInt "abstract_to_plt"
         (expanded_univ_translation interp)
         (L.generators plt.lattice_part);
-      test_point_in_lattice ~level:`info `NotInt "abstract_to_plt"
+      test_point_in_lattice ~level:`debug `NotInt "abstract_to_plt"
         (expanded_univ_translation interp)
         (L.generators plt.tiling_part);
 
@@ -1422,7 +1422,7 @@ end = struct
         let l' = (term, Interpretation.evaluate_term interp term) :: l in
         evaluate (n - 1) l'
     in
-    logf ~level:`info "model: @[%a@]@;"
+    logf ~level:`debug "model: @[%a@]@;"
       (Format.pp_print_list
          ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
          (fun fmt (t, value) ->
@@ -1448,16 +1448,16 @@ end = struct
          models := m :: !models;
          counter := !counter + 1;
 
-         (* This line needs to be kept when we remove one of the other lines above/below
+         (* This line needs to be printed when we remove one of the other lines above/below
             to get faster convergence for count_by_k *)
-         logf ~level:`info "Abstraction loop iteration: %d" !counter;
+         logf ~level:`debug "Abstraction loop iteration: %d" !counter;
 
          let points = BatEnum.map model_translation (BatList.enum !models) in
          let result = local_abstraction points src in
 
-         (* This line needs to be kept when we remove one of the other marked lines above/below
+         (* This line needs to be printed when we remove one of the other marked lines above/below
             to get faster convergence for count_by_k *)
-         logf ~level:`info "Abstraction loop iteration %d done" !counter;
+         logf ~level:`debug "Abstraction loop iteration %d done" !counter;
          result
     in
     let (of_model, solver) =
@@ -1492,7 +1492,7 @@ end = struct
       let fml = formula_of_dd srk term_of_dim dd in
 
       (* Remove this logging to get faster convergence for count_by_k *)
-      logf ~level:`info "Blocking %a" (Syntax.Formula.pp srk) fml;
+      logf ~level:`debug "Blocking %a" (Syntax.Formula.pp srk) fml;
 
       fml
     in
