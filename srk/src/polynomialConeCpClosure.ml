@@ -68,10 +68,10 @@ let make_affine_basis ideal affine_polys : affine_basis =
                        affine_polys in
   let ctx = make_context affine_polys in
   let vectors = List.map (PV.densify_affine ctx) affine_polys in
-  let lattice = IntLattice.hermitize vectors in
+  let lattice = IntLattice.of_generators vectors |> IntLattice.hermitize in
   L.logf ~level:`trace "make_affine_basis: of polynomials: @[%a@]@."
     (pp_poly_list pp_dim) affine_polys;
-  let basis = IntLattice.basis lattice
+  let basis = IntLattice.generators lattice
               |> List.map (fun v -> PV.sparsify_affine ctx v)
   in
   { basis }
@@ -236,6 +236,5 @@ let regular_cutting_plane_closure polynomial_cone lattice_polys =
   L.logf "regular_cutting_plane_closure: concluded, closure is:@;  @[%a@]@;"
     (PolynomialCone.pp pp_dim)
     final_cone;
-  let ideal = Rewrite.generators (PolynomialCone.get_ideal final_cone)
-              |> Ideal.make in
-  (final_cone, PolynomialLattice.make ideal final_lattice.basis)
+  (final_cone, PolynomialLattice.make_lattice (PolynomialCone.get_ideal final_cone)
+                 final_lattice.basis)

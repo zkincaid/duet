@@ -852,6 +852,7 @@ let mk_query ts entry =
 
 let analyze file =
   populate_offset_table file;
+  ConvexHull.dump_hull_prefix := file.filename;
   match file.entry_points with
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
@@ -1088,6 +1089,7 @@ let lift_universals srk phi =
   quantify_universals (Formula.eval srk alg phi)
 
 let prove_termination_main file =
+  ConvexHull.dump_hull_prefix := file.filename;
   populate_offset_table file;
   match file.entry_points with
   | [main] -> begin
@@ -1370,7 +1372,21 @@ let _ =
          | "LIRA" -> Syntax.set_theory srk `LIRA;
          | "LIRR" -> Syntax.set_theory srk `LIRR
          | th -> failwith ("Unrecognized theory: " ^ th)),
-     " Set background theory (LIRA, LIRR)")
+     " Set background theory (LIRA, LIRR)");
+  CmdLine.register_config
+    ("-dump-hulls",
+     Arg.Set Srk.ConvexHull.dump_hull,
+     " Output convex hull goals in SMTLIB2 format");
+  CmdLine.register_config
+    ("-disable-lira-convex-hull"
+    , Arg.Clear ConvexHull.enable_lira
+    , " Use real relaxation when computing convex hulls"
+    );
+  CmdLine.register_config
+    ("-enable-lira-convex-hull"
+    , Arg.Set ConvexHull.enable_lira
+    , " Respect integrality constraints when computing convex hulls"
+    )
 
 let _ =
   CmdLine.register_pass

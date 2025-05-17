@@ -526,10 +526,24 @@ val lift_ite : 'a context -> 'a formula -> 'a formula
    arr_eq terms. *)
 val eliminate_arr_eq : 'a context -> 'a formula -> 'a formula
 
-(** Given a formula [phi], compute an equivalent formula without floor, mod,
-   or div terms that is equivalent to [phi] when projected on to the symbols
+(** Given a formula [phi], compute a formula without floor, mod, and div terms
+    that is equivalent to [phi] when projected on to the symbols
    of [phi]. *)
 val eliminate_floor_mod_div : 'a context -> 'a formula -> 'a formula
+
+(** Given a formula [phi], compute a formula without floor, mod,
+    and div terms and without is_int atoms, whose projection onto the symbols
+    of [phi] is equivalent to [phi]. Projection must respect integrality
+    of symbols.
+ *)
+val eliminate_floor_mod_div_int : 'a context -> 'a formula -> 'a formula
+
+(** [explicit_ints srk phi = [Int(v): v in symbols(phi) that is of type `TyInt].
+ *)
+val explicit_ints: 'a context -> 'a formula -> 'a formula list
+
+val retype: 'a context -> [`IntToReal | `RealToInt] -> 'a formula ->
+            'a formula * symbol Symbol.Map.t
 
 (** Print a formula as a satisfiability query in SMTLIB2 format.
     The query includes function declarations and (check-sat).

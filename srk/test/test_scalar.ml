@@ -31,11 +31,21 @@ let nudge3 () =
   assert_bool "nudge_down(q) = q" (QQ.equal q_lo q);
   assert_bool "q = nudge_up(q)" (QQ.equal q q_hi)
 
+let nudge4 () =
+  let q =
+    QQ.of_string "7101121311700181/210624583337114836055367340864637790190801098222508621955072000120"
+  in
+  let q_lo = QQ.nudge_down ~accuracy:3 q in
+  Log.errorf "Nudge: %a" QQ.pp q_lo;
+  assert_bool "0 < nudge_down(q)" (QQ.lt QQ.zero q_lo);
+  assert_bool "nudge_down(q) <= q" (QQ.leq q_lo q)
+
 let suite = "Scalar" >:::
   [
     "nudge1" >:: nudge1;
     "nudge2" >:: nudge2;
     "nudge3" >:: nudge3;
+    "nudge4" >:: nudge4;
     "mod_neg" >:: (fun () ->
         assert_equal_qq
           (QQ.modulo (QQ.negate (QQ.of_int 3)) (QQ.of_int 2))

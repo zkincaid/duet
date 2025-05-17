@@ -1868,6 +1868,87 @@ let eliminate_floor_mod_div srk phi =
   in
   mk_and srk (phi' :: equivalences)
 
+let eliminate_is_int srk phi =
+  rewrite srk
+    ~down:(fun expr ->
+      match destruct srk expr with
+      | `Not phi ->
+         begin match destruct srk phi with
+         | (`Atom (`IsInt t)) ->
+            let s = mk_symbol srk ~name:"for_not_int" `TyInt in
+            let bound = mk_const srk s in
+            mk_and srk [ mk_lt srk bound t
+                       ; mk_lt srk t (mk_add srk [bound; mk_real srk QQ.one])
+              ]
+         | _ -> expr
+         end
+      | `Atom (`IsInt t) ->
+         let s = mk_symbol srk ~name:"for_is_int" `TyInt
+         in
+         mk_eq srk (mk_const srk s) t
+      | _ -> expr
+    )
+    phi
+
+let eliminate_floor_mod_div_int srk phi =
+  rewrite srk ~down:(nnf_rewriter srk) phi
+  |> rewrite srk ~down:(pos_rewriter srk)
+  |> eliminate_is_int srk
+  |> eliminate_floor_mod_div srk
+
+let explicit_ints srk phi =
+  let is_int sym =
+    match typ_symbol srk sym with
+    | `TyInt -> true
+    | _ -> false
+  in
+  let int_symbols = Symbol.Set.filter is_int (symbols phi) in
+  let is_ints =
+    Symbol.Set.fold
+      (fun sym l -> mk_is_int srk (mk_const srk sym) :: l
+      )
+      int_symbols
+      []
+  in
+  is_ints
+
+let retype srk (fromto: [`IntToReal | `RealToInt]) phi =
+  let retyped_symbol sym =
+    match fromto with
+    | `IntToReal ->
+       mk_symbol srk ~name:(Format.asprintf "%s_realified"
+                              (show_symbol srk sym))
+         `TyReal
+    | `RealToInt ->
+       mk_symbol srk ~name:(Format.asprintf "%s_integralized"
+                              (show_symbol srk sym))
+         `TyInt
+  in
+  let map =
+    Symbol.Set.fold
+      (fun sym map ->
+        match typ_symbol srk sym with
+        | `TyInt ->
+           begin match fromto with
+           | `IntToReal -> Symbol.Map.add sym (retyped_symbol sym) map
+           | `RealToInt -> map
+           end
+        | `TyReal ->
+           begin match fromto with
+           | `RealToInt -> Symbol.Map.add sym (retyped_symbol sym) map
+           | `IntToReal -> map
+           end
+        | _ -> map
+      )
+      (symbols phi)
+      Symbol.Map.empty
+  in
+  let lookup s = try Symbol.Map.find s map with | Not_found -> s in
+  ( substitute_const srk
+      (fun s -> mk_const srk (lookup s)) phi
+  , map
+  )
+
 let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
       srk formatter assertions =
   let open Format in
@@ -1971,7 +2052,8 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
         (SrkUtil.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
     | Var (v, _), [] ->
        (try pp_print_string formatter (Env.find env v)
-       with Not_found -> invalid_arg "pp_smtlib2: free variable")
+        with Not_found ->
+          invalid_arg (Format.asprintf "pp_smtlib2: free variable %s" (show_symbol srk v)))
     | Add, terms ->
       fprintf formatter "(+ @[";
       SrkUtil.pp_print_enum
