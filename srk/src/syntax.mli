@@ -538,10 +538,13 @@ val eliminate_floor_mod_div : 'a context -> 'a formula -> 'a formula
  *)
 val eliminate_floor_mod_div_int : 'a context -> 'a formula -> 'a formula
 
-(** [explicit_ints srk phi = [Int(v): v in symbols(phi) that is of type `TyInt].
- *)
+(** explicit_ints srk phi = {Int(v): v in symbols(phi) that is of type `TyInt}. *)
 val explicit_ints: 'a context -> 'a formula -> 'a formula list
 
+(** [retype srk fromto phi] gives a formula that is syntactically the same as
+    [phi] except that symbols of type [from] are replaced with fresh symbols of
+    type [to], and a map that sends each replaced symbol to the fresh one replacing it.
+ *)
 val retype: 'a context -> [`IntToReal | `RealToInt] -> 'a formula ->
             'a formula * symbol Symbol.Map.t
 

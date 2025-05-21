@@ -1,82 +1,90 @@
-(** Concept space of polyhedron-lattice-tilings (PLTs) *)
+(** (Closed) Convex hulls for LIRA, LIA, and LRA formulas.
 
-module P = Polyhedron
-module V = Linear.QQVector
+    For a formula [F] in a solver or given directly as input, and
+    set of linear/affine terms [T]:
 
-type standard
-type intfrac
-type 'layout plt
+    - LIRA abstraction algorithms compute the closed convex hull of the set of
+      models of [exists X: real. F /\ /\_{x} Int(x) /\ /\_{t in T} y_t = t],
+      where the second conjunct ranges over variables [x] of integer type that
+      occur in [F], and each variable [y_t] is fresh.
 
-val formula_of_dd:
-  'a Syntax.context -> (int -> 'a Syntax.arith_term) -> DD.closed DD.t ->
-  'a Syntax.formula
+    - LIA abstraction algorithms compute the closed convex hull of the set of
+      models of [exists X: real. F /\ /\_{x} Int(x) /\ /\_{t in T} y_t = t],
+      where the second conjunct ranges over all variables [x] that occur in [F],
+      each variable [y_t] is fresh,
+      and each term [t] has integer coefficients.
 
-val formula_of_plt:
-  'a Syntax.context -> (int -> 'a Syntax.arith_term) -> 'layout plt ->
-  'a Syntax.formula
+      If some variable [x] in [F] is not of integer type, or if some term [t]
+      has non-integer coefficients, the result may be unsound
+      (i.e., not an over-approximation) in general.
 
-(*
-val cooper_project: 'a Syntax.context -> 'a Syntax.formula ->
-                    ('a Syntax.arith_term ) Array.t -> standard plt list
+    - LRA abstraction algorithms compute the closed convex hull of the set of
+      models of [exists X: real. F /\ /\_{t in T} y_t = t],
+      where each [y_t] is fresh, and [F] is a formula that is free of [is_int]
+      atoms.
 
-val disjunctive_normal_form:
-  'a Syntax.context -> base_dim:int -> 'a Syntax.formula ->
-  (standard plt list * 'a Syntax.arith_term SrkUtil.Int.Map.t)
+      If some variable [x] in [F] is integer-typed, the result is some set that
+      contains [exists X of declared types. F /\ /\_{t in T} y_t = t]
+      while contained in [exists X: real. F /\ /\_{t in T} y_t = t].
+
+    [F] must have only LRA terms, and hence be free of floor, mod, non-trivial
+    division, etc. This can be done by preprocessing via
+    [Syntax.eliminate_floor_mod_div], which introduces fresh integer-valued
+    variables.
+
+    For global/classical algorithms (baselines), [F] should also be free of
+    [is_int] literals, e.g., removed using
+    [Syntax.eliminate_floor_mod_div_int], which introduces fresh integer-valued
+    variables.
  *)
 
-val eager_hermite: bool ref
+type lira_abstraction =
+  | PolyReccone
+    (** Local projection of the subpolyhedron contained in the
+        integer class of model (roughly) + (i.e., Minkowski sum)
+        recession cone of the local projection of the
+        Loos-Weispfenning MBP subpolyhedron.
+     *)
+  | PolyReccone_LPLH of QQ.t option
+    (** The same as PolyReccone, but joined with the local hull
+        (LH; via HKMMZ) of the local projection (LP) of the PLT.
+        Strict inequalities are rounded to loose ones by shifting
+        using the option; if unspecified, some internal choice is made.
+     *)
+
+(** LIA abstraction requires that every variable is integer-valued
+    and that the target terms have integer coefficients.
+ *)
+type lia_abstraction =
+  | HullThenProject of [`GomoryChvatal | `Normaliz]
+  (** Baseline. Formula should not have [is_int] literals. *)
+  | LPLH
+  (** Local projection of PLT followed by taking local hull. *)
+
+(** LRA abstraction ignores all [is_int] constraints in the implicant and
+    integrality of variables.
+    (But the solver finds models that respect integrality of variables.
+    An LRA over-approximation should in principle be the LRA abstraction of
+    the real relaxation of the formula, where we replace all integer-typed
+    variables with real-typed ones, via [Syntax.retype].)
+ *)
+type lra_abstraction =
+  | FullProject
+  (** Baseline  *)
+  | LwMbp
+  (** Local projection of Loos-Weispfenning MBP subpolyhedron *)
 
 type abstraction_algorithm =
-  | SubspaceCone of [`Standard | `WithHKMMZCone]
-  | IntFrac of [`Standard]
-  (** IntFrac: Each implicant is first transformed into a formula over a vocabulary of
-      fresh variables {x_int, x_frac: x is a variable}, where each [x_int] is
-      integer-valued and 0 <= [x_frac] < 1 for each fractional variable.
-      This formula is equivalent to the implicant under a standard interpretation
-      [x = x_int + x_frac].
-      Formulas in this fragment admit quantifier elimination, so this formula
-      is locally projected onto variables (corresponding to the terms) to keep.
-      Then the mixed integer-hull (with respect to the integer-valued variables)
-      is locally computed, i.e., we get a subpolyhedron of the hull,
-      and this is mapped to the original space via the linear map defined by
-      [x = x_int + x_frac].
-   *)
-  | LwCooperHKMMZCone
-  | ProjectImplicant of
-      [ `AssumeReal of [`FullProject | `Lw]
-      (** Correct when the formula [F] has no [Int] literals AND all variables
-          are of real type.
-          [`FullProject] corresponds to the convex hull algorithm in FMCAD'15;
-          [`Lw] takes the convex hull of disjuncts computed by
-          model-based projection for LRA.
-       *)
-      | `AssumeInt of
-          [ `HullThenProject of [`GomoryChvatal | `Normaliz]
-          | `ProjectThenHull of [`GomoryChvatal | `Normaliz]
-          ]
-        (** Correct when the formula [F] is equivalent modulo the theory of RR to
-            [F' /\ /\_{x in variables(F)} Int(x)], where [F'] is the formula
-            obtained from [F] by deleting all [Int] literals.
-            All variables [v] in [F] that are of integer type should be
-            explicitly constrained as integer-valued via [Int(v)].
-
-            [`GomoryChvatal] and [`Normaliz] compute the integer hull using
-            respective algorithms.
-
-            [`HullThenProject] takes the integer hull followed by full projection.
-            [`ProjectThenHull] does model-based projection using Cooper's algorithm
-            and then takes the integer hull.
-         *)
-      ]
+  | LiraCCH of lira_abstraction
+  | LiaCCH of lia_abstraction
+  | LraCCH of lra_abstraction
 
 (** [convex_hull_of_lira_model how ~man solver terms model] is a subpolyhedron
     of conv.hull({(terms[0](m), ..., terms[len(terms)](m): m |= F)}) that
     contains [model], where [F] is the formula in [solver].
     This polyhedron is computed using [how].
-    All variables [v] in [F] that are of integer type must be explicitly
-    constrained in [F] to take on integer values only via [Int(v)].
  *)
-val convex_hull_of_lira_model:
+val convex_hull_from_lira_model:
   abstraction_algorithm ->
   ?man:(DD.closed Apron.Manager.t) ->
   'a Abstract.Solver.t ->
@@ -87,8 +95,6 @@ val convex_hull_of_lira_model:
     = conv.hull({(terms[0](m), ..., terms[len(terms)](m): m |= F)}),
     where [F] is the formula in [solver].
     This is computed using [how].
-    All variables [v] in [F] that are of integer type must be explicitly
-    constrained in [F] to take on integer values only via [Int(v)].
     [bottom] has to define a subset of the convex hull.
  *)
 val abstract: abstraction_algorithm ->
@@ -101,18 +107,8 @@ val abstract: abstraction_algorithm ->
 (** [convex_hull how ~man srk F terms]
     = conv.hull({(terms[0](m), ..., terms[len(terms)](m): m |= F)}).
     This is computed using [how].
-    Integrality of integer-typed variables in [F] may be left implicit, i.e.,
-    they do not have to be asserted via [Int(v)] in [F].
  *)
 val convex_hull: abstraction_algorithm ->
                  ?man:(DD.closed Apron.Manager.t) ->
                  'a Syntax.context -> 'a Syntax.formula ->
                  ('a Syntax.arith_term) Array.t -> DD.closed DD.t
-
-(** Relaxes the formula into one with no integrality constraints and where all
-    variables are of type real, before taking the convex hull. *)
-val convex_hull_of_real_relaxation:
-  [`FullProject | `Lw] ->
-  ?man:(DD.closed Apron.Manager.t) ->
-  'a Syntax.context -> 'a Syntax.formula ->
-  ('a Syntax.arith_term) Array.t -> DD.closed DD.t
