@@ -1082,6 +1082,12 @@ end
 
 module PltConvexHull : sig
 
+  val local_project_local_hull:
+    man:DD.closed Apron.Manager.t ->
+    max_dim_in_target:int ->
+    epsilon:Q.t ->
+    (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) LocalAbstraction.t
+
   (** This is a compact local abstraction. *)
   val local_project_polyreccone :
     man:DD.closed Apron.Manager.t ->
@@ -1202,6 +1208,11 @@ module ConvexHull : sig
     'a context -> 'a arith_term array -> Symbol.Set.t ->
     ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t
 
+  val by_lplh:
+    ?man: DD.closed Apron.Manager.t -> epsilon: QQ.t ->
+    'a context -> 'a arith_term array -> Symbol.Set.t ->
+    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t
+
   val by_polyreccone_and_lplh:
     ?man: DD.closed Apron.Manager.t -> epsilon: QQ.t ->
     'a context -> 'a arith_term array -> Symbol.Set.t ->
@@ -1297,6 +1308,13 @@ end = struct
     cubify
     |> compose (PltConvexHull.by_polyreccone_and_lplh ~man ~epsilon ~max_dim_in_target)
 
+  let by_lplh ?(man=Polka.manager_alloc_loose()) ~epsilon srk terms symbols =
+    let (cubify, _) = Plt.cubify srk terms symbols in
+    let max_dim_in_target = Array.length terms - 1 in
+    let compose = LocalAbstraction.compose in
+    cubify
+    |> compose (PltConvexHull.local_project_local_hull ~man ~epsilon ~max_dim_in_target)
+
   let by_polyreccone ?(man=Polka.manager_alloc_loose()) srk terms symbols =
     let (cubify, _) = Plt.cubify srk terms symbols in
     let max_dim_in_target = Array.length terms - 1 in
@@ -1377,6 +1395,7 @@ end
 
 type lira_abstraction =
   | PolyReccone
+  | Lplh of QQ.t option
   | PolyReccone_LPLH of QQ.t option
 
 type lia_abstraction =
@@ -1398,6 +1417,10 @@ let local_abstraction ~man srk terms symbols how =
   match how with
   | LiraCCH PolyReccone ->
      ConvexHull.by_polyreccone ~man srk terms symbols
+  | LiraCCH (Lplh eps) ->
+     let epsilon = match eps with | None -> !default_epsilon | Some epsilon -> epsilon
+     in
+     ConvexHull.by_lplh ~man ~epsilon srk terms symbols
   | LiraCCH (PolyReccone_LPLH eps) ->
      let epsilon = match eps with | None -> !default_epsilon | Some epsilon -> epsilon
      in

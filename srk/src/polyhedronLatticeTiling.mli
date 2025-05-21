@@ -45,6 +45,8 @@ type lira_abstraction =
         recession cone of the local projection of the
         Loos-Weispfenning MBP subpolyhedron.
      *)
+  | Lplh of QQ.t option
+    (** Local projection of the PLT followed by taking local hull (via HKMMZ) *)
   | PolyReccone_LPLH of QQ.t option
     (** The same as PolyReccone, but joined with the local hull
         (LH; via HKMMZ) of the local projection (LP) of the PLT.
