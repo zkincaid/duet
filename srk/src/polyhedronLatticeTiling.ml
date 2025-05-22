@@ -954,12 +954,12 @@ end = struct
          `Term (select_term (kind, term) m)
     in
     let polyhedron = virtual_sub virtual_sub_p term_selected elim_dim p in
-    let virtual_sub_lattice =
+    let virtual_sub_lattice term_selected elim_dim l =
       match modulus with
       | `Fixed modulus -> (* "integer" case *)
-         virtual_sub (virtual_sub_l modulus m)
+         virtual_sub (virtual_sub_l modulus m) term_selected elim_dim l
       | `Epsilon_modulus -> (* real case *)
-         assert false
+         l
     in
     let lattice = virtual_sub_lattice term_selected elim_dim l in
     let tiling = virtual_sub_lattice term_selected elim_dim t in
