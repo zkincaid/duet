@@ -45,7 +45,7 @@ type lira_abstraction =
         recession cone of the local projection of the
         Loos-Weispfenning MBP subpolyhedron.
      *)
-  | Lplh of QQ.t option
+  | LiraLPLH of QQ.t option
     (** Local projection of the PLT followed by taking local hull (via HKMMZ) *)
   | PolyReccone_LPLH of QQ.t option
     (** The same as PolyReccone, but joined with the local hull
@@ -60,7 +60,7 @@ type lira_abstraction =
 type lia_abstraction =
   | HullThenProject of [`GomoryChvatal | `Normaliz]
   (** Baseline. Formula should not have [is_int] literals. *)
-  | LPLH
+  | LiaLPLH
   (** Local projection of PLT followed by taking local hull. *)
 
 (** LRA abstraction ignores all [is_int] constraints in the implicant and
@@ -81,7 +81,7 @@ type abstraction_algorithm =
   | LiaCCH of lia_abstraction
   | LraCCH of lra_abstraction
 
-(** [convex_hull_of_lira_model how ~man solver terms model] is a subpolyhedron
+(** [convex_hull_from_lira_model how ~man solver terms model] is a subpolyhedron
     of conv.hull({(terms[0](m), ..., terms[len(terms)](m): m |= F)}) that
     contains [model], where [F] is the formula in [solver].
     This polyhedron is computed using [how].

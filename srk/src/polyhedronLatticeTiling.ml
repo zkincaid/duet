@@ -1395,12 +1395,12 @@ end
 
 type lira_abstraction =
   | PolyReccone
-  | Lplh of QQ.t option
+  | LiraLPLH of QQ.t option
   | PolyReccone_LPLH of QQ.t option
 
 type lia_abstraction =
   | HullThenProject of [`GomoryChvatal | `Normaliz]
-  | LPLH
+  | LiaLPLH
 
 type lra_abstraction =
   | FullProject
@@ -1417,7 +1417,7 @@ let local_abstraction ~man srk terms symbols how =
   match how with
   | LiraCCH PolyReccone ->
      ConvexHull.by_polyreccone ~man srk terms symbols
-  | LiraCCH (Lplh eps) ->
+  | LiraCCH (LiraLPLH eps) ->
      let epsilon = match eps with | None -> !default_epsilon | Some epsilon -> epsilon
      in
      ConvexHull.by_lplh ~man ~epsilon srk terms symbols
@@ -1429,7 +1429,7 @@ let local_abstraction ~man srk terms symbols how =
      ConvexHull.by_hull_then_project_assuming_integer `GomoryChvatal ~man srk terms symbols
   | LiaCCH (HullThenProject `Normaliz) ->
      ConvexHull.by_hull_then_project_assuming_integer `Normaliz ~man srk terms symbols
-  | LiaCCH LPLH ->
+  | LiaCCH LiaLPLH ->
      ConvexHull.by_lplh_assuming_integer ~man srk terms symbols
   | LraCCH FullProject ->
      ConvexHull.by_full_project_assuming_real ~man srk terms symbols

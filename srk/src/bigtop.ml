@@ -70,79 +70,137 @@ let print_result = function
   | `Unsat -> Format.printf "unsat@\n"
   | `Unknown -> Format.printf "unknown@\n"
 
-let retype_formula srk fromto phi =
-  let (qf, phi) = Quantifier.normalize srk phi in
-  let requantify quantifiers phi =
-    List.fold_left
-      (fun phi sym ->
-        mk_exists_const srk sym phi)
-      phi
-      (List.rev quantifiers)
-  in
-  if List.exists (fun (q, _) -> q = `Forall) qf then
-    failwith "universal quantification not supported"
-  else
-    let expanded_phi = Syntax.eliminate_floor_mod_div_int srk phi in
-    let introduced_symbols = Symbol.Set.diff (symbols expanded_phi) (symbols phi) in
-    let (retyped_expanded, map) = Syntax.retype srk fromto expanded_phi in
-    let equivalent = (Symbol.Map.is_empty map) in
-    let remap_symbols s =
-      match Symbol.Map.find_opt s map with
-      | Some new_sym -> new_sym
-      | None -> s
-    in
-    let new_quantified_symbols =
-      let retyped_original = List.map (fun (_, sym) -> remap_symbols sym) qf in
-      let retyped_introduced = Symbol.Set.map remap_symbols introduced_symbols
-                               |> Symbol.Set.to_list
-      in
-      retyped_original @ retyped_introduced
-    in
-    ( requantify new_quantified_symbols retyped_expanded
-    , equivalent
-    , remap_symbols )
-
 module Plt = PolyhedronLatticeTiling
 
 module ConvHull : sig
 
-  val ignore_quantifiers_in_convhull: unit -> unit
-
   val dd_subset: DD.closed DD.t -> DD.closed DD.t -> bool
 
-  val acceleration_window: int ref
+  (* Both [`JustLraFormula] and [`Realified] purify the formula to get an LRA formula,
+     but the latter also replace integer symbols with real ones.
+   *)
+  type real_relaxation = NoRelax | JustLraFormula | Realified
 
-  val convex_hull:
-    'a context ->
-    [ `Precise of Plt.abstraction_algorithm
-    | `NoElimFMDScHKMMZ
-    | `RealRelaxation of [`FullProject | `Lw]
-    | `ElimFMDLw
-    ] ->
-    'a formula -> DD.closed DD.t
+  val relax_to_real: real_relaxation ref
+
+  val keep_floor_mod_div: bool ref
+
+  val convex_hull: 'a context ->
+                   Plt.abstraction_algorithm -> 'a formula -> DD.closed DD.t
 
   val compare:
     'a context ->
     (DD.closed DD.t -> DD.closed DD.t -> bool) ->
-    [ `Precise of Plt.abstraction_algorithm
-    | `NoElimFMDScHKMMZ
-    | `RealRelaxation of [`FullProject | `Lw]
-    | `ElimFMDLw
-    ] ->
-    [ `Precise of Plt.abstraction_algorithm
-    | `NoElimFMDScHKMMZ
-    | `RealRelaxation of [`FullProject | `Lw]
-    | `ElimFMDLw
-    ] ->
+    Plt.abstraction_algorithm * real_relaxation ->
+    Plt.abstraction_algorithm * real_relaxation ->
     'a formula -> unit
+
+  (* `LiraToLra
+     - Remove floor, mod, div, is_int, and replace all real variables with integer ones
+
+     `LiraToLia:
+     - `JustSymbols: just replace real variables with integer ones;
+     - `LraTerms: in addition with floor, mod, div removed;
+     - `LraFormula: in addition with [is_int] removed.
+
+     For `IntToReal, floor-mod-div-ints are always removed to get an LRA formula.
+   *)
+  val retype_formula:
+    'a context ->
+    [ `LiraToLra
+    | `LiraToLia of [`JustSymbols | `LraTerms | `LraFormula]] ->
+    'a formula -> 'a formula * bool
 
 end = struct
 
   module S = Syntax.Symbol.Set
 
-  let ignore_quantifiers = ref false
+  type real_relaxation = NoRelax | JustLraFormula | Realified
 
-  let ignore_quantifiers_in_convhull () = ignore_quantifiers := true
+  (* Purify using floor_mod_div by default *)
+  let keep_floor_mod_div = ref false
+  let relax_to_real = ref NoRelax
+
+  let pp_alg fmt alg =
+    let open Plt in
+    let alg_name =
+      match alg with
+      | LiraCCH PolyReccone -> "PolyReccone"
+      | LiraCCH (LiraLPLH _) -> "Lira-LPLH"
+      | LiraCCH (PolyReccone_LPLH _) -> "PolyReccone & LPLH"
+      | LiaCCH (HullThenProject `GomoryChvatal) -> "Gomory-Chvatal"
+      | LiaCCH (HullThenProject `Normaliz) -> "Normaliz"
+      | LiaCCH LiaLPLH -> "Integer-LPLH"
+      | LraCCH FullProject -> "Real-projection"
+      | LraCCH LwMbp -> "Real-LP"
+    in
+    let preprocessing =
+      match (!relax_to_real, !keep_floor_mod_div) with
+      | (Realified, true) -> " of real relaxation (of non-preprocessed formula)"
+      | (JustLraFormula, true) -> " of partial real relaxation (of non-preprocessed formula)"
+      | (NoRelax, true) -> " (of non-preprocessed formula)"
+      | (Realified, false) -> " of real relaxation (of formula)"
+      | (JustLraFormula, false) -> " of partial real relaxation (of formula)"
+      | (NoRelax, false) -> ""
+    in
+    Format.fprintf fmt "%s%s" alg_name preprocessing
+
+  let pp_relaxation fmt = function
+    | NoRelax -> Format.fprintf fmt "no relax"
+    | JustLraFormula -> Format.fprintf fmt "relaxed to LRA formula with types preserved"
+    | Realified -> Format.fprintf fmt "real relaxation"
+
+  let retype_quantifier_free srk how phi =
+    let retype fml =
+      match how with
+      | `LiraToLra -> Syntax.retype srk `IntToReal fml
+      | `LiraToLia _ -> Syntax.retype srk `RealToInt fml
+    in
+    let preprocess fml = match how with
+      | `LiraToLra -> Syntax.eliminate_floor_mod_div_int srk fml
+      | `LiraToLia `LraTerms -> Syntax.eliminate_floor_mod_div srk fml
+      | `LiraToLia `LraFormula -> Syntax.eliminate_floor_mod_div_int srk fml
+      | `LiraToLia `JustSymbols -> fml
+    in
+    let processed_phi =
+      Syntax.rewrite srk ~down:(nnf_rewriter srk) phi
+      |> rewrite srk ~down:(pos_rewriter srk)
+      |> preprocess in
+    let introduced_symbols = S.diff (symbols processed_phi) (symbols phi) in
+    let (retyped_processed, map) = retype processed_phi in
+    let remap_symbols s =
+      match Symbol.Map.find_opt s map with
+      | Some new_sym -> new_sym
+      | None -> s
+    in
+    let introduced_symbols' =
+      introduced_symbols |> S.map remap_symbols |> S.to_list
+    in
+    let equivalent = (Symbol.Map.is_empty map) in
+    (retyped_processed, introduced_symbols', remap_symbols, equivalent)
+
+  let retype_formula srk
+        (how : [ `LiraToLra
+               | `LiraToLia of [`JustSymbols | `LraTerms | `LraFormula]])
+        phi =
+    let (qf, phi) = Quantifier.normalize srk phi in
+    let requantify quantifiers phi =
+      List.fold_left
+        (fun phi sym ->
+          mk_exists_const srk sym phi)
+        phi
+        (List.rev quantifiers)
+    in
+    if List.exists (fun (q, _) -> q = `Forall) qf then
+      failwith "universal quantification not supported"
+    else
+      let (phi', introduced_symbols, remap, equivalent) =
+        retype_quantifier_free srk how phi in
+      let new_quantified_symbols =
+        let retyped_original = List.map (fun (_, sym) -> remap sym) qf in
+        retyped_original @ introduced_symbols
+      in
+      ( requantify new_quantified_symbols phi', equivalent )
 
   let pp_dim fmt dim = Format.fprintf fmt "(dim %d)" dim
 
@@ -152,11 +210,6 @@ end = struct
         DD.implies dd1 cnstrnt)
       (DD.enum_constraints dd2)
 
-  let elim_quantifiers quantifiers symbols =
-    S.filter
-      (fun s -> not (List.exists (fun (_, elim) -> s = elim) quantifiers))
-      symbols
-
   let pp_symbols fmt set =
     Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "@\n")
       (fun fmt sym ->
@@ -164,123 +217,60 @@ end = struct
           (Syntax.pp_symbol srk) sym pp_typ (typ_symbol srk sym))
       fmt (S.to_list set)
 
-  let acceleration_window = ref 1
+  let term_of_vector srk term_of_dim v =
+    let open Syntax in
+    Linear.QQVector.enum v
+    |> BatEnum.fold
+         (fun summands (coeff, dim) ->
+           if dim <> Linear.const_dim then
+             mk_mul srk [mk_real srk coeff; term_of_dim dim] :: summands
+           else
+             mk_real srk coeff :: summands)
+         []
+    |> mk_add srk
 
-  (*
-  let pp_alg fmt = function
-    | `SubspaceCone -> Format.fprintf fmt "SubspaceCone"
-    | `SubspaceConeAccelerated `DiversifyInOriginal ->
-       Format.fprintf fmt
-         "SubspaceConeAccelerated (using previous %d models in the PLT as a hint)"
-         !acceleration_window
-    | `SubspaceConeAccelerated `DiversifyInDD ->
-       Format.fprintf fmt
-         "SubspaceConeAccelerated (using vertices of LW-Cooper projection as a hint)"
-    | `SubspaceConeAccelerated `DiversifyInBoth ->
-       Format.fprintf fmt
-         "SubspaceConeAccelerated (using previous %d models and the vertices of LW-Cooper projection as a hint)" !acceleration_window
-    | `SubspaceConePrecondAccelerate -> Format.fprintf fmt "SubspaceConePrecondAccelerated"
-    | `IntFrac -> Format.fprintf fmt "IntFrac"
-    | `IntFracAccelerated ->
-       Format.fprintf fmt "IntFracAccelerated(window=%d)" !acceleration_window
-    | `LwCooper `IntRealHullAfterProjection ->
-       Format.fprintf fmt "LW + Cooper with mixed hull after projection"
-    | `LwCooper `IntHullAfterProjection ->
-       Format.fprintf fmt "LW + Cooper with integer hull after projection"
-    | `LwCooper `NoIntHullAfterProjection ->
-       Format.fprintf fmt "LW + Cooper"
-    | `Lw ->
-       Format.fprintf fmt
-         "LW only (ignore integrality constraints on all symbols when projecting)"
-    | `GcThenElim ->
-       Format.fprintf fmt
-         "Compute integer hull using Gomory-Chvatal closure and DD projection
-          directly onto free symbols (i.e., eliminate existentially quantified symbols)"
-    | `GcImplicantThenProjectTerms ->
-       Format.fprintf fmt
-         "Compute integer hull using Gomory-Chvatal closure on each implicant and DD projection
-          onto term dimensions (with each term being a free symbol)"
-    | `NormalizThenElim ->
-       Format.fprintf fmt "Compute integer hull using Normaliz and DD projection"
-    | `RunOnlyForPureInt ->
-       Format.fprintf fmt "SubspaceConeAccelerated (running on pure integer tasks only)"
-   *)
+  let formula_p srk term_of_dim (kind, v) =
+    let t = term_of_vector srk term_of_dim v in
+    match kind with
+    | `Zero -> mk_eq srk t (mk_zero srk)
+    | `Nonneg -> mk_leq srk (mk_zero srk) t
+    | `Pos -> mk_lt srk (mk_zero srk) t
 
-  let pp_alg fmt = function
-    | `Precise how ->
-       begin match how with
-       | Plt.SubspaceCone `Standard -> Format.fprintf fmt "SubspaceCone"
-       | Plt.SubspaceCone `WithHKMMZCone ->
-          Format.fprintf fmt
-            "SubspaceCone joined with the polyhedron of far lattice points"
-       | Plt.IntFrac `Standard ->
-          Format.fprintf fmt "IntFrac with lattice hull underapproximated using HKMMZCone"
-       | Plt.LwCooperHKMMZCone ->
-          Format.fprintf fmt "%s"
-            (String.concat " "
-               [ "Loos-Weispfenning model-based projection for real dimensions +"
-               ; "Cooper model-based projection for dimensions appearing in Int constraints +"
-               ; "convexify projected PLT using HKMMZ" ])
-       | Plt.ProjectImplicant (`AssumeReal `FullProject) ->
-          Format.fprintf fmt "FMCAD'15"
-       | Plt.ProjectImplicant (`AssumeReal `Lw) ->
-          Format.fprintf fmt "Loos-Weispfenning model-based projection + convexify"
-       | Plt.ProjectImplicant (`AssumeInt (`HullThenProject `GomoryChvatal)) ->
-          Format.fprintf fmt
-            "Integer hull of each implicant using Gomory-Chvatal closure followed by DD projection"
-       | Plt.ProjectImplicant (`AssumeInt (`HullThenProject `Normaliz)) ->
-          Format.fprintf fmt
-            "Integer hull of each implicant using Normaliz followed by DD projection"
-       | Plt.ProjectImplicant (`AssumeInt (`ProjectThenHull `GomoryChvatal)) ->
-          Format.fprintf fmt
-            "Cooper's MBP of each implicant followed by integer hull using Gomory-Chvatal closure"
-       | Plt.ProjectImplicant (`AssumeInt (`ProjectThenHull `Normaliz)) ->
-          Format.fprintf fmt
-            "Cooper's MBP of each implicant followed by integer hull using Normaliz"
-       end
-    | `RealRelaxation `FullProject ->
-       Format.fprintf fmt
-         "Desugar LIA terms and Ints into LRA, drop integrality constraints, and compute the convex hull by doing a full projection on each implicant (FMCAD'15)"
-    | `NoElimFMDScHKMMZ ->
-       Format.fprintf fmt "SubspaceCone with HKMMZ without elimination of floor-mod-div terms"
-    | `RealRelaxation `Lw ->
-       Format.fprintf fmt
-         "Desugar LIA terms and Ints into LRA, drop integrality constraints, and compute the convex hull by doing Loos-Weispfenning model-based projection on each implicant and convexifying"
-    | `ElimFMDLw ->
-       Format.fprintf fmt
-         "Desugar LIA terms and Ints, KEEP integrality constraints in SMT solver, and compute the convex hull by doing Loos-Weispfenning model-based projection on each implicant and convexifying"
+  let formula_of_dd srk term_of_dim dd =
+    DD.enum_constraints dd
+    |> BatEnum.fold
+         (fun atoms (kind, v) ->
+           formula_p srk term_of_dim (kind, v) :: atoms) []
+    |> List.rev
+    |> mk_and srk
 
   let convex_hull srk how phi =
     let (qf, phi) = Quantifier.normalize srk phi in
     if List.exists (fun (q, _) -> q = `Forall) qf then
       failwith "universal quantification not supported";
-    let symbols = Syntax.symbols phi in
-    let symbols_to_keep = elim_quantifiers qf symbols in
+    let (processed_phi, remap) =
+      match !relax_to_real with
+      | Realified ->
+         let (phi', _, map, _) = retype_quantifier_free srk `LiraToLra phi in
+         (phi', map)
+      | JustLraFormula ->
+         (Syntax.eliminate_floor_mod_div_int srk phi, (fun s -> s))
+      | NoRelax ->
+         if !keep_floor_mod_div then
+           (phi, (fun s -> s))
+         else
+           (Syntax.eliminate_floor_mod_div srk phi, (fun s -> s))
+    in
+    let symbols_to_eliminate = List.map (fun (_, sym) -> remap sym) qf |> S.of_list in
+    let symbols = Syntax.symbols processed_phi in
+    let symbols_to_keep = S.diff symbols symbols_to_eliminate in
     let terms =
       symbols_to_keep
       |> (fun set -> S.fold (fun sym terms -> mk_const srk sym :: terms) set [])
       |> List.rev
       |> Array.of_list
     in
-
-    (* Normalize formula to be in LIRA(X), which requires formulas to be in NNF
-       and free of floor, mod, div.
-     *)
-    let phi =
-      begin match how with
-      | `NoElimFMDScHKMMZ -> phi
-      | _ ->
-         Syntax.rewrite srk ~down:(nnf_rewriter srk) phi
-         |> rewrite srk ~down:(pos_rewriter srk)
-         |> Syntax.eliminate_floor_mod_div srk
-      end
-    in
-    let symbols = Syntax.symbols phi in
-
     let print_input () =
-      let symbols_to_eliminate =
-        S.filter (fun sym -> not (S.mem sym symbols_to_keep)) symbols
-      in
       let (int_symbols, _real_symbols) =
         let is_int sym =
           match Syntax.typ_symbol srk sym with
@@ -292,11 +282,10 @@ end = struct
           | `TyReal -> true
           | _ -> false
         in
-        let symbols = Syntax.symbols phi in
         (S.filter is_int symbols, S.filter is_real symbols)
       in
       Format.printf "Taking convex hull of formula: @[%a@]@;"
-        (Syntax.Formula.pp srk) phi;
+        (Syntax.Formula.pp srk) processed_phi;
       Format.printf "Symbols to keep: @[%a@]@;" pp_symbols symbols_to_keep;
       Format.printf "Symbols to eliminate: @[%a@]@;" pp_symbols symbols_to_eliminate;
       Format.printf "Integer symbols: @[%a@]@;"
@@ -305,42 +294,37 @@ end = struct
         (Symbol.Set.to_list int_symbols)
     in
     print_input ();
-    let result = match how with
-      | `Precise how ->
-         Plt.convex_hull how srk phi terms
-      | `NoElimFMDScHKMMZ ->
-         Plt.convex_hull (Plt.SubspaceCone `WithHKMMZCone) srk phi terms
-      | `RealRelaxation how -> Plt.convex_hull_of_real_relaxation how srk phi terms
-      | `ElimFMDLw ->
-         let expanded_phi = Syntax.eliminate_floor_mod_div_int srk phi in
-         Plt.convex_hull (ProjectImplicant (`AssumeReal `Lw)) srk expanded_phi terms
-    in
+    let result = Plt.convex_hull how srk processed_phi terms in
     Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
       (Syntax.Formula.pp srk)
-      (Plt.formula_of_dd srk (fun dim -> terms.(dim)) result);
+      (formula_of_dd srk (fun dim -> terms.(dim)) result);
     result
 
-  let compare srk test alg1 alg2 phi =
-    Format.printf "Comparing convex hulls computed by %a and by %a@\n"
-      pp_alg alg1 pp_alg alg2;
+  let compare srk test (alg1, relax1) (alg2, relax2) phi =
+    Format.printf "Comparing convex hulls computed by %a (%a) and by %a (%a)@\n"
+      pp_alg alg1 pp_relaxation relax1 pp_alg alg2 pp_relaxation relax2;
+
+    relax_to_real := relax1;
     let hull1 = convex_hull srk alg1 phi in
-    let () =
-      Format.printf "%a hull: @[%a@]@\n@\n" pp_alg alg1 (DD.pp pp_dim) hull1 in
+    Format.printf "%a hull: @[%a (%a)@]@\n@\n" pp_alg alg1 pp_relaxation relax1
+      (DD.pp pp_dim) hull1;
+
+    relax_to_real := relax2;
     let hull2 = convex_hull srk alg2 phi in
-    let () =
-      Format.printf "%a hull: @[%a@]@\n@\n" pp_alg alg2 (DD.pp pp_dim) hull2 in
+    Format.printf "%a hull: @[%a (%a)@]@\n@\n" pp_alg alg2 pp_relaxation relax2 (DD.pp pp_dim) hull2;
+
     if test hull1 hull2 then
       Format.printf "Result: success"
     else
       if dd_subset hull1 hull2 then
-        Format.printf "Result: failure (%a is more precise)"
-          pp_alg alg1
+        Format.printf "Result: failure (%a (%a) is more precise)"
+          pp_alg alg1 pp_relaxation relax1
       else if dd_subset hull2 hull1 then
-        Format.printf "Result: failure (%a is more precise)"
-          pp_alg alg2
+        Format.printf "Result: failure (%a (%a) is more precise)"
+          pp_alg alg2 pp_relaxation relax2
       else
-        Format.printf "Result: failure (%a and %a incomparable)"
-          pp_alg alg1 pp_alg alg2
+        Format.printf "Result: failure (%a (%a) and %a (%a) incomparable)"
+          pp_alg alg1 pp_relaxation relax1 pp_alg alg2 pp_relaxation relax2
 
 end
 
@@ -372,315 +356,159 @@ let spec_list = [
    Arg.Set generator_rep,
    " Print generator representation of convex hull");
 
-  ("-no-projection",
-   Arg.Unit (fun () -> ConvHull.ignore_quantifiers_in_convhull ()),
-   "Ignore existential quantifiers when computing convex hull"
-  );
-
-  ("-lira-convex-hull-sc"
+  ("-lira-convex-hull-pc"
   , Arg.String
       (fun file ->
+        ConvHull.relax_to_real := NoRelax;
         ignore
-          (ConvHull.convex_hull srk (`Precise (SubspaceCone `Standard))
+          (ConvHull.convex_hull srk (Plt.LiraCCH PolyReccone)
              (load_formula file));
         Format.printf "Result: success"
       )
   ,
-    "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     using the subspace-and-cone abstraction"
+    "Compute the convex hull of an existential formula in LIRA
+     using the polyhedral-level-set-and-recession-cone abstraction"
   );
 
-  (*
-  ("-lira-acceleration-window"
-  , Arg.Int (fun n -> Format.printf "Setting window size to %d" n;
-                      ConvHull.acceleration_window := n)
-  , "Set the window size of models that accelerated convex hull methods use"
-  );
-
-  ("-lira-convex-hull-sc-accelerated"
+  ("-lira-convex-hull-lplh"
   , Arg.String
       (fun file ->
-        ignore (ConvHull.convex_hull srk
-                  (`SubspaceConeAccelerated `DiversifyInOriginal)
-                  (load_formula file));
-        Format.printf "Result: success"
-      )
-  ,
-    "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     using the subspace-and-cone abstraction accelerated by using the previous model
-     as a hint."
-  );
-
-  ("-lira-convex-hull-sc-diversify-in-both"
-  , Arg.String
-      (fun file ->
-        ignore (ConvHull.convex_hull srk
-                  (`SubspaceConeAccelerated `DiversifyInBoth)
-                  (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     using the subspace-and-cone abstraction accelerated by using the previous model
-     and vertices of the LW-Cooper projection as a hint."
-  );
-
-  ("-lira-convex-hull-sc-precond-accelerate"
-  , Arg.String
-      (fun file ->
-          ignore (ConvHull.convex_hull srk `SubspaceConePrecondAccelerate (load_formula file));
-          Format.printf "Result: success"
-      )
-  ,
-    "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     using the subspace-and-cone abstraction"
-  );
-   *)
-
-  ("-lira-convex-hull-intfrac"
-  , Arg.String
-      (fun file ->
-        ignore (ConvHull.convex_hull srk (`Precise (IntFrac `Standard))
-                  (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     using integer-fractional polyhedra-lattice-tilings"
-  );
-
-  (*
-  ("-lira-convex-hull-intfrac-accelerated"
-  , Arg.String
-      (fun file ->
-        ignore (ConvHull.convex_hull srk `IntFracAccelerated (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     using integer-fractional polyhedra-lattice-tilings"
-  );
-   *)
-
-  ("-lira-convex-hull-lwcooper-hkmmzcone"
-  , Arg.String
-      (fun file ->
+        ConvHull.relax_to_real := NoRelax;
         ignore
-          (ConvHull.convex_hull srk (`Precise LwCooperHKMMZCone) (load_formula file));
+          (ConvHull.convex_hull srk (Plt.LiraCCH (LiraLPLH None)) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in linear integer-real
-     arithmetic by model-based projection using Loos-Weispfenning elimination
-     for variables not occurring in integrality constraints and
-     (sound) Cooper model-based projection for variables that occur in
-     integrality constraints, and taking the convex hull of lattice points
-     that are far away using the algorithm from
+  , "Compute the convex hull of an existential formula in LIRA using local projection
+     followed by taking local hull, the latter of which is based on
      'An efficient quantifier elimination procedure for Presburger arithmetic' (ICALP 2024))."
   );
 
-  ("-lira-convex-hull-sc-hkmmzcone"
+  ("-lira-convex-hull-pc-lplh"
   , Arg.String
       (fun file ->
-        ignore (ConvHull.convex_hull srk
-                  (`Precise (SubspaceCone `WithHKMMZCone))
-                  (load_formula file));
+        ConvHull.relax_to_real := NoRelax;
+        ignore (ConvHull.convex_hull srk (Plt.LiraCCH (PolyReccone_LPLH None)) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     using -lira-convex-hull-sc and -lira-convex-hull-lwcooper-hkmmzcone"
+  , "Compute the convex hull of an existential formula in LIRA using the join of
+     -lira-convex-hull-pc and -lira-convex-hull-lplh"
   );
 
   ("-lira-convex-hull-real-relaxation-lw"
   , Arg.String
       (fun file ->
-        ignore (ConvHull.convex_hull srk (`RealRelaxation `Lw) (load_formula file));
+        ConvHull.relax_to_real := Realified;
+        ignore (ConvHull.convex_hull srk (LraCCH LwMbp) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     by desugaring LIA terms and Ints into LRA, dropping integrality constraints
-     (integer-typed variables are replaced with real-typed ones), and projecting each
-     implicant using Loos-Weispfening model-based projection"
+  , "Compute the convex hull of an existential formula in LIRA by first expressing it as an equivalent formula in the signature of LRA using more variables, casting all variables to real, and then doing local projection."
   );
 
   ("-lira-convex-hull-real-relaxation-fmcad15"
   , Arg.String
       (fun file ->
-        ignore (ConvHull.convex_hull srk (`RealRelaxation `FullProject) (load_formula file));
+        ConvHull.relax_to_real := Realified;
+        ignore (ConvHull.convex_hull srk (LraCCH FullProject) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     by desugaring LIA terms and Ints into LRA, dropping integrality constraints
-     (integer-typed variables are replaced with real-typed ones), and projecting each
-     implicant using Loos-Weispfening model-based projection"
+  , "Compute the convex hull of an existential formula in LIRA by by first expressing it as an equivalent formula in the signature of LRA using more variables, casting all variables to real, and then doing a full projection (FMCAD'15)."
   );
 
-  ("-lira-convex-hull-elimfmd-lw"
-  , Arg.String
-      (fun file ->
-        ignore (ConvHull.convex_hull srk `ElimFMDLw (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in linear integer-real arithmetic
-     by desugaring LIA terms and Ints into LRA, KEEPING integrality constraints in the
-     SMT solver, and projecting each implicant using Loos-Weispfening model-based projection"
-  );
-
-  ("-compare-convex-hull-sc-vs-sc-hkmmzcone"
+  ("-compare-lira-convex-hull-pc-lplh-vs-pc"
   , Arg.String (fun file ->
         ConvHull.compare srk
-          DD.equal (`Precise (SubspaceCone `Standard)) (`Precise (SubspaceCone `WithHKMMZCone))
+          DD.equal (LiraCCH (PolyReccone_LPLH None), NoRelax) (LiraCCH PolyReccone, NoRelax)
           (load_formula file))
   , "Test convex hulls for correctness"
   );
 
-  ("-compare-convex-hull-sc-hkmmzcone-vs-lwcooper-hkmmzcone"
+  ("-compare-lira-convex-hull-pc-lplh-vs-lira-lplh"
   , Arg.String (fun file ->
         ConvHull.compare srk
-          DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`Precise LwCooperHKMMZCone)
+          DD.equal (LiraCCH (PolyReccone_LPLH None), NoRelax) (LiraCCH (LiraLPLH None), NoRelax)
           (load_formula file))
-  , "Test convex hulls computed by -lira-convex-hull-sc-hkmmzcone with that of -lira-convex-hull-lwcooper-hkmmzcone"
+  , "Test convex hulls computed by -lira-convex-hull-pc-lplh with that of -lira-convex-hull-lplh"
   );
 
-  ("-compare-convex-hull-sc-hkmmzcone-vs-intfrac"
+  ("-compare-lira-convex-hull-pc-lplh-vs-real-relaxation-lw"
   , Arg.String (fun file ->
         ConvHull.compare srk
-          DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`Precise (IntFrac `Standard))
-          (load_formula file))
-  , "Test convex hulls computed by -lira-convex-hull-sc-hkmmzcone with that of -lira-convex-hull-intfrac"
-  );
-
-  ("-compare-convex-hull-sc-hkmmzcone-vs-noelimfmd-sc-hkmmzcone"
-  , Arg.String (fun file ->
-        ConvHull.compare srk
-          DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`NoElimFMDScHKMMZ)
-          (load_formula file))
-  , "Compare convex hulls computed by -lira-convex-hull-sc-hkmmzcone with the same algorithm without floor-mod-div elimination"
-  );
-
-  ("-compare-convex-hull-sc-hkmmzcone-vs-real-relaxation-lw"
-  , Arg.String (fun file ->
-        ConvHull.compare srk
-          DD.equal (`Precise (SubspaceCone `WithHKMMZCone)) (`RealRelaxation `Lw)
+          DD.equal (LiraCCH (PolyReccone_LPLH None), NoRelax) (LraCCH LwMbp, Realified)
           (load_formula file))
   , "Compare convex hull of a LIRA formula against that of its real relaxation"
   );
 
-  ("-compare-convex-hull-sc-hkmmzcone-vs-lw"
+  ("-compare-lira-convex-hull-pc-lplh-vs-lw"
   , Arg.String (fun file ->
         ConvHull.compare srk
           DD.equal
-          (`Precise (SubspaceCone `WithHKMMZCone))
-          (`Precise (ProjectImplicant (`AssumeReal `Lw)))
+          (LiraCCH (PolyReccone_LPLH None), NoRelax)
+          (LraCCH LwMbp, JustLraFormula)
           (load_formula file))
-  , "Compare convex hull of a LIRA formula against that of -lra-convex-hull-lw"
+  , "Compare convex hull of a LIRA formula against that of -lra-convex-hull-lw (integer symbols preserved if any, but explicit is_int constraints are ignored)"
   );
 
-  ("-compare-convex-hull-sc-hkmmzcone-vs-elimfmd-lw"
+  ("-compare-lira-convex-hull-partial-relaxation-vs-full-relaxation"
   , Arg.String (fun file ->
-        ConvHull.compare srk
-          DD.equal
-          (`Precise (SubspaceCone `WithHKMMZCone))
-          `ElimFMDLw
+        ConvHull.compare srk DD.equal
+          (LraCCH LwMbp, JustLraFormula) (LraCCH LwMbp, Realified)
           (load_formula file))
-  , "Compare convex hull of a LIRA formula against that of -lira-convex-hull-elimfmd-lw"
-  );
-
-  ("-compare-convex-hull-sc-hkmmzcone-vs-real-relaxation-lw"
-  , Arg.String (fun file ->
-        ConvHull.compare srk
-          DD.equal
-          (`Precise (SubspaceCone `WithHKMMZCone))
-          (`RealRelaxation `Lw)
-          (load_formula file))
-  , "Compare convex hull of a LIRA formula against that of -lira-convex-hull-real-relaxation-lw"
-  );
-
-  ("-compare-convex-hull-elimfmd-lw-vs-real-relaxation-lw"
-  , Arg.String (fun file ->
-        ConvHull.compare srk DD.equal `ElimFMDLw (`RealRelaxation `Lw) (load_formula file))
   , "Compare convex hull of partially relaxed formula using LW against that of its real relaxation"
   );
 
-  ("-lia-convex-hull-by-hull-then-project-gc"
+  ("-lia-convex-hull-lia-lplh"
   , Arg.String
       (fun file ->
+        ConvHull.relax_to_real := NoRelax;
         ignore
-          (ConvHull.convex_hull srk
-             (`Precise (ProjectImplicant (`AssumeInt (`HullThenProject `GomoryChvatal))))
-             (load_formula file));
+          (ConvHull.convex_hull srk (LiaCCH LiaLPLH) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in linear integer arithmetic
-     with only trivial integrality constraints (i.e., positive Int(x) for variables x only),
-     by computing the integer hull using iterated Gomory-Chvatal closure and then projecting it.
-     This is sound for formulas that conform to the output of -integralize-smt-file."
+  , "Compute the convex hull of an existential formula in LIA by local projection followed by taking local hull."
   );
 
-  ("-lia-convex-hull-by-hull-then-project-normaliz"
+  ("-lia-convex-hull-hull-then-project-gc"
   , Arg.String
       (fun file ->
-        ignore (ConvHull.convex_hull srk
-                  (`Precise (ProjectImplicant (`AssumeInt (`HullThenProject `Normaliz))))
-                  (load_formula file));
+        ConvHull.relax_to_real := JustLraFormula;
+        ignore
+          (ConvHull.convex_hull srk (LiaCCH (HullThenProject `GomoryChvatal)) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in linear integer arithmetic
-     with only trivial integrality constraints (i.e., positive Int(x) for variables x only),
-     by computing the integer hull using Normaliz and then projecting it.
-     This is sound for formulas that conform to the output of -integralize-smt-file."
+  , "Compute the convex hull of an existential formula in LIA by computing the integer hull
+     using iterated Gomory-Chvatal closure and then projecting it. All variables must be of
+     integer type for this to be sound."
   );
 
-  ("-lia-convex-hull-by-project-then-hull-gc"
+  ("-lia-convex-hull-hull-then-project-normaliz"
   , Arg.String
       (fun file ->
-        ignore (ConvHull.convex_hull srk
-                  (`Precise (ProjectImplicant (`AssumeInt (`ProjectThenHull `GomoryChvatal))))
-                  (load_formula file));
+        ConvHull.relax_to_real := JustLraFormula;
+        ignore
+          (ConvHull.convex_hull srk (LiaCCH (HullThenProject `Normaliz)) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in linear integer arithmetic
-     by Cooper model-based projection and then taking the integer hull using iterated Gomory-Chvatal closure.
-     This is sound for formulas that conform to the output of -integralize-smt-file."
+  , "Compute the convex hull of an existential formula in LIA by computing the integer hull
+     using Normaliz and then projecting it. All variables should be of integer type for this to be sound."
   );
 
-  ("-lia-convex-hull-by-project-then-hull-normaliz"
-  , Arg.String
-      (fun file ->
-        ignore (ConvHull.convex_hull srk
-                  (`Precise (ProjectImplicant (`AssumeInt (`ProjectThenHull `Normaliz))))
-                  (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in linear integer arithmetic
-     by Cooper model-based projection and then taking the integer hull using Normaliz.
-     This is sound for formulas that conform to the output of -integralize-smt-file."
-  );
-
-  ("-compare-lia-convex-hull-hull-then-proj-gc-vs-proj-then-hull-gc"
+  ("-compare-lia-convex-hull-lia-lplh-vs-pc-lplh"
   , Arg.String
       (fun file ->
         ConvHull.compare srk DD.equal
-          (`Precise (ProjectImplicant (`AssumeInt (`HullThenProject `GomoryChvatal))))
-          (`Precise (ProjectImplicant (`AssumeInt (`ProjectThenHull `GomoryChvatal))))
+          (LiaCCH LiaLPLH, NoRelax)
+          (LiraCCH (PolyReccone_LPLH None), NoRelax)
           (load_formula file)
       )
   , "Test convex hulls for correctness"
   );
 
-  ("-compare-lia-convex-hull-sc-hkmmzcone-vs-proj-then-hull-gc"
+  ("-compare-lia-convex-hull-lia-lplh-vs-hull-then-proj-gc"
   , Arg.String
       (fun file ->
         ConvHull.compare srk DD.equal
-          (`Precise (SubspaceCone `WithHKMMZCone))
-          (`Precise (ProjectImplicant (`AssumeInt (`ProjectThenHull `GomoryChvatal))))
-          (load_formula file)
-      )
-  , "Test convex hulls for correctness"
-  );
-
-  ("-compare-lia-convex-hull-sc-hkmmzcone-vs-lwcooper-hkmmzcone"
-  , Arg.String
-      (fun file ->
-        ConvHull.compare srk DD.equal
-          (`Precise (SubspaceCone `WithHKMMZCone))
-          (`Precise LwCooperHKMMZCone)
+          (LiaCCH LiaLPLH, NoRelax)
+          (LiaCCH (HullThenProject `GomoryChvatal), JustLraFormula)
           (load_formula file)
       )
   , "Test convex hulls for correctness"
@@ -689,42 +517,28 @@ let spec_list = [
   ("-lra-convex-hull-lw"
   , Arg.String
       (fun file ->
-        ignore (ConvHull.convex_hull srk (`Precise (ProjectImplicant (`AssumeReal `Lw)))
-                  (load_formula file));
+        ConvHull.relax_to_real := NoRelax;
+        ignore (ConvHull.convex_hull srk (LraCCH LwMbp) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in linear real arithmetic
-     using Loos-Weispfenning."
+  , "Compute the convex hull of an existential formula in LRA using Loos-Weispfenning. This retains integrality (type) of variables; use -lira-convex-hull-real-relxation-lw if variables should be cast to real."
   );
 
   ("-lra-convex-hull-fmcad15"
   , Arg.String
       (fun file ->
-        ignore (ConvHull.convex_hull srk (`Precise (ProjectImplicant (`AssumeReal `FullProject)))
-                  (load_formula file));
-        Format.printf "Result: success"
-      )
+        ConvHull.relax_to_real := NoRelax;
+        ignore (ConvHull.convex_hull srk (LraCCH FullProject) (load_formula file));
+        Format.printf "Result: success")
   , "Compute the convex hull of an existential formula in linear real arithmetic
      using full projection (FMCAD'15)."
   );
 
-  ("-compare-lra-convex-hull-fmcad15-vs-lw"
+  ("-compare-lra-convex-hull-lw-vs-fmcad15"
   , Arg.String
       (fun file ->
         ConvHull.compare srk DD.equal
-          (`Precise (ProjectImplicant (`AssumeReal `FullProject)))
-          (`Precise (ProjectImplicant (`AssumeReal `Lw)))
-          (load_formula file)
-      )
-  , "Test convex hulls for correctness"
-  );
-
-  ("-compare-lra-convex-hull-sc-hkmmzcone-vs-lw"
-  , Arg.String
-      (fun file ->
-        ConvHull.compare srk DD.equal
-          (`Precise (SubspaceCone `WithHKMMZCone))
-          (`Precise (ProjectImplicant (`AssumeReal `Lw)))
+          (LraCCH LwMbp, NoRelax) (LraCCH FullProject, NoRelax)
           (load_formula file)
       )
   , "Test convex hulls for correctness"
@@ -737,8 +551,8 @@ let spec_list = [
           else ()
         in
         let phi = load_smtlib2 file in
-        let (phi', equivalent, _) =
-          try retype_formula srk `RealToInt phi
+        let (phi', equivalent) =
+          try ConvHull.retype_formula srk (`LiraToLia `LraFormula) phi
           with
           | _ -> Format.printf "Fail at file: %s" file;
                  failwith "Failed"
@@ -749,8 +563,7 @@ let spec_list = [
         let fmt = Format.formatter_of_out_channel (open_out outfilename) in
         pp_smtlib2 srk fmt phi'
       )
-  , "Make a copy of an SMT file with the formula first de-sugared into LRA + integer-typed variables,
-     and then all real variables are re-declared as integer"
+  , "Make a copy of an SMT file with the formula first replaced by an equivalent formula in the signature of LRA with integer-typed variables, and then all real variables are re-declared as integer"
   );
 
   ("-realify-smt-file"
@@ -760,8 +573,8 @@ let spec_list = [
           else ()
         in
         let phi = load_smtlib2 file in
-        let (phi', equivalent, _) =
-          try retype_formula srk `IntToReal phi
+        let (phi', equivalent) =
+          try ConvHull.retype_formula srk `LiraToLra phi
           with
           | _ -> Format.printf "Fail at file: %s" file;
                  failwith "Failed"
@@ -772,8 +585,7 @@ let spec_list = [
         let fmt = Format.formatter_of_out_channel (open_out outfilename) in
         pp_smtlib2 srk fmt phi'
       )
-  , "Make a copy of an SMT file with the formula first de-sugared into LRA + integer-typed variables,
-     and then all integer-typed variables are re-declared as real"
+  , "Make a copy of an SMT file with the formula first replaced by an equivalent formula in the signature of LRA with integer-typed variables, and then all integer-typed variables are re-declared as real"
   );
 
   ("-convex-hull",
