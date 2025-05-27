@@ -153,8 +153,8 @@ end = struct
   let retype_quantifier_free srk how phi =
     let retype fml =
       match how with
-      | `LiraToLra -> Syntax.retype srk `IntToReal fml
-      | `LiraToLia _ -> Syntax.retype srk `RealToInt fml
+      | `LiraToLra -> Syntax.retype srk `IntToReal Syntax.Symbol.Map.empty fml
+      | `LiraToLia _ -> Syntax.retype srk `RealToInt Syntax.Symbol.Map.empty fml
     in
     let preprocess fml = match how with
       | `LiraToLra -> Syntax.eliminate_floor_mod_div_int srk fml
@@ -174,7 +174,7 @@ end = struct
       | None -> s
     in
     let introduced_symbols' =
-      introduced_symbols |> S.map remap_symbols |> S.to_list
+      introduced_symbols |> S.map remap_symbols
     in
     let equivalent = (Symbol.Map.is_empty map) in
     (retyped_processed, introduced_symbols', remap_symbols, equivalent)
@@ -198,7 +198,7 @@ end = struct
         retype_quantifier_free srk how phi in
       let new_quantified_symbols =
         let retyped_original = List.map (fun (_, sym) -> remap sym) qf in
-        retyped_original @ introduced_symbols
+        retyped_original @ S.to_list introduced_symbols
       in
       ( requantify new_quantified_symbols phi', equivalent )
 
@@ -248,26 +248,41 @@ end = struct
     let (qf, phi) = Quantifier.normalize srk phi in
     if List.exists (fun (q, _) -> q = `Forall) qf then
       failwith "universal quantification not supported";
-    let (processed_phi, remap) =
+    let quantified_symbols = List.map (fun (_, sym) -> sym) qf in
+    let original_symbols_to_keep = S.diff (symbols phi) (S.of_list quantified_symbols) in
+    let (processed_phi, introduced_symbols, remap) =
       match !relax_to_real with
       | Realified ->
-         let (phi', _, map, _) = retype_quantifier_free srk `LiraToLra phi in
-         (phi', map)
+         let (phi', introduced_symbols', map, _) = retype_quantifier_free srk `LiraToLra phi in
+         (phi', introduced_symbols', map)
       | JustLraFormula ->
-         (Syntax.eliminate_floor_mod_div_int srk phi, (fun s -> s))
+         let phi' = Syntax.eliminate_floor_mod_div_int srk phi in
+         let introduced_symbols = S.diff (Syntax.symbols phi') (Syntax.symbols phi) in
+         (phi', introduced_symbols, (fun s -> s))
       | NoRelax ->
          if !keep_floor_mod_div then
-           (phi, (fun s -> s))
+           (phi, Syntax.Symbol.Set.empty, (fun s -> s))
          else
-           (Syntax.eliminate_floor_mod_div srk phi, (fun s -> s))
+           let phi' = Syntax.eliminate_floor_mod_div srk phi in
+           let introduced_symbols = S.diff (Syntax.symbols phi') (Syntax.symbols phi) in
+           (phi', introduced_symbols, (fun s -> s))
     in
-    let symbols_to_eliminate = List.map (fun (_, sym) -> remap sym) qf |> S.of_list in
+    let symbols_to_eliminate =
+      S.union introduced_symbols (S.of_list (List.map remap quantified_symbols)) in
+    Format.printf "Quantified symbols: %a\n"
+      (Format.pp_print_list ~pp_sep:Format.pp_print_space
+         (fun fmt (_, sym) -> (Syntax.pp_symbol srk) fmt sym)) qf;
+    Format.printf "Introduced symbols: %a\n"
+      (Format.pp_print_list ~pp_sep:Format.pp_print_space (Syntax.pp_symbol srk))
+      (S.to_list introduced_symbols);
+
     let symbols = Syntax.symbols processed_phi in
     let symbols_to_keep = S.diff symbols symbols_to_eliminate in
+    assert (S.cardinal symbols_to_keep = S.cardinal original_symbols_to_keep);
     let terms =
-      symbols_to_keep
-      |> (fun set -> S.fold (fun sym terms -> mk_const srk sym :: terms) set [])
-      |> List.rev
+      List.map (fun sym -> Syntax.mk_const srk (remap sym)) (S.to_list original_symbols_to_keep)
+      (* Order matters, and we map using the order of original symbols to allow
+         comparison between methods *)
       |> Array.of_list
     in
     let print_input () =
@@ -284,6 +299,8 @@ end = struct
         in
         (S.filter is_int symbols, S.filter is_real symbols)
       in
+      (* Format.printf "Formula before processing: @[%a@]@;"
+         (Syntax.Formula.pp srk) phi; *)
       Format.printf "Taking convex hull of formula: @[%a@]@;"
         (Syntax.Formula.pp srk) processed_phi;
       Format.printf "Symbols to keep: @[%a@]@;" pp_symbols symbols_to_keep;
@@ -317,14 +334,23 @@ end = struct
       Format.printf "Result: success"
     else
       if dd_subset hull1 hull2 then
-        Format.printf "Result: failure (%a (%a) is more precise)"
-          pp_alg alg1 pp_relaxation relax1
+        begin
+          relax_to_real := relax1;
+          Format.printf "Result: failure (%a (%a) is more precise)"
+            pp_alg alg1 pp_relaxation relax1
+        end
       else if dd_subset hull2 hull1 then
-        Format.printf "Result: failure (%a (%a) is more precise)"
-          pp_alg alg2 pp_relaxation relax2
+        begin
+          relax_to_real := relax2;
+          Format.printf "Result: failure (%a (%a) is more precise)"
+            pp_alg alg2 pp_relaxation relax2
+        end
       else
-        Format.printf "Result: failure (%a (%a) and %a (%a) incomparable)"
-          pp_alg alg1 pp_relaxation relax1 pp_alg alg2 pp_relaxation relax2
+        let () = (relax_to_real := relax1) in
+        let s1 = Format.asprintf "%a (%a)" pp_alg alg1 pp_relaxation relax1 in
+        let () = (relax_to_real := relax2) in
+        let s2 = Format.asprintf "%a (%a)" pp_alg alg2 pp_relaxation relax2 in
+        Format.printf "Result: failure (%s and %s incomparable)" s1 s2
 
 end
 

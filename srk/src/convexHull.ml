@@ -1,7 +1,7 @@
 open Syntax
 open BatPervasives
 
-include Log.Make (struct let name = "ConvexHull" end)
+include Log.Make (struct let name = "srk.convexHull" end)
 
 module Solver = Abstract.Solver
 module V = Linear.QQVector
@@ -32,9 +32,13 @@ let dump_hull_obligations srk phi terms =
         |> Syntax.mk_and srk
         |> (fun phi' -> Syntax.mk_and srk [phi ; phi'])
       in
+      let term_symbols =
+        Array.fold_left (fun acc_symbols term -> Symbol.Set.union acc_symbols (symbols term))
+          Symbol.Set.empty terms
+      in
       let query =
         Symbol.Set.fold (fun s psi -> Syntax.mk_exists_const srk s psi)
-          (symbols phi)
+          (Symbol.Set.union term_symbols (symbols phi))
           query
       in
       let filename =
@@ -72,18 +76,23 @@ let of_model_lirr solver man terms =
         | None -> ());
     DD.of_constraints_closed ~man dim constraints
 
-let retype_formula_and_terms srk phi terms =
-  let (real_phi, map) = Syntax.retype srk `IntToReal phi in
-  let subst sym = match Symbol.Map.find_opt sym map with
-    | Some sym' -> Syntax.mk_const srk sym'
-    | None -> Syntax.mk_const srk sym
-  in
-  let realified_terms =
-    Array.map
-      (fun term -> Syntax.substitute_const srk subst term)
+let retype_formula_and_terms srk fromto phi terms =
+  let (phi', map) = Syntax.retype srk fromto Symbol.Map.empty phi in
+  let accumulated_map =
+    Array.fold_left
+      (fun acc_map term ->
+        let (_, map') = Syntax.retype srk fromto acc_map term in map'
+      )
+      map
       terms
   in
-  (real_phi, realified_terms)
+  let lookup s = match Syntax.Symbol.Map.find_opt s accumulated_map with
+    | Some s' -> Syntax.mk_const srk s'
+    | None -> Syntax.mk_const srk s
+  in
+  let terms' = Array.map (fun term -> Syntax.substitute_const srk lookup term) terms
+  in
+  (phi', terms', accumulated_map)
 
 let conv_hull ?(man=Polka.manager_alloc_loose ()) srk phi terms =
   dump_hull_obligations srk phi terms;
@@ -97,7 +106,8 @@ let conv_hull ?(man=Polka.manager_alloc_loose ()) srk phi terms =
      let phi' =
        if !purify_formula then Syntax.eliminate_floor_mod_div_int srk phi else phi
      in
-     let (relaxed_phi, realified_terms) = retype_formula_and_terms srk phi' terms in
+     let (relaxed_phi, realified_terms, _) =
+       retype_formula_and_terms srk `IntToReal phi' terms in
      Plt.convex_hull (LraCCH LwMbp) ~man srk relaxed_phi realified_terms
 
 let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =

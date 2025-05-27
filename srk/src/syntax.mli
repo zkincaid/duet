@@ -511,6 +511,15 @@ val purify_expr : 'a context ->
   ('a, 'c) expr ->
   (('a, 'c) expr * (('a, 'b) expr) Symbol.Map.t)
 
+(** [retype srk fromto map expr] gives an expression [expr'] and [map'] such that
+    [expr'] is the same as [expr] except that each symbol of type
+    [from] is replaced with its image under [map] if it is in the domain,
+    or with a fresh symbols of type [to], and [map'] is [map] extended with
+    these fresh bindings.
+ *)
+val retype: 'a context -> [`IntToReal | `RealToInt] -> symbol Symbol.Map.t ->
+            ('a, 'b) expr -> ('a, 'b) expr * symbol Symbol.Map.t
+
 (** Given a formula [phi], compute a formula without if-then-else terms that
    is equivalent to [phi] when projected on to the symbols of [phi].  If an
    *equivalent* ite-free formula is required, then use [lift_ite]. *)
@@ -540,13 +549,6 @@ val eliminate_floor_mod_div_int : 'a context -> 'a formula -> 'a formula
 
 (** explicit_ints srk phi = {Int(v): v in symbols(phi) that is of type `TyInt}. *)
 val explicit_ints: 'a context -> 'a formula -> 'a formula list
-
-(** [retype srk fromto phi] gives a formula that is syntactically the same as
-    [phi] except that symbols of type [from] are replaced with fresh symbols of
-    type [to], and a map that sends each replaced symbol to the fresh one replacing it.
- *)
-val retype: 'a context -> [`IntToReal | `RealToInt] -> 'a formula ->
-            'a formula * symbol Symbol.Map.t
 
 (** Print a formula as a satisfiability query in SMTLIB2 format.
     The query includes function declarations and (check-sat).

@@ -1912,7 +1912,7 @@ let explicit_ints srk phi =
   in
   is_ints
 
-let retype srk (fromto: [`IntToReal | `RealToInt]) phi =
+let retype srk (fromto: [`IntToReal | `RealToInt]) binding expr =
   let retyped_symbol sym =
     match fromto with
     | `IntToReal ->
@@ -1927,25 +1927,24 @@ let retype srk (fromto: [`IntToReal | `RealToInt]) phi =
   let map =
     Symbol.Set.fold
       (fun sym map ->
-        match typ_symbol srk sym with
-        | `TyInt ->
-           begin match fromto with
-           | `IntToReal -> Symbol.Map.add sym (retyped_symbol sym) map
-           | `RealToInt -> map
+        match (typ_symbol srk sym, fromto) with
+        | (`TyInt, `IntToReal) ->
+           begin match Symbol.Map.find_opt sym map with
+           | Some _ -> map
+           | None -> Symbol.Map.add sym (retyped_symbol sym) map
            end
-        | `TyReal ->
-           begin match fromto with
-           | `RealToInt -> Symbol.Map.add sym (retyped_symbol sym) map
-           | `IntToReal -> map
+        | (`TyReal, `RealToInt) ->
+           begin match Symbol.Map.find_opt sym map with
+           | Some _ -> map
+           | None -> Symbol.Map.add sym (retyped_symbol sym) map
            end
-        | _ -> map
+        | (_, _) -> map
       )
-      (symbols phi)
-      Symbol.Map.empty
+      (symbols expr)
+      binding
   in
   let lookup s = try Symbol.Map.find s map with | Not_found -> s in
-  ( substitute_const srk
-      (fun s -> mk_const srk (lookup s)) phi
+  ( substitute_const srk (fun s -> mk_const srk (lookup s)) expr
   , map
   )
 
