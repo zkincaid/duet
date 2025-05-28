@@ -66,9 +66,9 @@ type lia_abstraction =
 (** LRA abstraction ignores all [is_int] constraints in the implicant and
     integrality of variables.
     (But the solver finds models that respect integrality of variables.
-    An LRA over-approximation should in principle be the LRA abstraction of
+    An LRA overapproximation should in principle be the LRA abstraction of
     the real relaxation of the formula, where we replace all integer-typed
-    variables with real-typed ones, via [Syntax.retype].)
+    variables with real-typed ones, via [realify_formula_and_terms] below.)
  *)
 type lra_abstraction =
   | FullProject
@@ -114,3 +114,12 @@ val convex_hull: abstraction_algorithm ->
                  ?man:(DD.closed Apron.Manager.t) ->
                  'a Syntax.context -> 'a Syntax.formula ->
                  ('a Syntax.arith_term) Array.t -> DD.closed DD.t
+
+(** Retype a formula F and terms T to a formula F' and terms T' in real-typed symbols only,
+    and output the map that sends all original integer-typed symbols in F and T to real-typed
+    symbols in F' and T'.
+    The structures of F and F' are the same.
+ *)
+val realify_formula_and_terms:
+  'a Syntax.context -> 'a Syntax.formula -> 'a Syntax.arith_term array ->
+  'a Syntax.formula * 'a Syntax.arith_term array * Syntax.symbol Syntax.Symbol.Map.t
