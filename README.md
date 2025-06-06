@@ -12,7 +12,6 @@ Duet depends on several software packages.  The following dependencies need to b
  + [opam](http://opam.ocaml.org) (version >= 2, with OCaml >= 4.10 & native compiler)
    - If you have an older version of opam installed, you can install opam2 using `opam install opam-devel`
  + GMP and MPFR
- + [NTL](http://www.shoup.net/ntl/): number theory library
  + Java
  + Python
  + Libffi
@@ -20,23 +19,22 @@ Duet depends on several software packages.  The following dependencies need to b
  + Autoconf
  + Libtool
  + Flint
- + Arb
 
 On Ubuntu, you can install these packages with:
 ```
- sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev default-jre python python3-distutils python3-lib2to3 libffi-dev pkg-config autoconf libtool libflint-dev libflint-arb-dev
+ sudo apt-get install opam libgmp-dev libmpfr-dev default-jre python python3-distutils python3-lib2to3 libffi-dev pkg-config autoconf libtool libflint-dev
 ```
 
 On MacOS, you can install these packages (except Java) with:
 ```
- brew install opam gmp mpfr ntl python libffi pkg-config autoconf libtool
+ brew install opam gmp mpfr python libffi pkg-config autoconf libtool flint
 ```
 
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
- opam remote add sv https://github.com/zkincaid/sv-opam.git#modern
+ opam remote add sv https://github.com/zkincaid/sv-opam.git
  opam install ocamlbuild ocamlfind zarith ocamlgraph batteries ppx_deriving ounit menhir ctypes-foreign
- opam install cil apron normalizffi z3 faugere flint
+ opam install cil apron normalizffi flint.dev faugere.dev z3
 ```
 
 ### Building Duet
