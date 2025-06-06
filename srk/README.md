@@ -35,10 +35,9 @@ Building
 
 Srk depends on several software packages.  The following dependencies need to be installed manually.
 
- + [opam](http://opam.ocaml.org) (with OCaml >= 4.08 & native compiler)
+ + [opam](http://opam.ocaml.org) (with OCaml >= 4.10 & native compiler)
    - If you have an older version of opam installed, you can install opam2 using `opam install opam-devel`
  + [GMP and MPFR](https://gmplib.org/)
- + [NTL](http://www.shoup.net/ntl/)
  + Python 2.7
 
 On Ubuntu, you can install these packages with:
