@@ -49,7 +49,7 @@ end
 type t = P.t
 
 let enum_constraints polyhedron = P.enum polyhedron
-                                
+
 let pp_constraint pp_dim formatter = function
   | (`Zero, t) -> Format.fprintf formatter "%a = 0" (V.pp_term pp_dim) t
   | (`Nonneg, t) -> Format.fprintf formatter "%a >= 0" (V.pp_term pp_dim) t

@@ -310,13 +310,6 @@ end = struct
     ; t_cond = []
     }
 
-  let fls =
-    {
-      p_cond = [(`Zero, Linear.const_linterm QQ.one)]
-    ; l_cond = []
-    ; t_cond = []
-    }
-
   let conjoin lin1 lin2 =
     {
       p_cond = List.rev_append lin1.p_cond lin2.p_cond
@@ -324,65 +317,13 @@ end = struct
     ; t_cond = List.rev_append lin1.t_cond lin2.t_cond
     }
 
-  let plt_ineq srk vec_of_sym (sign: [`Lt | `Leq | `Eq]) t1 t2 =
-    let v2 = Linear.linterm_of srk ~vec_of_sym t2 in
-    let v1 = Linear.linterm_of srk ~vec_of_sym t1 in
-    let v = V.sub v2 v1 in
-    let kind = match sign with
-      | `Lt -> `Pos
-      | `Leq -> `Nonneg
-      | `Eq -> `Zero
-    in
-    { p_cond = [(kind, v)]; l_cond = []; t_cond = [] }
-
-  let plt_int srk vec_of_sym (sign: [`IsInt | `NotInt]) t =
-    let v = Linear.linterm_of srk ~vec_of_sym t in
-    {
-      p_cond = []
-    ; l_cond =
-        begin match sign with
-        | `IsInt -> [v]
-        | `NotInt -> []
-        end
-    ; t_cond =
-        begin match sign with
-        | `IsInt -> []
-        | `NotInt -> [v]
-        end
-    }
-
-  let plt_constraint_of_atom srk vec_of_symbol interp atom =
-    match Formula.destruct srk atom with
-    | `Tru -> tru
-    | `Fls -> fls
-    | `Not psi ->
-       begin
-         match Formula.destruct srk psi with
-         | `Tru -> fls
-         | `Fls -> tru
-         | `Atom (`Arith (`Eq, t1, t2)) ->
-            if Interpretation.evaluate_formula interp (Syntax.mk_lt srk t1 t2)
-            then
-              plt_ineq srk vec_of_symbol `Lt t1 t2
-            else
-              plt_ineq srk vec_of_symbol `Lt t2 t1
-         | `Atom (`Arith (`Leq, t1, t2)) ->
-            plt_ineq srk vec_of_symbol `Lt t2 t1
-         | `Atom (`Arith (`Lt, t1, t2)) ->
-            plt_ineq srk vec_of_symbol `Leq t2 t1
-         | `Atom (`ArrEq (_t1, _t2)) -> invalid_arg "linearize_atom"
-         | `Atom (`IsInt t) -> plt_int srk vec_of_symbol `NotInt t
-         | _ -> invalid_arg "linearize_atom"
-       end
-    | `Atom (`Arith (`Eq, t1, t2)) ->
-       plt_ineq srk vec_of_symbol `Eq t1 t2
-    | `Atom (`Arith (`Leq, t1, t2)) ->
-       plt_ineq srk vec_of_symbol `Leq t1 t2
-    | `Atom (`Arith (`Lt, t1, t2)) ->
-       plt_ineq srk vec_of_symbol `Lt t1 t2
-    | `Atom (`ArrEq (_t1, _t2)) -> invalid_arg "linearize_atom"
-    | `Atom (`IsInt t) -> plt_int srk vec_of_symbol `IsInt t
-    | _ -> invalid_arg "linearize_atom"
+  let plt_constraint_of_atom srk vec_of_sym atom =
+    match Linear.destruct_lira_atom srk ~vec_of_sym atom with
+    | (`Pos, v) -> { tru with p_cond = [(`Pos, v)] }
+    | (`Nonneg, v) -> { tru with p_cond = [(`Nonneg, v)] }
+    | (`Zero, v) -> { tru with p_cond = [(`Zero, v)] }
+    | (`IsInt, v) -> { tru with l_cond = [v] }
+    | (`NotInt, v) -> { tru with t_cond = [v] }
 
   let integer_symbols srk atoms =
     List.fold_left
@@ -396,11 +337,11 @@ end = struct
       Syntax.Symbol.Set.empty
       atoms
 
-  let plt_implicant_of_implicant srk vec_of_symbol m atoms =
+  let plt_implicant_of_implicant srk vec_of_symbol atoms =
     let lincond =
       List.fold_left (fun lincond atom ->
           let lincond_atom =
-            plt_constraint_of_atom srk vec_of_symbol m atom in
+            plt_constraint_of_atom srk vec_of_symbol atom in
           conjoin lincond_atom lincond
         )
         tru
@@ -498,7 +439,7 @@ end = struct
         implicant;
       let vec_of_symbol k = V.of_term QQ.one (dim_of_symbol k) in
       let lincond =
-        plt_implicant_of_implicant srk vec_of_symbol interp implicant in
+        plt_implicant_of_implicant srk vec_of_symbol implicant in
       let is_ints = implicit_is_ints srk vec_of_symbol implicant in
       let imp_p =
         Polyhedron.of_constraints

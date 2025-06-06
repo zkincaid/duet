@@ -832,3 +832,53 @@ let term_of_vec srk term_of_dim vec =
       mk_mul srk [mk_real srk coeff; term_of_dim dim])
   |> BatList.of_enum
   |> mk_add srk
+
+type lira_predicate = [ `Pos | `Nonneg | `Zero | `IsInt | `NotInt ]
+
+type 'a open_lira = [
+  | `Tru
+  | `Fls
+  | `And of 'a list
+  | `Or of 'a list
+  | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
+  | `Atom of (lira_predicate * QQVector.t)
+]
+
+let to_lira_atom srk vec_of_sym pred s t =
+  let vec =
+    QQVector.sub (linterm_of srk ~vec_of_sym t) (linterm_of srk ~vec_of_sym s)
+  in
+  let lira_pred =
+    begin match pred with
+    | `Eq  -> `Zero
+    | `Leq -> `Nonneg
+    | `Lt  -> `Pos
+    end
+  in
+  (lira_pred, vec)
+
+let destruct_lira_atom srk ?(vec_of_sym=default_vec_of_sym) phi =
+  match Formula.destruct srk phi with
+  | `Atom (`Arith (pred, s, t)) -> (to_lira_atom srk vec_of_sym pred s t)
+  | `Atom (`IsInt t) -> (`IsInt, linterm_of srk ~vec_of_sym t)
+  | `Not psi ->
+     begin match Formula.destruct srk psi with
+     | `Atom (`IsInt t) -> (`NotInt, linterm_of srk ~vec_of_sym t)
+     | _ -> invalid_arg "Not a LIRA atom"
+     end
+  | _ -> invalid_arg "Not a LIRA atom"
+
+let destruct_lira srk ?(vec_of_sym=default_vec_of_sym) phi =
+  match Formula.destruct srk phi with
+  | `Ite _ | `Proposition _ | `Atom (`ArrEq (_, _)) -> invalid_arg "Not a LIRA formula"
+  | `Tru -> `Tru
+  | `Fls -> `Fls
+  | `And xs -> `And xs
+  | `Or xs -> `Or xs
+  | `Quantify (qt, name, typ, psi) -> `Quantify (qt, name, typ, psi)
+  | `Atom (`Arith (pred, s, t)) -> `Atom (to_lira_atom srk vec_of_sym pred s t)
+  | `Atom (`IsInt t) -> `Atom (`IsInt, linterm_of srk ~vec_of_sym t)
+  | `Not psi ->
+     match Formula.destruct srk psi with
+     | `Atom (`IsInt t) -> `Atom (`NotInt, linterm_of srk ~vec_of_sym t)
+     | _ -> invalid_arg "Not a LIRA formula"

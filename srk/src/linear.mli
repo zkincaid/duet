@@ -396,3 +396,28 @@ val term_of_vec : ('a context) -> (int -> 'a arith_term) -> QQVector.t -> 'a ari
    given interpretation (the interpretation of [const_dim] is fixed to
    be 1).  *)
 val evaluate_affine : (int -> QQ.t) -> QQVector.t -> QQ.t
+
+(** Atomic predicates for linear integer/real arithmetic *)
+type lira_predicate = [ `Pos | `Nonneg | `Zero | `IsInt | `NotInt ]
+
+(** Minimal syntax for linear integer/real arithmetic *)
+type 'a open_lira = [
+  | `Tru
+  | `Fls
+  | `And of 'a list
+  | `Or of 'a list
+  | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
+  | `Atom of (lira_predicate * QQVector.t)
+  ]
+
+(** Destruct a formula as an atomic formula of linear integer/real arithmetic *)
+val destruct_lira_atom : 'a Syntax.context ->
+                         ?vec_of_sym:(symbol -> QQVector.t) ->
+                         'a formula ->
+                         (lira_predicate * QQVector.t)
+
+(** Destruct a formula as a linear integer/real arithmetic formula.  *)
+val destruct_lira : 'a Syntax.context ->
+                    ?vec_of_sym:(symbol -> QQVector.t) ->
+                    'a formula ->
+                    ('a formula) open_lira

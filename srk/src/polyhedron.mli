@@ -24,7 +24,7 @@ val pp_constraint : (Format.formatter -> int -> unit) ->
                     Format.formatter ->
                     (constraint_kind * V.t) ->
                     unit
-  
+
 val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
 (** Intersect two polyhedra. *)
