@@ -365,9 +365,14 @@ val const_linterm : QQ.t -> QQVector.t
     [const_of_linterm (const_linterm qq) = Some qq] must hold. *)
 val const_of_linterm : QQVector.t -> QQ.t option
 
-(** Convert a rational vector representing an affine term.  Raises [Nonlinear]
-    if the input term is non-linear. *)
-val linterm_of : 'a context -> 'a arith_term -> QQVector.t
+(** Convert a rational vector representing an affine term.  If provided,
+   [vec_of_sym] is used to translate each symbol to a vector; if not, each
+   symbol [k] is treated as a unit vector in the direction [dim_of_sym k] .
+   Raises [Nonlinear] if the input term is non-linear. *)
+val linterm_of : 'a context ->
+                 ?vec_of_sym:(symbol -> QQVector.t) ->
+                 'a arith_term ->
+                 QQVector.t
 
 (** Convert a rational vector to an affine term.  The equation [of_linterm srk
     (linterm_of srk t) = t] must hold. *)

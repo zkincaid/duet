@@ -11,10 +11,6 @@ type lcons = Lincons0.t
 type scalar = Scalar.t
 type coeff = Coeff.t
 
-val qq_of_scalar : scalar -> QQ.t
-val qq_of_coeff : coeff -> QQ.t option
-val coeff_of_qq : QQ.t -> coeff
-
 (** An environment maintains a mapping between symbols and dimensions
    of an abstract domain. *)
 module Env : sig

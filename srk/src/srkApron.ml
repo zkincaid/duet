@@ -12,16 +12,14 @@ type lcons = Lincons0.t
 type scalar = Scalar.t
 type coeff = Coeff.t
 
-let qq_of_scalar = function
-  | Scalar.Float k -> QQ.of_float k
-  | Scalar.Mpqf k  -> QQ.of_mpq k
-  | Scalar.Mpfrf k -> QQ.of_mpq (Mpfrf.to_mpqf k)
+include Log.Make(struct let name = "srkApron" end)
 
-let qq_of_coeff = function
-  | Coeff.Scalar s -> Some (qq_of_scalar s)
-  | Coeff.Interval _ -> None
 
-let coeff_of_qq x = Coeff.s_of_mpqf (QQ.mpq_of x)
+let qq_of_scalar = DD.qq_of_scalar
+
+let qq_of_coeff = DD.qq_of_coeff
+
+let coeff_of_qq = DD.coeff_of_qq
 
 let scalar_one = Coeff.s_of_int 1
 

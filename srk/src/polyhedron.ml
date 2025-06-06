@@ -49,16 +49,16 @@ end
 type t = P.t
 
 let enum_constraints polyhedron = P.enum polyhedron
+                                
+let pp_constraint pp_dim formatter = function
+  | (`Zero, t) -> Format.fprintf formatter "%a = 0" (V.pp_term pp_dim) t
+  | (`Nonneg, t) -> Format.fprintf formatter "%a >= 0" (V.pp_term pp_dim) t
+  | (`Pos, t) -> Format.fprintf formatter "%a > 0" (V.pp_term pp_dim) t
 
 let pp pp_dim formatter polyhedron =
-  let pp_elt formatter = function
-    | (`Zero, t) -> Format.fprintf formatter "%a = 0" (V.pp_term pp_dim) t
-    | (`Nonneg, t) -> Format.fprintf formatter "%a >= 0" (V.pp_term pp_dim) t
-    | (`Pos, t) -> Format.fprintf formatter "%a > 0" (V.pp_term pp_dim) t
-  in
   let pp_sep formatter () = Format.fprintf formatter "@;" in
   Format.fprintf formatter "@[<v 0>%a@]"
-    (SrkUtil.pp_print_enum_nobox ~pp_sep pp_elt) (P.enum polyhedron)
+    (SrkUtil.pp_print_enum_nobox ~pp_sep (pp_constraint pp_dim)) (P.enum polyhedron)
 
 let of_dd polyhedron =
   BatEnum.fold (fun p cnstr -> P.add cnstr p) P.top (DD.enum_constraints polyhedron)

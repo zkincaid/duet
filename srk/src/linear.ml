@@ -759,7 +759,9 @@ let const_of_linterm v =
   if QQVector.equal rest QQVector.zero then Some k
   else None
 
-let linterm_of srk term =
+let default_vec_of_sym k = QQVector.of_term QQ.one (dim_of_sym k)
+
+let linterm_of srk ?(vec_of_sym=default_vec_of_sym) term =
   let open QQVector in
   let real qq = of_term qq const_dim in
   let pivot_const = pivot const_dim in
@@ -778,7 +780,7 @@ let linterm_of srk term =
   in
   let alg = function
     | `Real qq -> real qq
-    | `App (k, []) -> of_term QQ.one (dim_of_sym k)
+    | `App (k, []) -> vec_of_sym k
     | `Var (_, _) | `App (_, _) -> raise Nonlinear
     | `Add sum -> List.fold_left add zero sum
     | `Mul sum -> List.fold_left mul (real QQ.one) sum

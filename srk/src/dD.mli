@@ -98,3 +98,7 @@ val lexpr_of_vec : V.t -> Linexpr0.t
 val minimal_faces : 'a t -> (V.t * ((constraint_kind * V.t) list)) list
 
 val integer_hull : closed t -> closed t
+
+val qq_of_scalar : Scalar.t -> QQ.t
+val qq_of_coeff : Coeff.t -> QQ.t option
+val coeff_of_qq : QQ.t -> Coeff.t

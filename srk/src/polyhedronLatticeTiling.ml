@@ -76,31 +76,24 @@ end
 module IntSet = SrkUtil.Int.Set
 module IntMap = SrkUtil.Int.Map
 
-let term_of_vector srk term_of_dim v =
-  let open Syntax in
-  V.enum v
-  |> BatEnum.fold
-       (fun summands (coeff, dim) ->
-         if dim <> Linear.const_dim then
-           mk_mul srk [mk_real srk coeff; term_of_dim dim] :: summands
-         else
-           mk_real srk coeff :: summands)
-       []
-  |> mk_add srk
+let term_of_vec srk term_of_dim =
+  Linear.term_of_vec srk (fun d ->
+      if d = Linear.const_dim then mk_one srk
+      else term_of_dim d)
 
 let formula_p srk term_of_dim (kind, v) =
-  let t = term_of_vector srk term_of_dim v in
+  let t = term_of_vec srk term_of_dim v in
   match kind with
   | `Zero -> mk_eq srk t (mk_zero srk)
   | `Nonneg -> mk_leq srk (mk_zero srk) t
   | `Pos -> mk_lt srk (mk_zero srk) t
 
 let formula_l srk term_of_dim v =
-  let t = term_of_vector srk term_of_dim v in
+  let t = term_of_vec srk term_of_dim v in
   mk_is_int srk t
 
 let formula_t srk term_of_dim v =
-  let t = term_of_vector srk term_of_dim v in
+  let t = term_of_vec srk term_of_dim v in
   mk_not srk (mk_is_int srk t)
 
 let formula_of_dd srk term_of_dim dd =
@@ -128,11 +121,7 @@ let pp_dim fmt dim = Format.fprintf fmt "(dim %d)" dim
 
 let pp_vector = V.pp_term pp_dim
 
-let pp_pconstr fmt (kind, v) =
-  match kind with
-  | `Zero -> Format.fprintf fmt "@[%a@] = 0" pp_vector v
-  | `Nonneg -> Format.fprintf fmt "@[%a@] >= 0" pp_vector v
-  | `Pos -> Format.fprintf fmt "@[%a@] > 0" pp_vector v
+let pp_pconstr = Polyhedron.pp_constraint pp_dim
 
 let _pp_term_of_dim srk fmt map =
   IntMap.iter
@@ -307,24 +296,6 @@ end = struct
     |> IntSet.union (collect_dimensions (fun v -> v) (fun _ -> true) l)
     |> IntSet.union (collect_dimensions (fun v -> v) (fun _ -> true) t)
 
-  let vec_of_symbol dim_of_symbol s =
-    V.of_term QQ.one (dim_of_symbol s)
-
-  let real_of v =
-    let (r, v') = V.pivot Linear.const_dim v in
-    if V.is_zero v' then r
-    else invalid_arg "not a constant"
-
-  let mul_vec v1 v2 =
-    try V.scalar_mul (real_of v1) v2
-    with Invalid_argument _ ->
-      begin
-        try V.scalar_mul (real_of v2) v1
-        with
-          Invalid_argument _ ->
-          raise Linear.Nonlinear
-      end
-
   type lin_cond =
     {
       p_cond: (P.constraint_kind * V.t) list
@@ -353,39 +324,9 @@ end = struct
     ; t_cond = List.rev_append lin1.t_cond lin2.t_cond
     }
 
-  let linearize_term srk vec_of_symbol term =
-    ArithTerm.eval srk (function
-        | `Real r -> Linear.const_linterm r
-        | `App (x, []) -> vec_of_symbol x
-        | `App (_f, _xs) -> raise Linear.Nonlinear
-        | `Var (_i, _typ) -> raise Linear.Nonlinear
-        | `Add linterms ->
-           List.fold_left V.add V.zero linterms
-        | `Mul linterms ->
-           List.fold_left mul_vec (Linear.const_linterm QQ.one) linterms
-        | `Binop (`Div, linterm1, linterm2) ->
-           begin
-             let divide v1 v2 =
-               let divisor =
-                 try real_of v2 with
-                 | Invalid_argument _ -> raise Linear.Nonlinear
-               in
-               if QQ.equal divisor QQ.zero then invalid_arg "Division by zero"
-               else
-                 V.scalar_mul (QQ.inverse divisor) v1
-             in
-             divide linterm1 linterm2
-           end
-        | `Binop (`Mod, _, _) -> invalid_arg "Mod terms should be purified"
-        | `Unop (`Floor, _) -> invalid_arg "Floor terms should be purified"
-        | `Unop (`Neg, linterm) -> V.negate linterm
-        | `Ite _ -> assert false
-        | `Select _ -> raise Linear.Nonlinear
-      ) term
-
-  let plt_ineq srk vec_of_symbol (sign: [`Lt | `Leq | `Eq]) t1 t2 =
-    let v2 = linearize_term srk vec_of_symbol t2 in
-    let v1 = linearize_term srk vec_of_symbol t1 in
+  let plt_ineq srk vec_of_sym (sign: [`Lt | `Leq | `Eq]) t1 t2 =
+    let v2 = Linear.linterm_of srk ~vec_of_sym t2 in
+    let v1 = Linear.linterm_of srk ~vec_of_sym t1 in
     let v = V.sub v2 v1 in
     let kind = match sign with
       | `Lt -> `Pos
@@ -394,8 +335,8 @@ end = struct
     in
     { p_cond = [(kind, v)]; l_cond = []; t_cond = [] }
 
-  let plt_int srk vec_of_symbol (sign: [`IsInt | `NotInt]) t =
-    let v = linearize_term srk vec_of_symbol t in
+  let plt_int srk vec_of_sym (sign: [`IsInt | `NotInt]) t =
+    let v = Linear.linterm_of srk ~vec_of_sym t in
     {
       p_cond = []
     ; l_cond =
@@ -455,28 +396,25 @@ end = struct
       Syntax.Symbol.Set.empty
       atoms
 
-  let plt_implicant_of_implicant srk vec_of_symbol m implicant =
-    match implicant with
-    | None -> assert false
-    | Some atoms ->
-       let lincond =
-         List.fold_left (fun lincond atom ->
-             let lincond_atom =
-               plt_constraint_of_atom srk vec_of_symbol m atom in
-             conjoin lincond_atom lincond
-           )
-           tru
-           atoms
-       in
-       let integers =
-         { p_cond = []
-         ; l_cond =
-             Syntax.Symbol.Set.elements (integer_symbols srk atoms)
-             |> List.map vec_of_symbol
-         ; t_cond = []
-         }
-       in
-       conjoin lincond integers
+  let plt_implicant_of_implicant srk vec_of_symbol m atoms =
+    let lincond =
+      List.fold_left (fun lincond atom ->
+          let lincond_atom =
+            plt_constraint_of_atom srk vec_of_symbol m atom in
+          conjoin lincond_atom lincond
+        )
+        tru
+        atoms
+    in
+    let integers =
+      { p_cond = []
+      ; l_cond =
+          Syntax.Symbol.Set.elements (integer_symbols srk atoms)
+          |> List.map vec_of_symbol
+      ; t_cond = []
+      }
+    in
+    conjoin lincond integers
 
   let formula_of_plt srk term_of_dim plt =
     let phis_p =
@@ -492,7 +430,8 @@ end = struct
     mk_and srk (phis_p @ phis_l @ phis_t)
 
   let mk_term_definitions srk dim_of_symbol terms =
-    let linearize = linearize_term srk (vec_of_symbol dim_of_symbol) in
+    let vec_of_sym k = V.of_term QQ.one (dim_of_symbol k) in
+    let linearize = Linear.linterm_of srk ~vec_of_sym in
     let vector_of_term idx = V.of_term QQ.one idx in
     let p_conds = ref (BatEnum.empty ()) in
     Array.iteri
@@ -508,24 +447,21 @@ end = struct
     | None -> num_terms - 1
     | Some dim -> Syntax.int_of_symbol dim + num_terms
 
-  let implicit_is_ints srk vec_of_symbol implicant =
-    match implicant with
-    | None -> []
-    | Some conjuncts ->
-       let typ_int sym = (Syntax.typ_symbol srk sym = `TyInt) in
-       let int_symbols =
-         List.fold_left
-           (fun int_symbols fml ->
-             Syntax.symbols fml
-             |> Syntax.Symbol.Set.filter typ_int
-             |> Syntax.Symbol.Set.union int_symbols
-           )
-           Syntax.Symbol.Set.empty conjuncts
-       in
-       Syntax.Symbol.Set.fold
-         (fun sym intcond -> vec_of_symbol sym :: intcond)
-         int_symbols
-         []
+  let implicit_is_ints srk vec_of_symbol conjuncts =
+    let typ_int sym = (Syntax.typ_symbol srk sym = `TyInt) in
+    let int_symbols =
+      List.fold_left
+        (fun int_symbols fml ->
+          Syntax.symbols fml
+          |> Syntax.Symbol.Set.filter typ_int
+          |> Syntax.Symbol.Set.union int_symbols
+        )
+        Syntax.Symbol.Set.empty conjuncts
+    in
+    Syntax.Symbol.Set.fold
+      (fun sym intcond -> vec_of_symbol sym :: intcond)
+      int_symbols
+      []
 
   let cubify srk terms symbols =
     let num_terms = Array.length terms in
@@ -553,14 +489,14 @@ end = struct
         terms.(dim)
     in
     let abstract interp phi =
-      let implicant = Interpretation.select_implicant interp phi in
+      let implicant = Option.get (Interpretation.select_implicant interp phi) in
       logf ~level:`debug "cubify: abstracting @[%a@]"
         (Format.pp_print_list
            ~pp_sep: (fun fmt () -> Format.fprintf fmt ", ")
            (fun fmt atom -> Syntax.Formula.pp srk fmt atom)
         )
-        (Option.get implicant);
-      let vec_of_symbol = vec_of_symbol dim_of_symbol in
+        implicant;
+      let vec_of_symbol k = V.of_term QQ.one (dim_of_symbol k) in
       let lincond =
         plt_implicant_of_implicant srk vec_of_symbol interp implicant in
       let is_ints = implicit_is_ints srk vec_of_symbol implicant in
