@@ -857,7 +857,13 @@ end = struct
       | `Quantify (_, _, _, _) ->
          invalid_arg "Cannot apply virtual substitution to a quantified formula"
     in
-    Linear.eval_lira srk ~vec_of_sym subst formula
+    let formula' = Linear.eval_lira srk ~vec_of_sym subst formula in
+    if expr_typ srk (term_of_dim dim) = `TyInt then
+      (* Make implicit integrality contraint for eliminated dimension explicit *)
+      let dim_vec = V.of_term QQ.one dim in
+      mk_and srk [ formula'
+                 ; formula_l srk term_of_dim (virtual_sub_l vt dim dim_vec) ]
+    else formula'
 
   let project_one round_up elim_dim m (p, l, t) =
     logf ~level:`debug "lwcooper_project_one: eliminating %d" elim_dim;

@@ -14,6 +14,7 @@ module VM = BatMap.Make(Linear.QQVector)
 module ZZVector = Linear.ZZVector
 module IntSet = SrkUtil.Int.Set
 module Solver = Smt.StdSolver
+module PLT = PolyhedronLatticeTiling
 
 let substitute_const srk sigma expr =
   let simplify t = of_linterm srk (linterm_of srk t) in
@@ -58,19 +59,6 @@ let coefficient_gcd term =
     ZZ.zero
     (V.enum term)
 
-let map_arith_atoms srk f phi =
-  let rewriter expr =
-    match Expr.refine srk expr with
-    | `Formula phi ->
-      begin match Formula.destruct srk phi with
-        | `Atom (`Arith (op, s, t)) -> (f op s t :> ('a, typ_fo) expr)
-        | _ -> expr
-      end
-    | `ArithTerm _ 
-    | `ArrTerm _ -> expr
-  in
-  rewrite srk ~up:rewriter phi
-
 (* floor(term/divisor) + offset *)
 type int_virtual_term =
   { term : V.t;
@@ -94,141 +82,6 @@ let pp_int_virtual_term srk formatter vt =
   else
     Format.fprintf formatter "@]"
 
-type virtual_term =
-  | MinusInfinity
-  | PlusEpsilon of V.t
-  | Term of V.t
-
-let pp_virtual_term srk formatter =
-  function
-  | MinusInfinity -> Format.pp_print_string formatter "-oo"
-  | PlusEpsilon t ->
-    Format.fprintf formatter "%a + epsilon" (pp_linterm srk) t
-  | Term t -> pp_linterm srk formatter t
-
-(* Loos-Weispfenning virtual substitution *) 
-let virtual_substitution srk x virtual_term phi =
-  let pivot_term x term =
-    V.pivot (dim_of_sym x) (linterm_of srk term)
-  in
-  let replace_atom op s zero =
-    assert (ArithTerm.equal zero (mk_real srk QQ.zero));
-
-    (* s == s' + ax, x not in fv(s') *)
-    let (a, s') = pivot_term x s in
-    if QQ.equal a QQ.zero then
-      match op with
-      | `Eq -> mk_eq srk s zero
-      | `Lt -> mk_lt srk s zero
-      | `Leq -> mk_leq srk s zero
-    else
-      let soa = V.scalar_mul (QQ.inverse (QQ.negate a)) s' (* -s'/a *) in
-      let mk_sub s t = of_linterm srk (V.add s (V.negate t)) in
-      match op, virtual_term with
-      | (`Eq, Term t) ->
-        (* -s'/a = x = t <==> -s'/a = t *)
-        mk_eq srk (mk_sub soa t) zero
-      | (`Leq, Term t) ->
-        if QQ.lt a QQ.zero then
-          (* -s'/a <= x = t <==> -s'/a <= t *)
-          mk_leq srk (mk_sub soa t) zero
-        else
-          (* t = x <= -s'/a <==> t <= -s'/a *)
-          mk_leq srk (mk_sub t soa) zero
-      | (`Lt, Term t) ->
-        if QQ.lt a QQ.zero then
-          (* -s'/a < x = t <==> -s'/a < t *)
-          mk_lt srk (mk_sub soa t) zero
-        else
-          (* t = x < -s'/a <==> t < -s'/a *)
-          mk_lt srk (mk_sub t soa) zero
-      | `Eq, _ -> mk_false srk
-      | (_, PlusEpsilon t) ->
-        if QQ.lt a QQ.zero then
-          (* -s'/a < x = t + eps <==> -s'/a <= t *)
-          (* -s'/a <= x = t + eps <==> -s'/a <= t *)
-          mk_leq srk (mk_sub soa t) zero
-        else
-          (* t + eps = x < -s'/a <==> t < -s'/a *)
-          (* t + eps = x <= -s'/a <==> t < -s'/a *)
-          mk_lt srk (mk_sub t soa) zero
-      | (_, MinusInfinity) ->
-        if QQ.lt a QQ.zero then
-          (* -s'/a < x = -oo <==> false *)
-          mk_false srk
-        else
-          (* -oo = x < -s'/a <==> true *)
-          mk_true srk
-  in
-  map_arith_atoms srk replace_atom phi
-
-(* Model based projection, as in described in Anvesh Komuravelli, Arie
-   Gurfinkel, Sagar Chaki: "SMT-based Model Checking for Recursive Programs".
-   Given a structure m, a constant symbol x, and a set of
-   linear terms T, find a virtual term vt such that
-   - vt is -t/a (where ax + t in T) and m |= x = -t/a
-   - vt is -t/a + epsilon (where ax + t in T) and m |= -t/a < x and
-                          m |= 's/b < x ==> (-s/b <= s/a) for all bx + s in T
-   - vt is -oo otherwise *)
-let mbp_virtual_term srk interp x atoms =
-  if typ_symbol srk x != `TyReal then
-    invalid_arg "mbp: cannot eliminate non-real symbols";
-
-  let x_val =
-    try Interpretation.real interp x
-    with Not_found ->
-      invalid_arg "mbp_virtual_term: no interpretation for constant"
-  in
-  let merge lower lower' =
-    match lower, lower' with
-    | None, x | x, None -> x
-    | Some (lower, lower_val), Some (lower', lower_val') ->
-      if QQ.lt lower_val lower_val' then
-        Some (lower', lower_val')
-      else
-        Some (lower, lower_val)
-  in
-
-  let get_vt atom =
-    match Interpretation.destruct_atom srk atom with
-    | `Literal (_, _) -> None
-    | `ArrEq _ -> None
-    | `ArithComparison (op, s, t) ->
-      let t =
-        try V.add (linterm_of srk s) (V.negate (linterm_of srk t))
-        with Nonlinear -> assert false
-      in
-      let (a, t') = V.pivot (dim_of_sym x) t in
-
-      (* Atom is ax + t' op 0 *)
-      if QQ.equal QQ.zero a then
-        None
-      else
-        let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t' in
-        let toa_val = evaluate_linterm (Interpretation.real interp) toa in
-        match op with
-        | `Eq -> raise (Equal_term toa)
-        | `Leq when QQ.equal toa_val x_val -> raise (Equal_term toa)
-        | `Lt | `Leq ->
-          if QQ.lt a QQ.zero then
-            (* Lower bound *)
-            Some (toa, toa_val)
-          else
-            (* Upper bound: discard *)
-            None
-  in
-  let vt =
-    try
-      begin match List.fold_left merge None (List.map get_vt atoms) with
-      | Some (lower, _) -> PlusEpsilon lower
-      | None -> MinusInfinity
-      end
-    with Equal_term t -> Term t
-  in
-  logf ~level:`trace "Virtual term for %a: %a"
-    (pp_symbol srk) x
-    (pp_virtual_term srk) vt;
-  vt
 
 (* Given a prenex formula phi, compute a pair (qf_pre, psi) such that
    - qf_pre is a quantifier prefix [(Q0, a0);...;(Qn, an)] where each Qi is
@@ -1743,17 +1596,20 @@ let qe_mbp srk phi =
     let rec loop () =
       match Solver.get_model solver with
       | `Sat m ->
-        let implicant =
-          match select_implicant srk m phi with
-          | Some x -> x
-          | None -> assert false
-        in
-
-        let vt = mbp_virtual_term srk m x implicant in
-        let psi = virtual_substitution srk x vt phi in
-        disjuncts := psi::(!disjuncts);
-        Solver.add solver [mk_not srk psi];
-        loop ()
+         let valuation i =
+           match Linear.sym_of_dim i with
+           | Some k -> Interpretation.real m k
+           | None -> QQ.one
+         in
+         let x_dim = Linear.dim_of_sym x in
+         let vt = match PLT.select_plt srk phi m with
+           | None -> assert false
+           | Some cube -> PLT.select_vt x_dim valuation cube
+         in
+         let psi = PLT.virtual_subst srk x_dim vt phi in
+         disjuncts := psi::(!disjuncts);
+         Solver.add solver [mk_not srk psi];
+         loop ()
       | `Unsat -> mk_or srk (!disjuncts)
       | `Unknown -> raise Unknown
     in
@@ -1762,10 +1618,10 @@ let qe_mbp srk phi =
   in
   List.fold_right
     (fun (qt, x) phi ->
-       match qt with
-       | `Exists ->
+      match qt with
+      | `Exists ->
          exists x (snd (normalize srk phi))
-       | `Forall ->
+      | `Forall ->
          mk_not srk (exists x (snd (normalize srk (mk_not srk phi)))))
     qf_pre
     phi
