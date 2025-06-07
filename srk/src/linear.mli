@@ -421,3 +421,5 @@ val destruct_lira : 'a Syntax.context ->
                     ?vec_of_sym:(symbol -> QQVector.t) ->
                     'a formula ->
                     ('a formula) open_lira
+
+val eval_lira : 'a context -> ?vec_of_sym:(symbol -> QQVector.t) -> ('b open_lira -> 'b) -> 'a Syntax.formula -> 'b

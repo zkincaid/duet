@@ -19,17 +19,6 @@ val vanishing_space : 'a context -> 'a formula -> 'a arith_term array -> Linear.
     that is implied by [phi]. *)
 val boxify : 'a context -> 'a formula -> 'a arith_term list -> 'a formula
 
-(** [abstract ?exists srk man phi] computes the strongest property that is
-    implied by [phi] which is expressible within a given abstract domain.  The
-    property is restricted to use only the symbols that satisfy the [?exists]
-    predicate (which defaults to the constant [true] predicate). *)
-val abstract : ?exists:(symbol -> bool) ->
-               'a context ->
-               'abs Apron.Manager.t ->
-               'a formula ->
-               ('a,'abs) SrkApron.property
-
-
 type 'a smt_model =
   [ `LIRA of 'a Interpretation.interpretation
   | `LIRR of Lirr.Model.t ]

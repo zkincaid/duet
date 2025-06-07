@@ -223,6 +223,8 @@ let _test_hull ?(level = !test_level) solver terms dd =
   else
     ()
 
+type plt_constraints = (P.constraint_kind * V.t) list * V.t list * V.t list
+
 module Plt: sig
 
   (** Concept spaces of PLTs and geometric points.
@@ -260,8 +262,12 @@ module Plt: sig
     poly_part:P.t ->
     lattice_part: L.unreduced L.t -> tiling_part: L.unreduced L.t -> t
 
-end = struct
+  val plt_constraints_of_cube : 'a context ->
+                                (symbol -> V.t) ->
+                                'a formula list ->
+                                plt_constraints
 
+end = struct
   type t =
     {
       poly_part: P.t
@@ -317,8 +323,8 @@ end = struct
     ; t_cond = List.rev_append lin1.t_cond lin2.t_cond
     }
 
-  let plt_constraint_of_atom srk vec_of_sym atom =
-    match Linear.destruct_lira_atom srk ~vec_of_sym atom with
+  let plt_constraint_of_atom srk ?vec_of_sym atom =
+    match Linear.destruct_lira_atom srk ?vec_of_sym atom with
     | (`Pos, v) -> { tru with p_cond = [(`Pos, v)] }
     | (`Nonneg, v) -> { tru with p_cond = [(`Nonneg, v)] }
     | (`Zero, v) -> { tru with p_cond = [(`Zero, v)] }
@@ -337,11 +343,11 @@ end = struct
       Syntax.Symbol.Set.empty
       atoms
 
-  let plt_implicant_of_implicant srk vec_of_symbol atoms =
+  let plt_implicant_of_implicant srk vec_of_sym atoms =
     let lincond =
       List.fold_left (fun lincond atom ->
           let lincond_atom =
-            plt_constraint_of_atom srk vec_of_symbol atom in
+            plt_constraint_of_atom srk ~vec_of_sym atom in
           conjoin lincond_atom lincond
         )
         tru
@@ -351,11 +357,15 @@ end = struct
       { p_cond = []
       ; l_cond =
           Syntax.Symbol.Set.elements (integer_symbols srk atoms)
-          |> List.map vec_of_symbol
+          |> List.map vec_of_sym
       ; t_cond = []
       }
     in
     conjoin lincond integers
+
+  let plt_constraints_of_cube srk vec_of_symbol atoms =
+    let constraints = plt_implicant_of_implicant srk vec_of_symbol atoms in
+    (constraints.p_cond, constraints.l_cond, constraints.t_cond)
 
   let formula_of_plt srk term_of_dim plt =
     let phis_p =
@@ -579,8 +589,34 @@ end = struct
 
 end
 
-module LwCooper: sig
+type virtual_term =
+  | PlusInfinity of QQ.t
+  | MinusInfinity of QQ.t
+  | Term of V.t
+  | PlusEpsilon of V.t
 
+let pp_virtual_term fmt vt =
+  match vt with
+  | PlusInfinity _ -> Format.fprintf fmt "+oo"
+  | MinusInfinity _ -> Format.fprintf fmt "-oo"
+  | Term t -> pp_vector fmt t
+  | PlusEpsilon t -> Format.fprintf fmt "%a + epsilon" pp_vector t
+
+module LwCooper: sig
+  val select_vt : ((int -> QQ.t) -> V.t -> V.t) ->
+                  int ->
+                  (int -> QQ.t) ->
+                  plt_constraints ->
+                  virtual_term
+  val virtual_sub_formula : 'a context ->
+                            (symbol -> V.t) ->
+                            (int -> 'a arith_term) ->
+                            int ->
+                            virtual_term ->
+                            'a formula ->
+                            'a formula
+
+  val virtual_sub : int -> virtual_term -> plt_constraints -> plt_constraints
   (** [local_project] is a simultaneous generalization of
       Cooper-based model-based projection for linear integer arithmetic and
       Loos-Weispfenning-based model-based projection for linear real arithmetic.
@@ -604,94 +640,84 @@ module LwCooper: sig
     elim: (int -> bool) ->
     (P.t, int -> QQ.t, P.t, int -> QQ.t) LocalAbstraction.t
 
+  val local_project_plt:
+    elim: (int -> bool) ->
+    (int -> QQ.t) ->
+    plt_constraints ->
+    plt_constraints
 end = struct
 
   let substitute_for_in v dim w =
     let (coeff, w') = V.pivot dim w in
     V.add (V.scalar_mul coeff v) w'
 
-  let virtual_sub_p
-        (vt: [`PlusInfinity | `MinusInfinity | `Term of [`Just of V.t | `PlusEpsilon of V.t]])
-        dim (kind, v) =
+
+  let p_false = (`Pos, Linear.const_linterm QQ.zero)
+  let l_false = Linear.const_linterm (QQ.of_frac 1 2)
+  let p_true = (`Nonneg, Linear.const_linterm QQ.zero)
+  let t_true = Linear.const_linterm (QQ.of_frac 1 2)
+
+  let virtual_sub_p vt dim (kind, v) =
     let (coeff, _) = V.pivot dim v in
     let result =
       if QQ.equal coeff QQ.zero then
-        Some (kind, v)
+        (kind, v)
       else
         match (vt, QQ.lt QQ.zero coeff) with
-        | (`PlusInfinity, true) ->
+        | (PlusInfinity _, true) ->
            begin match kind with
-           | `Zero -> invalid_arg "LwCooper: invalid selection of +infty"
-           | `Nonneg
-             | `Pos -> None
+           | `Zero -> p_false
+           | `Nonneg | `Pos -> p_true
            end
-        | (`MinusInfinity, false) ->
+        | (MinusInfinity _, false) ->
            begin match kind with
-           | `Zero -> invalid_arg "LwCooper: invalid selection of -infty"
-           | `Nonneg
-             | `Pos -> None
+           | `Zero -> p_false
+           | `Nonneg | `Pos -> p_true
            end
-        | (`PlusInfinity, false) ->
-           invalid_arg "LwCooper: invalid selection of +infty"
-        | (`MinusInfinity, true) ->
-           invalid_arg "LwCooper: invalid selection of -infty"
-        | (`Term (`Just t), _) ->
-           Some (kind, substitute_for_in t dim v)
-        | (`Term (`PlusEpsilon t), true)->
+        | (PlusInfinity _, false) -> p_false
+        | (MinusInfinity _, true) -> p_false
+        | (Term t, _) ->
+           (kind, substitute_for_in t dim v)
+        | (PlusEpsilon t, true)->
            begin match kind with
-           | `Zero -> invalid_arg "LwCooper: invalid selection of glb + epsilon"
-           | `Nonneg
-             | `Pos -> Some (`Nonneg, substitute_for_in t dim v)
+           | `Zero -> p_false
+           | `Nonneg | `Pos -> (`Nonneg, substitute_for_in t dim v)
            end
-        | (`Term (`PlusEpsilon t), false)->
+        | (PlusEpsilon t, false)->
            begin match kind with
-           | `Zero -> invalid_arg "LwCooper: invalid selection of glb + epsilon"
-           | `Nonneg
-             | `Pos -> Some (`Pos, substitute_for_in t dim v)
+           | `Zero -> p_false
+           | `Nonneg | `Pos -> (`Pos, substitute_for_in t dim v)
            end
     in
     logf ~level:`trace "virtual substitution: substituting %a for %d in @[%a@]"
-      (fun fmt vt -> match vt with
-                     | `PlusInfinity -> Format.fprintf fmt "+infty"
-                     | `MinusInfinity -> Format.fprintf fmt "-infty"
-                     | `Term (`Just t) -> pp_vector fmt t
-                     | `Term (`PlusEpsilon t) ->
-                        Format.fprintf fmt "%a + epsilon" pp_vector t
-      ) vt
+      pp_virtual_term vt
       dim pp_pconstr (kind, v);
     logf ~level:`trace "virtual substitution: result is @[%a@]"
-      (Format.pp_print_option
-         ~none:(fun fmt _ -> Format.fprintf fmt "None") pp_pconstr)
-      result;
+      pp_pconstr result;
     result
 
   (* TODO: Verify that there is only one possibility in the range
      [0, lcm of denom)
    *)
-  let virtual_sub_l modulus m vt dim v =
+  let virtual_sub_l vt dim v =
     let (coeff, _) = V.pivot dim v in
-    if QQ.equal coeff QQ.zero then Some v
+    if QQ.equal coeff QQ.zero then v
     else
       match vt with
-      | `PlusInfinity
-        | `MinusInfinity ->
-         let delta = QQ.modulo (m dim) modulus in
-         Some (substitute_for_in (V.of_term delta Linear.const_dim) dim v)
-      | `Term (`Just t) ->
-         Some (substitute_for_in t dim v)
-      | `Term (`PlusEpsilon _) -> invalid_arg "LwCooper: invalid selection of glb + epsilon"
+      | PlusInfinity delta | MinusInfinity delta ->
+         substitute_for_in (Linear.const_linterm delta) dim v
+      | Term t -> substitute_for_in t dim v
+      | PlusEpsilon _ -> l_false
 
-  let virtual_sub substitution_fn vt dim constraints =
-    let result = BatEnum.empty () in
-    List.iter
-      (fun constr ->
-        begin match substitution_fn vt dim constr with
-        | None -> ()
-        | Some atom -> BatEnum.push result atom
-        end
-      )
-      constraints;
-    BatList.of_enum result |> List.rev
+  let virtual_sub_t vt dim v =
+    let (coeff, _) = V.pivot dim v in
+    if QQ.equal coeff QQ.zero then v
+    else
+      match vt with
+      | PlusInfinity delta | MinusInfinity delta ->
+         substitute_for_in (Linear.const_linterm delta) dim v
+      | Term t -> substitute_for_in t dim v
+      | PlusEpsilon _ -> t_true
 
   let glb_for dim p m =
     let has_upper_bound = ref false in
@@ -753,97 +779,85 @@ end = struct
       p;
     (!glb, !has_upper_bound)
 
-  let select_term elim_dim modulus round_up (kind, lower) m =
-    let rounded = round_up m lower in
-    let lower_point = Linear.evaluate_affine m lower in
-    let rounded_point = Linear.evaluate_affine m rounded in
-    let remainder =
-      match modulus with
-      | `Fixed modulus -> QQ.modulo (QQ.sub (m elim_dim) rounded_point) modulus
-      | `Epsilon_modulus -> QQ.zero
-    in
-    let term =
-      let rounded_plus delta = V.add_term delta Linear.const_dim rounded in
-      match (kind, QQ.equal QQ.zero remainder) with
-      | (`Zero, _)
-        | (`Nonneg, _)
-        | (`Pos, false) -> `Just (rounded_plus remainder)
-      | (`Pos, true) ->
-         assert (QQ.leq lower_point rounded_point);
-         if QQ.lt lower_point rounded_point then `Just rounded
-         else
-           begin match modulus with
-           | `Fixed modulus -> `Just (rounded_plus modulus) (* move up one level *)
-           | `Epsilon_modulus -> `PlusEpsilon rounded
-           end
-    in
-    logf ~level:`debug
-      "select_term: calculating term: value of elim dimension %d = %a,
-       value of lower bound = %a, value of rounded = %a,
-       modulus = %a, remainder = %a, chosen point = %a@;"
-      elim_dim
-      QQ.pp (m elim_dim)
-      QQ.pp (Linear.evaluate_affine m lower)
-      QQ.pp (Linear.evaluate_affine m rounded)
-      QQ.pp (match modulus with
-             | `Fixed modulus -> modulus
-             | `Epsilon_modulus -> QQ.zero)
-      QQ.pp remainder
-      (fun fmt term ->
-        match term with
-        | `Just t -> QQ.pp fmt (Linear.evaluate_affine m t)
-        | `PlusEpsilon t -> Format.fprintf fmt "%a + epsilon" QQ.pp (Linear.evaluate_affine m t))
-      term;
-    logf ~level:`debug
-      "select_term: lower bound term: @[%a@]@; rounded term: @[%a@]@; selected term: @[%a@]"
-      pp_vector lower pp_vector rounded
-      (fun fmt term ->
-        match term with
-        | `Just t -> pp_vector fmt t
-        | `PlusEpsilon t -> Format.fprintf fmt "%a + epsilon" pp_vector t)
-      term;
-    term
-
-  let project_one round_up elim_dim m (p, l, t) =
-    logf ~level:`debug "lwcooper_project_one: eliminating %d" elim_dim;
+  let select_vt round_up elim_dim m (p, l, t) =
     let gcd_coeffs =
       List.fold_left (fun gcd v -> QQ.gcd (V.coeff elim_dim v) gcd) QQ.zero
         (List.rev_append l t)
     in
-    let modulus =
+    let (continuous, modulus, delta) =
       (* Better than just lcm of denoms, e.g., smaller steps for coeffs 5/2, 5/3 *)
-      if QQ.equal QQ.zero gcd_coeffs then
-        `Epsilon_modulus (* arbitrarily small modulus; reduces to Loos-Weispfenning *)
-      else `Fixed (QQ.inverse gcd_coeffs)
+      if QQ.equal QQ.zero gcd_coeffs then (true, QQ.one, QQ.zero)
+      else
+        let modulus = QQ.inverse gcd_coeffs in
+        (false, modulus, QQ.modulo (m elim_dim) modulus)
     in
-    let select_term = select_term elim_dim modulus round_up in
-    let term_selected =
+    let vt =
       match glb_for elim_dim p m with
-      | (_, false) ->
-         logf ~level:`debug "LwCooper.project_one: selecting +infty";
-         `PlusInfinity
-      | (None, _) ->
-         logf ~level:`debug "LwCooper.project_one: selecting -infty";
-         `MinusInfinity
-      | (Some (kind, term, _value), true) ->
-         logf ~level:`debug "LwCooper.project_one: selecting term based on @[%a@]"
-           pp_pconstr (kind, V.add_term QQ.one elim_dim (V.negate term));
-         `Term (select_term (kind, term) m)
+      | (_, false) -> PlusInfinity delta
+      | (None, _) -> MinusInfinity delta
+      | (Some (kind, lower, _value), true) ->
+         let rounded = round_up m lower in
+         let lower_point = Linear.evaluate_affine m lower in
+         let rounded_point = Linear.evaluate_affine m rounded in
+         let remainder =
+           if continuous then QQ.zero
+           else QQ.modulo (QQ.sub (m elim_dim) rounded_point) modulus
+         in
+         let rounded_plus delta = V.add_term delta Linear.const_dim rounded in
+         match (kind, QQ.equal QQ.zero remainder) with
+         | (`Zero, _) | (`Nonneg, _) | (`Pos, false) -> Term (rounded_plus remainder)
+         | (`Pos, true) ->
+            assert (QQ.leq lower_point rounded_point);
+            if continuous then PlusEpsilon rounded
+            else if QQ.lt lower_point rounded_point then Term rounded
+            else Term (rounded_plus modulus) (* move up one level *)
     in
-    let polyhedron = virtual_sub virtual_sub_p term_selected elim_dim p in
-    let virtual_sub_lattice term_selected elim_dim l =
-      match modulus with
-      | `Fixed modulus -> (* "integer" case *)
-         virtual_sub (virtual_sub_l modulus m) term_selected elim_dim l
-      | `Epsilon_modulus -> (* real case *)
-         l
+    logf ~level:`debug "LwCooper.select_vt: selected %a" pp_virtual_term vt;
+    vt
+
+  let virtual_sub dim vt (p, l, t) =
+    (List.map (virtual_sub_p vt dim) p,
+     List.map (virtual_sub_l vt dim) l,
+     List.map (virtual_sub_t vt dim) t)
+
+  let virtual_sub_formula srk vec_of_sym term_of_dim dim vt formula =
+    let subst_atom = function
+      | (`Pos, t) -> formula_p srk term_of_dim (virtual_sub_p vt dim (`Pos, t))
+      | (`Zero, t) -> formula_p srk term_of_dim (virtual_sub_p vt dim (`Zero, t))
+      | (`Nonneg, t) -> formula_p srk term_of_dim (virtual_sub_p vt dim (`Nonneg, t))
+      | (`IsInt, t) -> formula_l srk term_of_dim (virtual_sub_l vt dim t)
+      | (`NotInt, t) -> formula_t srk term_of_dim (virtual_sub_t vt dim t)
     in
-    let lattice = virtual_sub_lattice term_selected elim_dim l in
-    let tiling = virtual_sub_lattice term_selected elim_dim t in
+    let subst = function
+      | `Atom at -> subst_atom at
+      | `Tru -> mk_true srk
+      | `Fls -> mk_false srk
+      | `And xs -> mk_and srk xs
+      | `Or xs -> mk_or srk xs
+      | `Quantify (_, _, _, _) ->
+         invalid_arg "Cannot apply virtual substitution to a quantified formula"
+    in
+    Linear.eval_lira srk ~vec_of_sym subst formula
+
+  let project_one round_up elim_dim m (p, l, t) =
+    logf ~level:`debug "lwcooper_project_one: eliminating %d" elim_dim;
+    let vt = select_vt round_up elim_dim m (p, l, t) in
+    let (polyhedron, lattice, tiling) = virtual_sub elim_dim vt (p, l, t) in
     test_point_in_polyhedron "LwCooper.project_one" m polyhedron;
     test_point_in_lattice `IsInt "LwCooper.project_one" m lattice;
     test_point_in_lattice `NotInt "LwCooper.project_one" m tiling;
     (polyhedron, lattice, tiling)
+
+  let local_project_plt ~elim m (p, l, t) =
+    let elim_dimensions =
+      collect_dimensions (fun (_, v) -> v) elim p
+      |> IntSet.union (collect_dimensions (fun v -> v) elim l)
+      |> IntSet.union (collect_dimensions (fun v -> v) elim t)
+    in
+    IntSet.fold (fun elim_dim (p, l, t) ->
+        project_one (fun _ v -> v) elim_dim m (p, l, t))
+      elim_dimensions
+      (p, l, t)
 
   let local_project_ ~elim ~round_up m plt =
     let open Plt in
@@ -1361,3 +1375,32 @@ let realify_formula_and_terms srk phi terms =
   let terms' = Array.map (fun term -> Syntax.substitute_const srk lookup term) terms
   in
   (phi', terms', accumulated_map)
+
+let default_vec_of_sym k = V.of_term QQ.one (Linear.dim_of_sym k)
+let default_term_of_dim srk dim =
+  match Linear.sym_of_dim dim with
+  | Some k -> mk_const srk k
+  | None ->
+     assert (dim == Linear.const_dim);
+     mk_one srk
+
+let select_vt = LwCooper.select_vt (fun _m v -> v)
+let virtual_subst
+      srk
+      ?(vec_of_sym=default_vec_of_sym)
+      ?(term_of_dim=default_term_of_dim)
+  =
+  LwCooper.virtual_sub_formula srk vec_of_sym (term_of_dim srk)
+
+let virtual_subst_plt = LwCooper.virtual_sub
+
+let select_plt srk ?(vec_of_sym=default_vec_of_sym) phi interp =
+  match Interpretation.select_implicant interp phi with
+  | None -> None
+  | Some cube -> Some (Plt.plt_constraints_of_cube srk vec_of_sym cube)
+
+let local_project_plt = LwCooper.local_project_plt
+
+let poly_part (p, _, _) = p
+let lattice_part (_, l, _) = l
+let tiling_part (_, _, t) = t

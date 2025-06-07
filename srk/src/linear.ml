@@ -882,3 +882,13 @@ let destruct_lira srk ?(vec_of_sym=default_vec_of_sym) phi =
      match Formula.destruct srk psi with
      | `Atom (`IsInt t) -> `Atom (`NotInt, linterm_of srk ~vec_of_sym t)
      | _ -> invalid_arg "Not a LIRA formula"
+
+let rec eval_lira srk ?(vec_of_sym=default_vec_of_sym) f phi =
+  match destruct_lira srk ~vec_of_sym phi with
+  | `Tru -> f `Tru
+  | `Fls -> f `Fls
+  | `And xs -> f (`And (List.map (eval_lira srk ~vec_of_sym f) xs))
+  | `Or xs -> f (`Or (List.map (eval_lira srk ~vec_of_sym f) xs))
+  | `Quantify (qt, name, typ, psi) ->
+     f (`Quantify (qt, name, typ, eval_lira srk ~vec_of_sym f psi))
+  | `Atom (p, t) -> f (`Atom (p, t))

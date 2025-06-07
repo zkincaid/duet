@@ -123,3 +123,31 @@ val convex_hull: abstraction_algorithm ->
 val realify_formula_and_terms:
   'a Syntax.context -> 'a Syntax.formula -> 'a Syntax.arith_term array ->
   'a Syntax.formula * 'a Syntax.arith_term array * Syntax.symbol Syntax.Symbol.Map.t
+
+type plt_constraints
+type virtual_term
+
+val select_vt : int -> (int -> QQ.t) -> plt_constraints -> virtual_term
+val virtual_subst : 'a Syntax.context ->
+                    ?vec_of_sym:(Syntax.symbol -> Linear.QQVector.t) ->
+                    ?term_of_dim:('a Syntax.context -> int -> 'a Syntax.arith_term) ->
+                    int ->
+                    virtual_term ->
+                    'a Syntax.formula ->
+                    'a Syntax.formula
+
+val virtual_subst_plt : int -> virtual_term -> plt_constraints -> plt_constraints
+
+val select_plt : 'a Syntax.context ->
+                 ?vec_of_sym:(Syntax.symbol -> Linear.QQVector.t) ->
+                 'a Syntax.formula ->
+                 'a Interpretation.interpretation ->
+                 plt_constraints option
+
+val local_project_plt : elim:(int -> bool) ->
+                        (int -> QQ.t) ->
+                        plt_constraints ->
+                        plt_constraints
+val poly_part : plt_constraints -> (Polyhedron.constraint_kind * Linear.QQVector.t) list
+val lattice_part : plt_constraints -> Linear.QQVector.t list
+val tiling_part : plt_constraints -> Linear.QQVector.t list

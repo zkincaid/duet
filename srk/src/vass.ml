@@ -582,7 +582,7 @@ let compute_trans_post_cond srk pre_cs post_cs trans gamma_trans term_list tr_sy
   let trans' = gamma_transformer srk term_list trans in
   let complete_trans_form = (mk_and srk [pre_cs;trans';post_cs]) in
   let post_trans = SrkApron.formula_of_property 
-      (Abstract.abstract ~exists:exists_post srk man complete_trans_form) in
+      (SrkApron.abstract ~exists:exists_post srk man complete_trans_form) in
   let lri_form =
     IS.make srk (TF.make
                    (rewrite srk ~down:(pos_rewriter srk) gamma_trans)
@@ -591,7 +591,7 @@ let compute_trans_post_cond srk pre_cs post_cs trans gamma_trans term_list tr_sy
   let preify = substitute_map srk (TF.pre_map srk tr_symbols) in
   let rslt =
     SrkApron.formula_of_property
-      (Abstract.abstract ~exists:exists_post srk man
+      (SrkApron.abstract ~exists:exists_post srk man
          (mk_and srk
             [preify post_trans; closure lri_form]))
   in
