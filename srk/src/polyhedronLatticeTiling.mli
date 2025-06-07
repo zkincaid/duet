@@ -151,3 +151,12 @@ val local_project_plt : elim:(int -> bool) ->
 val poly_part : plt_constraints -> (Polyhedron.constraint_kind * Linear.QQVector.t) list
 val lattice_part : plt_constraints -> Linear.QQVector.t list
 val tiling_part : plt_constraints -> Linear.QQVector.t list
+val make_plt_constraints :
+  ?lattice_part:Linear.QQVector.t list ->
+  ?tiling_part:Linear.QQVector.t list ->
+  (Polyhedron.constraint_kind * Linear.QQVector.t) list ->
+  plt_constraints
+val formula_of_plt : 'a Syntax.context ->
+                     ?term_of_dim:('a Syntax.context -> int -> 'a Syntax.arith_term) ->
+                     plt_constraints ->
+                     'a Syntax.formula

@@ -76,6 +76,14 @@ end
 module IntSet = SrkUtil.Int.Set
 module IntMap = SrkUtil.Int.Map
 
+let default_vec_of_sym k = V.of_term QQ.one (Linear.dim_of_sym k)
+let default_term_of_dim srk dim =
+  match Linear.sym_of_dim dim with
+  | Some k -> mk_const srk k
+  | None ->
+     assert (dim == Linear.const_dim);
+     mk_one srk
+
 let term_of_vec srk term_of_dim =
   Linear.term_of_vec srk (fun d ->
       if d = Linear.const_dim then mk_one srk
@@ -267,6 +275,11 @@ module Plt: sig
                                 'a formula list ->
                                 plt_constraints
 
+  val formula_of_plt_constraints: 'a Syntax.context ->
+                                  ?term_of_dim:('a context -> int -> 'a arith_term) ->
+                                  plt_constraints ->
+                                  'a formula
+
 end = struct
   type t =
     {
@@ -366,6 +379,13 @@ end = struct
   let plt_constraints_of_cube srk vec_of_symbol atoms =
     let constraints = plt_implicant_of_implicant srk vec_of_symbol atoms in
     (constraints.p_cond, constraints.l_cond, constraints.t_cond)
+
+  let formula_of_plt_constraints srk ?(term_of_dim=default_term_of_dim) (p, l, t) =
+    let term_of_dim = term_of_dim srk in
+    let phis_p = List.map (formula_p srk term_of_dim) p in
+    let phis_l = List.map (formula_l srk term_of_dim) l in
+    let phis_t = List.map (formula_l srk term_of_dim) t in
+    mk_and srk (phis_p @ phis_l @ phis_t)
 
   let formula_of_plt srk term_of_dim plt =
     let phis_p =
@@ -1376,14 +1396,6 @@ let realify_formula_and_terms srk phi terms =
   in
   (phi', terms', accumulated_map)
 
-let default_vec_of_sym k = V.of_term QQ.one (Linear.dim_of_sym k)
-let default_term_of_dim srk dim =
-  match Linear.sym_of_dim dim with
-  | Some k -> mk_const srk k
-  | None ->
-     assert (dim == Linear.const_dim);
-     mk_one srk
-
 let select_vt = LwCooper.select_vt (fun _m v -> v)
 let virtual_subst
       srk
@@ -1404,3 +1416,8 @@ let local_project_plt = LwCooper.local_project_plt
 let poly_part (p, _, _) = p
 let lattice_part (_, l, _) = l
 let tiling_part (_, _, t) = t
+
+let make_plt_constraints ?(lattice_part=[]) ?(tiling_part=[]) poly_part =
+  (poly_part, lattice_part, tiling_part)
+
+let formula_of_plt = Plt.formula_of_plt_constraints
