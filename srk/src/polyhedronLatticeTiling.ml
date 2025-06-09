@@ -631,12 +631,11 @@ module LwCooper: sig
   val virtual_sub_formula : 'a context ->
                             (symbol -> V.t) ->
                             (int -> 'a arith_term) ->
-                            int ->
-                            virtual_term ->
+                            (int * virtual_term) list ->
                             'a formula ->
                             'a formula
 
-  val virtual_sub : int -> virtual_term -> plt_constraints -> plt_constraints
+  val virtual_sub : (int * virtual_term) list -> plt_constraints -> plt_constraints
   (** [local_project] is a simultaneous generalization of
       Cooper-based model-based projection for linear integer arithmetic and
       Loos-Weispfenning-based model-based projection for linear real arithmetic.
@@ -835,18 +834,24 @@ end = struct
     logf ~level:`debug "LwCooper.select_vt: selected %a" pp_virtual_term vt;
     vt
 
-  let virtual_sub dim vt (p, l, t) =
-    (List.map (virtual_sub_p vt dim) p,
-     List.map (virtual_sub_l vt dim) l,
-     List.map (virtual_sub_t vt dim) t)
+  let virtual_sub sigma (p, l, t) =
+    let subst_all f x =
+      List.fold_left (fun x (dim, vt) -> f vt dim x) x sigma
+    in
+    (List.map (subst_all virtual_sub_p) p,
+     List.map (subst_all virtual_sub_l) l,
+     List.map (subst_all virtual_sub_t) t)
 
-  let virtual_sub_formula srk vec_of_sym term_of_dim dim vt formula =
+  let virtual_sub_formula srk vec_of_sym term_of_dim sigma formula =
+    let subst_all f x =
+      List.fold_left (fun x (dim, vt) -> f vt dim x) x sigma
+    in
     let subst_atom = function
-      | (`Pos, t) -> formula_p srk term_of_dim (virtual_sub_p vt dim (`Pos, t))
-      | (`Zero, t) -> formula_p srk term_of_dim (virtual_sub_p vt dim (`Zero, t))
-      | (`Nonneg, t) -> formula_p srk term_of_dim (virtual_sub_p vt dim (`Nonneg, t))
-      | (`IsInt, t) -> formula_l srk term_of_dim (virtual_sub_l vt dim t)
-      | (`NotInt, t) -> formula_t srk term_of_dim (virtual_sub_t vt dim t)
+      | (`Pos, t) -> formula_p srk term_of_dim (subst_all virtual_sub_p (`Pos, t))
+      | (`Zero, t) -> formula_p srk term_of_dim (subst_all virtual_sub_p (`Zero, t))
+      | (`Nonneg, t) -> formula_p srk term_of_dim (subst_all virtual_sub_p (`Nonneg, t))
+      | (`IsInt, t) -> formula_l srk term_of_dim (subst_all virtual_sub_l t)
+      | (`NotInt, t) -> formula_t srk term_of_dim (subst_all virtual_sub_t t)
     in
     let subst = function
       | `Atom at -> subst_atom at
@@ -858,17 +863,31 @@ end = struct
          invalid_arg "Cannot apply virtual substitution to a quantified formula"
     in
     let formula' = Linear.eval_lira srk ~vec_of_sym subst formula in
-    if expr_typ srk (term_of_dim dim) = `TyInt then
-      (* Make implicit integrality contraint for eliminated dimension explicit *)
-      let dim_vec = V.of_term QQ.one dim in
-      mk_and srk [ formula'
-                 ; formula_l srk term_of_dim (virtual_sub_l vt dim dim_vec) ]
-    else formula'
+
+    (* Make implicit integrality contraint for eliminated dimension explicit *)
+    let rec explicit_ints sigma constraints =
+      match sigma with
+      | [] -> constraints
+      | (dim, _)::sigma' ->
+         if expr_typ srk (term_of_dim dim) = `TyInt then
+           let dim_int =
+             List.fold_left (fun x (dim, vt) -> virtual_sub_l vt dim x)
+               (V.of_term QQ.one dim)
+               sigma
+             |> formula_l srk term_of_dim
+           in
+           explicit_ints sigma' (dim_int::constraints)
+         else
+           explicit_ints sigma' constraints
+    in
+    explicit_ints sigma [formula']
+    |> mk_and srk
+
 
   let project_one round_up elim_dim m (p, l, t) =
     logf ~level:`debug "lwcooper_project_one: eliminating %d" elim_dim;
     let vt = select_vt round_up elim_dim m (p, l, t) in
-    let (polyhedron, lattice, tiling) = virtual_sub elim_dim vt (p, l, t) in
+    let (polyhedron, lattice, tiling) = virtual_sub [(elim_dim, vt)] (p, l, t) in
     test_point_in_polyhedron "LwCooper.project_one" m polyhedron;
     test_point_in_lattice `IsInt "LwCooper.project_one" m lattice;
     test_point_in_lattice `NotInt "LwCooper.project_one" m tiling;

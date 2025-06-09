@@ -1606,7 +1606,7 @@ let qe_mbp srk phi =
            | None -> assert false
            | Some cube -> PLT.select_vt x_dim valuation cube
          in
-         let psi = PLT.virtual_subst srk x_dim vt phi in
+         let psi = PLT.virtual_subst srk [(x_dim, vt)] phi in
          disjuncts := psi::(!disjuncts);
          Solver.add solver [mk_not srk psi];
          loop ()
@@ -1710,145 +1710,39 @@ let exists_elim solver ?(dnf=false) exists =
   let project =
     Symbol.Set.filter (not % exists) (symbols phi)
   in
-  let project_int =
-    Symbol.Set.fold (fun s set ->
-        IntSet.add (Linear.dim_of_sym s) set)
-      project
-      IntSet.empty
-  in
   let disjuncts = ref [] in
-  let is_true phi =
-    match Formula.destruct srk phi with
-    | `Tru -> true
-    | _ -> false
-  in
-  (* Sequentially compose [subst] with the substitution [symbol -> term] *)
-  let seq_subst symbol term subst =
-    let subst_symbol =
-      substitute_const srk
-        (fun s -> if s = symbol then term else mk_const srk s)
-    in
-    Symbol.Map.add symbol term (Symbol.Map.map subst_symbol subst)
-  in
   let rec loop () =
     match Abstract.Solver.get_model solver with
     | `Sat (`LIRR _) -> invalid_arg "Quantifier.exists_elim does not support LIRR"
     | `Sat (`LIRA interp) ->
-       let implicant =
-         match select_implicant srk interp phi with
-         | Some x -> specialize_floor_cube srk interp x
+       let valuation i =
+         match Linear.sym_of_dim i with
+         | Some k -> Interpretation.real interp k
+         | None -> QQ.one
+       in
+       let (cube, subst) =
+         match PLT.select_plt srk phi interp with
          | None -> assert false
+         | Some cube ->
+            Symbol.Set.fold (fun x (cube, subst) ->
+                let x_dim = Linear.dim_of_sym x in
+                let vt = PLT.select_vt x_dim valuation cube in
+                (PLT.virtual_subst_plt [(x_dim,vt)] cube, (x_dim,vt)::subst))
+              project
+           (cube, [])
        in
-       (* Find substitutions for symbols involved in equations, along
-          with divisibility constarints *)
-       let (subst, div_constraints) =
-         let (oriented_eqs, _) =
-           List.filter_map (fun atom ->
-               match Interpretation.destruct_atom srk atom with
-               | `ArithComparison (op, s, t) ->
-                  begin match simplify_atom srk op s t with
-                  | `CompareZero (`Eq, t) -> Some t
-                  | _ -> None
-                  end
-               | _ -> None)
-             implicant
-           |> _orient project_int
-         in
-         List.fold_left (fun (subst, div_constraints) (a, dim, rhs) ->
-             let rhs_qq =
-               ZZVector.enum rhs
-               /@ (fun (b, dim) -> (QQ.of_zz b, dim))
-               |> V.of_enum
-             in
-             let sym = match Linear.sym_of_dim dim with
-               | Some s -> s
-               | None -> assert false
-             in
-             let sym_div = mk_divides srk a rhs_qq in
-             let rhs_term =
-               Linear.of_linterm srk
-                 (V.scalar_mul (QQ.of_zzfrac (ZZ.of_int 1) a) rhs_qq)
-             in
-             (seq_subst sym rhs_term subst, sym_div::div_constraints))
-           (Symbol.Map.empty, [])
-           oriented_eqs
+       let psi =
+         if dnf then PLT.formula_of_plt srk cube
+         else PLT.virtual_subst srk (List.rev subst) phi
        in
-       let implicant =
-         List.map (substitute_map srk subst) (div_constraints@implicant)
-       in
-       (* Add substitituions for symbols *not* involved in equations
-          to subst *)
-       let subst =
-         Symbol.Set.fold (fun s (subst, implicant) ->
-             if Symbol.Map.mem s subst then
-               (* Skip symbols involved in equations *)
-               (subst, implicant)
-             else if typ_symbol srk s = `TyInt then
-               let vt = select_int_term srk interp s implicant in
-
-               (* floor(term/div) + offset ~> (term - ([[term]] mod div))/div + offset,
-               and add constraint that div | (term - ([[term]] mod div)) *)
-               let term_val =
-                 let term_qq = evaluate_linterm (Interpretation.real interp) vt.term in
-                 match QQ.to_zz term_qq with
-                 | None -> assert false
-                 | Some zz -> zz
-               in
-               let remainder =
-                 ZZ.frem term_val vt.divisor
-               in
-               let numerator =
-                 V.add_term (QQ.of_zz (ZZ.negate remainder)) const_dim vt.term
-               in
-               let replacement =
-                 V.scalar_mul (QQ.inverse (QQ.of_zz vt.divisor)) numerator
-                 |> V.add_term (QQ.of_zz vt.offset) const_dim
-                 |> of_linterm srk
-               in
-               let subst' =
-                 substitute_const srk
-                   (fun p -> if p = s then replacement else mk_const srk p)
-               in
-               let divides = mk_divides srk vt.divisor numerator in
-               let implicant =
-                 BatList.filter (not % is_true) (divides::(List.map subst' implicant))
-               in
-               (seq_subst s (term_of_virtual_term srk vt) subst,
-                implicant)
-             else if typ_symbol srk s = `TyReal then
-               let implicant_s =
-                 List.filter (fun atom -> Symbol.Set.mem s (symbols atom)) implicant
-               in
-               let t = Linear.of_linterm srk (select_real_term srk interp s implicant_s) in
-               let subst' =
-                 substitute_const srk
-                   (fun p -> if p = s then t else mk_const srk p)
-               in
-               let implicant =
-                 BatList.filter (not % is_true) (List.map subst' implicant)
-               in
-               (seq_subst s t subst,
-                implicant)
-             else assert false)
-           project
-           (subst, implicant)
-         |> fst
-       in
-       let disjunct =
-         substitute_map
-           srk
-           subst
-           (if dnf then (mk_and srk (div_constraints@implicant))
-            else (mk_and srk (phi::div_constraints)))
-         |> SrkSimplify.simplify_terms srk
-       in
-       disjuncts := disjunct::(!disjuncts);
-       Abstract.Solver.block solver disjunct;
+       disjuncts := psi::(!disjuncts);
+       Abstract.Solver.block solver psi;
        loop ()
     | `Unsat -> mk_or srk (!disjuncts)
     | `Unknown -> raise Unknown
   in
   Abstract.Solver.with_blocking solver loop ()
+
 
 let mbp ?(dnf=false) srk exists phi =
   let solver = Abstract.Solver.make srk phi in

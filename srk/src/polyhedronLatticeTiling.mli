@@ -131,12 +131,11 @@ val select_vt : int -> (int -> QQ.t) -> plt_constraints -> virtual_term
 val virtual_subst : 'a Syntax.context ->
                     ?vec_of_sym:(Syntax.symbol -> Linear.QQVector.t) ->
                     ?term_of_dim:('a Syntax.context -> int -> 'a Syntax.arith_term) ->
-                    int ->
-                    virtual_term ->
+                    (int * virtual_term) list ->
                     'a Syntax.formula ->
                     'a Syntax.formula
 
-val virtual_subst_plt : int -> virtual_term -> plt_constraints -> plt_constraints
+val virtual_subst_plt : (int * virtual_term) list -> plt_constraints -> plt_constraints
 
 val select_plt : 'a Syntax.context ->
                  ?vec_of_sym:(Syntax.symbol -> Linear.QQVector.t) ->
