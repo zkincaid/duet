@@ -10,8 +10,6 @@ type 'a t = 'a Abstract0.t
 type closed = Polka.loose Polka.t
 type nnc = Polka.strict Polka.t
 
-let ambient_dimension t = (Abstract0.dimension (Abstract0.manager t) t).reald
-
 let pp_constraint fmt = function
   | (`Zero, v) -> Format.fprintf fmt "%a = 0" Linear.QQVector.pp v
   | (`Nonneg, v) -> Format.fprintf fmt "%a >= 0" Linear.QQVector.pp v
