@@ -88,13 +88,6 @@ let term_of_vector srk term_of_dim v =
        []
   |> mk_add srk
 
-let formula_p srk term_of_dim (kind, v) =
-  let t = term_of_vector srk term_of_dim v in
-  match kind with
-  | `Zero -> mk_eq srk t (mk_zero srk)
-  | `Nonneg -> mk_leq srk (mk_zero srk) t
-  | `Pos -> mk_lt srk (mk_zero srk) t
-
 let formula_l srk term_of_dim v =
   let t = term_of_vector srk term_of_dim v in
   mk_is_int srk t
@@ -106,7 +99,8 @@ let formula_t srk term_of_dim v =
 let formula_of_dd srk term_of_dim dd =
   DD.enum_constraints dd
   |> BatEnum.fold
-       (fun atoms (kind, v) -> formula_p srk term_of_dim (kind, v) :: atoms) []
+       (fun atoms (kind, v) ->
+         P.formula_of_constraint srk term_of_dim (kind, v) :: atoms) []
   |> List.rev
   |> mk_and srk
 
@@ -480,7 +474,9 @@ end = struct
 
   let formula_of_plt srk term_of_dim plt =
     let phis_p =
-      BatEnum.map (formula_p srk term_of_dim) (P.enum_constraints plt.poly_part)
+      BatEnum.map
+        (P.formula_of_constraint srk term_of_dim)
+        (P.enum_constraints plt.poly_part)
       |> BatList.of_enum
     in
     let phis_l =
