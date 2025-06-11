@@ -376,7 +376,7 @@ end = struct
 
   let formula_of_plt_constraints srk ?(term_of_dim=default_term_of_dim) (p, l, t) =
     let term_of_dim = term_of_dim srk in
-    let phis_p = List.map (formula_p srk term_of_dim) p in
+    let phis_p = List.map (P.formula_of_constraint srk term_of_dim) p in
     let phis_l = List.map (formula_l srk term_of_dim) l in
     let phis_t = List.map (formula_l srk term_of_dim) t in
     mk_and srk (phis_p @ phis_l @ phis_t)
@@ -843,9 +843,9 @@ end = struct
       List.fold_left (fun x (dim, vt) -> f vt dim x) x sigma
     in
     let subst_atom = function
-      | (`Pos, t) -> formula_p srk term_of_dim (subst_all virtual_sub_p (`Pos, t))
-      | (`Zero, t) -> formula_p srk term_of_dim (subst_all virtual_sub_p (`Zero, t))
-      | (`Nonneg, t) -> formula_p srk term_of_dim (subst_all virtual_sub_p (`Nonneg, t))
+      | (`Pos, t) -> P.formula_of_constraint srk term_of_dim (subst_all virtual_sub_p (`Pos, t))
+      | (`Zero, t) -> P.formula_of_constraint srk term_of_dim (subst_all virtual_sub_p (`Zero, t))
+      | (`Nonneg, t) -> P.formula_of_constraint srk term_of_dim (subst_all virtual_sub_p (`Nonneg, t))
       | (`IsInt, t) -> formula_l srk term_of_dim (subst_all virtual_sub_l t)
       | (`NotInt, t) -> formula_t srk term_of_dim (subst_all virtual_sub_t t)
     in
