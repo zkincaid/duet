@@ -135,7 +135,7 @@ let abstract1 () =
   in
   assert_equiv_formula
     phi_closed
-    (SrkApron.formula_of_property (Abstract.abstract srk polka phi))
+    (SrkApron.formula_of_property (SrkApron.abstract srk polka phi))
 
 let abstract2 () =
   let phi =
@@ -147,7 +147,7 @@ let abstract2 () =
     (int 1) <= r && r <= (int 5)
   in
   let phi_abstract =
-    Abstract.abstract ~exists:((=) rsym) srk polka phi
+    SrkApron.abstract ~exists:((=) rsym) srk polka phi
     |> SrkApron.formula_of_property
   in
   assert_equiv_formula phi_closed phi_abstract
@@ -158,7 +158,7 @@ let abstract3 () =
     ((w = x && x = y) || (w = z && z = y))
   in
   let phi_abstract =
-    Abstract.abstract srk polka phi
+    SrkApron.abstract srk polka phi
     |> SrkApron.formula_of_property
   in
   assert_equiv_formula (Ctx.mk_eq w y) phi_abstract
@@ -172,7 +172,7 @@ let abstract4 () =
     || (x = (int 0) && y = (int 1))
   in
   let phi_abstract =
-    Abstract.abstract srk polka phi
+    SrkApron.abstract srk polka phi
     |> SrkApron.formula_of_property
   in
   let psi =

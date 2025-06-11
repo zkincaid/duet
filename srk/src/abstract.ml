@@ -31,8 +31,6 @@ module QQXsSpace =
     end)
 
 
-let opt_abstract_limit = ref (-1)
-
 let boxify srk phi terms =
   let mk_box t ivl =
     let lower =
@@ -53,68 +51,6 @@ let boxify srk phi terms =
   | `Unsat -> mk_false srk
   | `Unknown -> assert false
 
-let abstract ?exists:(p=fun _ -> true) srk man phi =
-  let module Solver = Smt.StdSolver in
-  let solver = Solver.make srk in
-  let phi_symbols = symbols phi in
-  let symbol_list = Symbol.Set.elements phi_symbols in
-  let env_proj = SrkApron.Env.of_set srk (Symbol.Set.filter p phi_symbols) in
-  let cs = CoordinateSystem.mk_empty srk in
-
-  let disjuncts = ref 0 in
-  let rec go prop =
-    Solver.add solver [mk_not srk (SrkApron.formula_of_property prop)];
-    let result =
-      Log.time "lazy_dnf/sat" (Solver.get_concrete_model solver) symbol_list
-    in
-    match result with
-    | `Unsat -> prop
-    | `Unknown ->
-      begin
-        logf ~level:`warn "abstraction timed out (%d disjuncts); returning top"
-          (!disjuncts);
-        SrkApron.top man env_proj
-      end
-    | `Sat interp -> begin
-        incr disjuncts;
-        logf "[%d] abstract lazy_dnf" (!disjuncts);
-        if (!disjuncts) = (!opt_abstract_limit) then begin
-          logf ~level:`warn "Met symbolic abstraction limit; returning top";
-          SrkApron.top man env_proj
-        end else begin
-          let disjunct =
-            match Interpretation.select_implicant interp phi with
-            | Some d -> Polyhedron.of_implicant ~admit:true cs d
-            | None -> assert false
-          in
-
-          let valuation =
-            let table : QQ.t array =
-              Array.init (CS.dim cs) (fun i ->
-                  Interpretation.evaluate_term
-                    interp
-                    (CS.term_of_coordinate cs i))
-            in
-            fun i -> table.(i)
-          in
-          let projected_coordinates =
-            BatEnum.filter (fun i ->
-                match CS.destruct_coordinate cs i with
-                | `App (sym, _) -> not (p sym)
-                | _ -> true)
-              (0 -- (CS.dim cs - 1))
-            |> BatList.of_enum
-          in
-          let projected_disjunct =
-            Polyhedron.local_project valuation projected_coordinates disjunct
-            |> Polyhedron.to_apron cs env_proj man
-          in
-          go (SrkApron.join prop projected_disjunct)
-        end
-      end
-  in
-  Solver.add solver [phi];
-  Log.time "Abstraction" go (SrkApron.bottom man env_proj)
 
 type 'a smt_model =
   [ `LIRA of 'a Interpretation.interpretation

@@ -17,21 +17,32 @@ let pp_constraint fmt = function
 
 include Log.Make(struct let name = "srk.DD" end)
 
+let qq_of_scalar = function
+  | Scalar.Float k -> QQ.of_float k
+  | Scalar.Mpqf k  -> QQ.of_mpq k
+  | Scalar.Mpfrf k -> QQ.of_mpq (Mpfrf.to_mpqf k)
+
+let qq_of_coeff = function
+  | Coeff.Scalar s -> Some (qq_of_scalar s)
+  | Coeff.Interval _ -> None
+
+let coeff_of_qq x = Coeff.s_of_mpqf (QQ.mpq_of x)
+
 let lexpr_of_vec vec =
-  let mk (coeff, dim) = (SrkApron.coeff_of_qq coeff, dim) in
+  let mk (coeff, dim) = (coeff_of_qq coeff, dim) in
   let (const_coeff, rest) = V.pivot Linear.const_dim vec in
   Apron.Linexpr0.of_list None
     (BatList.of_enum (BatEnum.map mk (V.enum rest)))
-    (Some (SrkApron.coeff_of_qq const_coeff))
+    (Some (coeff_of_qq const_coeff))
 
 let vec_of_lexpr linexpr =
   let vec = ref V.zero in
   Linexpr0.iter (fun coeff dim ->
-      match SrkApron.qq_of_coeff coeff with
+      match qq_of_coeff coeff with
       | Some qq -> vec := V.add_term qq dim (!vec)
       | None -> assert false)
     linexpr;
-  match SrkApron.qq_of_coeff (Linexpr0.get_cst linexpr) with
+  match qq_of_coeff (Linexpr0.get_cst linexpr) with
   | Some qq -> V.add_term qq Linear.const_dim (!vec)
   | None -> assert false
 

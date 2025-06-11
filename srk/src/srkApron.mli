@@ -11,10 +11,6 @@ type lcons = Lincons0.t
 type scalar = Scalar.t
 type coeff = Coeff.t
 
-val qq_of_scalar : scalar -> QQ.t
-val qq_of_coeff : coeff -> QQ.t option
-val coeff_of_qq : QQ.t -> coeff
-
 (** An environment maintains a mapping between symbols and dimensions
    of an abstract domain. *)
 module Env : sig
@@ -92,3 +88,13 @@ val eval_texpr : texpr -> Apron.Interval.t
 (** Compute the generator representation of a property. *)
 val generators : ('a, 'abs) property ->
   (Linear.QQVector.t * [`Line | `Ray | `Vertex | `RayMod | `LineMod ]) list
+
+(** [abstract ?exists srk man phi] computes the strongest property that is
+    implied by [phi] which is expressible within a given abstract domain.  The
+    property is restricted to use only the symbols that satisfy the [?exists]
+    predicate (which defaults to the constant [true] predicate). *)
+val abstract : ?exists:(symbol -> bool) ->
+               'a context ->
+               'abs Apron.Manager.t ->
+               'a formula ->
+               ('a,'abs) property

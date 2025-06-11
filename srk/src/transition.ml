@@ -490,7 +490,7 @@ struct
                 :: transform_formula)
     |> Nonlinear.linearize srk
     |> rewrite srk ~down:(pos_rewriter srk)
-    |> Abstract.abstract ~exists srk man
+    |> SrkApron.abstract ~exists srk man
 
   let linearize tr =
     let (transform, defs) =

@@ -12,16 +12,15 @@ type lcons = Lincons0.t
 type scalar = Scalar.t
 type coeff = Coeff.t
 
-let qq_of_scalar = function
-  | Scalar.Float k -> QQ.of_float k
-  | Scalar.Mpqf k  -> QQ.of_mpq k
-  | Scalar.Mpfrf k -> QQ.of_mpq (Mpfrf.to_mpqf k)
+include Log.Make(struct let name = "srkApron" end)
 
-let qq_of_coeff = function
-  | Coeff.Scalar s -> Some (qq_of_scalar s)
-  | Coeff.Interval _ -> None
+let opt_abstract_limit = ref (-1)
 
-let coeff_of_qq x = Coeff.s_of_mpqf (QQ.mpq_of x)
+let qq_of_scalar = DD.qq_of_scalar
+
+let qq_of_coeff = DD.qq_of_coeff
+
+let coeff_of_qq = DD.coeff_of_qq
 
 let scalar_one = Coeff.s_of_int 1
 
@@ -474,3 +473,66 @@ let generators property =
         | RAYMOD -> `RayMod
       in
       (vec, typ))
+
+module PLT = PolyhedronLatticeTiling
+
+let to_lcons env (p, t) =
+  match p with
+  | `Zero -> lcons_eqz (lexpr_of_vec env t)
+  | `Nonneg -> lcons_geqz (lexpr_of_vec env t)
+  | `Pos -> lcons_gtz (lexpr_of_vec env t)
+
+let abstract ?exists:(p=fun _ -> true) srk man phi =
+  let module Solver = Smt.StdSolver in
+  let solver = Solver.make srk in
+  let phi_symbols = symbols phi in
+  let symbol_list = Symbol.Set.elements phi_symbols in
+  let env_proj = Env.of_set srk (Symbol.Set.filter p phi_symbols) in
+
+  let disjuncts = ref 0 in
+  let elim i =
+    match Linear.sym_of_dim i with
+    | Some k -> not (p k)
+    | None -> true
+  in    
+  let rec go prop =
+    Solver.add solver [mk_not srk (formula_of_property prop)];
+    let result =
+      Log.time "lazy_dnf/sat" (Solver.get_concrete_model solver) symbol_list
+    in
+    match result with
+    | `Unsat -> prop
+    | `Unknown ->
+      begin
+        logf ~level:`warn "abstraction timed out (%d disjuncts); returning top"
+          (!disjuncts);
+        top man env_proj
+      end
+    | `Sat interp -> begin
+        incr disjuncts;
+        logf "[%d] abstract lazy_dnf" (!disjuncts);
+        if (!disjuncts) = (!opt_abstract_limit) then begin
+          logf ~level:`warn "Met symbolic abstraction limit; returning top";
+          top man env_proj
+        end else begin
+          let disjunct =
+            match PLT.select_plt srk phi interp with
+            | Some cube -> cube
+            | None -> assert false
+          in
+          let valuation i =
+            match Linear.sym_of_dim i with
+            | Some k -> Interpretation.real interp k
+            | None -> QQ.one
+          in
+          let projected_disjunct =
+            PLT.poly_part (PLT.local_project_plt valuation ~elim disjunct)
+            |> List.map (to_lcons env_proj)
+            |> meet_lcons (top man env_proj)
+          in
+          go (join prop projected_disjunct)
+        end
+      end
+  in
+  Solver.add solver [phi];
+  Log.time "Abstraction" go (bottom man env_proj)

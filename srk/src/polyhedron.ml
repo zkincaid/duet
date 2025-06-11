@@ -50,15 +50,15 @@ type t = P.t
 
 let enum_constraints polyhedron = P.enum polyhedron
 
+let pp_constraint pp_dim formatter = function
+  | (`Zero, t) -> Format.fprintf formatter "%a = 0" (V.pp_term pp_dim) t
+  | (`Nonneg, t) -> Format.fprintf formatter "%a >= 0" (V.pp_term pp_dim) t
+  | (`Pos, t) -> Format.fprintf formatter "%a > 0" (V.pp_term pp_dim) t
+
 let pp pp_dim formatter polyhedron =
-  let pp_elt formatter = function
-    | (`Zero, t) -> Format.fprintf formatter "%a = 0" (V.pp_term pp_dim) t
-    | (`Nonneg, t) -> Format.fprintf formatter "%a >= 0" (V.pp_term pp_dim) t
-    | (`Pos, t) -> Format.fprintf formatter "%a > 0" (V.pp_term pp_dim) t
-  in
   let pp_sep formatter () = Format.fprintf formatter "@;" in
   Format.fprintf formatter "@[<v 0>%a@]"
-    (SrkUtil.pp_print_enum_nobox ~pp_sep pp_elt) (P.enum polyhedron)
+    (SrkUtil.pp_print_enum_nobox ~pp_sep (pp_constraint pp_dim)) (P.enum polyhedron)
 
 let of_dd polyhedron =
   BatEnum.fold (fun p cnstr -> P.add cnstr p) P.top (DD.enum_constraints polyhedron)
@@ -185,90 +185,6 @@ let select_equal_term x polyhedron =
   in
   go ()
 
-(* Loos-Weispfenning virtual term *)
-type lw_vt =
-  | MinusInfinity
-  | PlusEpsilon of V.t
-  | Term of V.t
-
-(* Model-based selection of a Loos-Weispfenning virtual term *)
-let select_lw m x polyhedron =
-  match select_equal_term x polyhedron with
-  | Some t -> Term t
-  | None ->
-    (* Internally to this function, it's convenient to represent a virtual
-       term as a triple consisting of a term, its value in the model, and a
-       flag indicating whether an epsilon is required (-oo is represented by
-       None). *)
-    let merge_vt_internal x y =
-      match x, y with
-      | None, x | x, None -> x
-      | Some (_, value, _), Some (_, value', _) when QQ.lt value value' -> y
-      | Some (_, value, _), Some (_, value', _) when QQ.lt value' value -> x
-      | Some (_, _, _), Some (_, _, true) -> y
-      | _, _ -> x
-    in
-    let vt_internal =
-      P.fold (fun (p, t) vt ->
-          let (a, t) = V.pivot x t in
-          if QQ.leq a QQ.zero then
-            vt
-          else
-            (* ax + t >= 0 /\ a > 0 |= x >= t/a *)
-            let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t in
-            let strict = (p = `Pos) in
-            let value = Linear.evaluate_affine m toa in
-            merge_vt_internal vt (Some (toa, value, strict)))
-        polyhedron
-        None
-    in
-    match vt_internal with
-    | None -> MinusInfinity
-    | Some (t, _, true) -> PlusEpsilon t
-    | Some (t, _, false) -> Term t
-
-let substitute_lw_vt x vt polyhedron =
-  match vt with
-  | Term t -> P.replace x t polyhedron
-  | MinusInfinity ->
-    P.fold (fun (p, term) polyhedron ->
-        let a = V.coeff x term in
-        if QQ.equal QQ.zero a then
-          P.add (p, term) polyhedron
-        else if QQ.lt QQ.zero a || p = `Zero then
-          bottom
-        else
-          polyhedron)
-      polyhedron
-      top
-  | PlusEpsilon t ->
-    P.fold (fun (p, term) polyhedron ->
-        let (a, term') = V.pivot x term in
-        if QQ.equal QQ.zero a then
-          P.add (p, term) polyhedron
-        else
-          let term' = V.add (V.scalar_mul a t) term' in
-          if p = `Zero then
-            bottom
-          else if QQ.lt QQ.zero a then
-            P.add (`Nonneg, term') polyhedron
-          else
-            P.add (`Pos, term') polyhedron)
-      polyhedron
-      top
-
-(* Model-guided projection of a polyhedron.  Given a point m within a
-   polyhedron p and a set of dimension xs, compute a polyhedron q such that
-   m|_xs is within q, and q is a subset of p|_xs (using |_xs to denote
-   projection of dimensions xs) *)
-let local_project m xs polyhedron =
-  (* Project a single variable *)
-  let project_one polyhedron x =
-    let vt = select_lw m x polyhedron in
-    substitute_lw_vt x vt polyhedron
-  in
-  List.fold_left project_one polyhedron xs
-
 (* Project a single variable, as long as the number of added constraints does
    not exceed max_add. If max_add is negative, the variable is projected no
    matter how many constraints it adds. *)
@@ -314,50 +230,6 @@ let project_one max_add polyhedron x =
 
 let project xs polyhedron =
   Log.time "Fourier-Motzkin" (List.fold_left (project_one (-1)) polyhedron) xs
-
-exception Nonlinear
-let to_apron cs env man polyhedron =
-  let open SrkApron in
-  let symvec v =
-    V.enum v
-    /@ (fun (coeff, coord) ->
-        if coord == Linear.const_dim then
-          (coeff, coord)
-        else
-          match CS.destruct_coordinate cs coord with
-          | `App (sym, []) -> (coeff, int_of_symbol sym)
-          | _ -> raise Nonlinear)
-    |> V.of_enum
-  in
-  (* In the common case that the polyhedron is over a coordinate system
-     without non-linear terms, it's faster to construct the apron abstract
-     value from linear constraints; fall back on tree constraints when
-     necessary. *)
-  let (linear, nonlinear) =
-    P.fold (fun (p, t) (linear, nonlinear) ->
-        try
-          let c =
-            match p with
-            | `Zero -> lcons_eqz (lexpr_of_vec env (symvec t))
-            | `Nonneg -> lcons_geqz (lexpr_of_vec env (symvec t))
-            | `Pos -> lcons_gtz (lexpr_of_vec env (symvec t))
-          in
-          (c::linear, nonlinear)
-        with Nonlinear ->
-          let c =
-            match p with
-            | `Zero -> tcons_eqz (texpr_of_term env (CS.term_of_vec cs t))
-            | `Nonneg -> tcons_geqz (texpr_of_term env (CS.term_of_vec cs t))
-            | `Pos -> tcons_gtz (texpr_of_term env (CS.term_of_vec cs t))
-          in
-          (linear, c::nonlinear)
-      )
-      polyhedron
-      ([], [])
-  in
-  match nonlinear with
-  | [] -> meet_lcons (top man env) linear
-  | _ -> meet_tcons (meet_lcons (top man env) linear) nonlinear
 
 let try_fourier_motzkin cs p polyhedron =
   let projected_linear =

@@ -182,10 +182,7 @@ module XSeq = struct
       |> Periodic.mapn (mk_add srk)
     in
     let mk_divides t =
-      mk_eq
-        srk
-        (mk_mod srk t (mk_real srk (QQ.of_int divisor)))
-        (mk_zero srk)
+      mk_is_int srk (mk_div srk t (mk_real srk (QQ.of_int divisor)))
     in
     Periodic.map mk_divides dividend_xseqs
 end
@@ -322,9 +319,14 @@ let mp solver =
                XSeq.seq_of_divides_atom srk divisor (closed_form gz_symbols vec tr_z_exp) term_of_dim
                |> Periodic.map (mk_not srk)
           end
+       | `Atom (`IsInt t) ->
+          let vec = Linear.linterm_of srk t in
+          let divisor = Vec.common_denominator vec in
+          let vec = Vec.scalar_mul (QQ.negate (QQ.of_zz divisor)) vec in
+          let cf = closed_form gz_symbols (Vec.negate vec) tr_z_exp in
+          XSeq.seq_of_divides_atom srk divisor cf term_of_dim
        | `Quantify _ -> failwith "should not see quantifiers in the TF"
        | `Atom (`ArrEq _) -> failwith "should not see ArrEq in the TF"
-       | `Atom (`IsInt _) -> failwith "should not see IsInt in the TF"
        | `Proposition _ -> failwith "should not see proposition in the TF"
        | `Ite _ -> failwith "should not see ite in the TF"
      in
