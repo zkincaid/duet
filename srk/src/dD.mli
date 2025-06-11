@@ -106,4 +106,3 @@ val formula_of_dd :
 val qq_of_scalar : Scalar.t -> QQ.t
 val qq_of_coeff : Coeff.t -> QQ.t option
 val coeff_of_qq : QQ.t -> Coeff.t
-
