@@ -614,42 +614,6 @@ let spec_list = [
   , "Make a copy of an SMT file with the formula first replaced by an equivalent formula in the signature of LRA with integer-typed variables, and then all integer-typed variables are re-declared as real"
   );
 
-  ("-convex-hull",
-   Arg.String (fun file ->
-       let (qf, phi) = Quantifier.normalize srk (load_formula file) in
-       if List.exists (fun (q, _) -> q = `Forall) qf then
-         failwith "universal quantification not supported";
-       let exists v =
-         not (List.exists (fun (_, x) -> x = v) qf)
-       in
-       let polka = Polka.manager_alloc_strict () in
-       let pp_hull formatter hull =
-         if !generator_rep then begin
-           let env = SrkApron.get_env hull in
-           let dim = SrkApron.Env.dimension env in
-           Format.printf "Symbols:   [%a]@\n@[<v 0>"
-             (SrkUtil.pp_print_enum (Syntax.pp_symbol srk)) (SrkApron.Env.vars env);
-           SrkApron.generators hull
-           |> List.iter (fun (generator, typ) ->
-               Format.printf "%s [@[<hov 1>"
-                 (match typ with
-                  | `Line    -> "line:     "
-                  | `Vertex  -> "vertex:   "
-                  | `Ray     -> "ray:      "
-                  | `LineMod -> "line mod: "
-                  | `RayMod  -> "ray mod:  ");
-               for i = 0 to dim - 2 do
-                 Format.printf "%a@;" QQ.pp (Linear.QQVector.coeff i generator)
-               done;
-               Format.printf "%a]@]@;" QQ.pp (Linear.QQVector.coeff (dim - 1) generator));
-           Format.printf "@]"
-         end else
-           SrkApron.pp formatter hull
-       in
-       Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
-         pp_hull (Abstract.abstract ~exists srk polka phi)),
-   " Compute the convex hull of an existential linear arithmetic formula");
-
   ("-wedge-hull",
    Arg.String (fun file ->
        let (qf, phi) = Quantifier.normalize srk (load_formula file) in
