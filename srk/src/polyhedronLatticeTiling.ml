@@ -1291,7 +1291,6 @@ end = struct
     let srk = Abstract.Solver.get_context solver in
     let phi = Abstract.Solver.get_formula solver in
     let counter = ref 0 in
-    let models = ref [] in
     let show m =
       let symbols =
         Syntax.Symbol.Set.elements (Syntax.symbols phi)
@@ -1304,7 +1303,6 @@ end = struct
       | `LIRR _ -> invalid_arg "LIRR not supported"
       | `LIRA m ->
          let () = show m in
-         models := m :: !models;
          counter := !counter + 1;
 
          logf ~level:`debug "Abstraction loop iteration: %d" !counter;
