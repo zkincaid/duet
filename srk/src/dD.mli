@@ -95,3 +95,10 @@ val lexpr_of_vec : V.t -> Linexpr0.t
 val minimal_faces : 'a t -> (V.t * ((constraint_kind * V.t) list)) list
 
 val integer_hull : closed t -> closed t
+
+(** Given an interpretation [interp] of non-constant dimensions as terms,
+    [formula_of_dd srk interp dd] is a formula defining [dd], i.e.,
+    whose models correspond to points in [dd].
+ *)
+val formula_of_dd :
+  'b Syntax.context -> (int -> 'b Syntax.arith_term) -> 'a t -> 'b Syntax.formula

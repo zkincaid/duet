@@ -341,3 +341,25 @@ let of_constraints_closed ?(man=Polka.manager_alloc_loose ()) dim constraints =
   /@ lcons_of_constraint
   |> BatArray.of_enum
   |> Abstract0.of_lincons_array man 0 dim
+
+let formula_of_dd srk term_of_dim dd =
+  let formula_of_constraint srk f (kind, vec) =
+    let open Syntax in
+    let f' dim =
+      if dim = Linear.const_dim then mk_one srk
+      else f dim
+    in
+    let zero = mk_zero srk in
+    let term = Linear.term_of_vec srk f' vec in
+    match kind with
+    | `Zero -> mk_eq srk term zero
+    | `Nonneg -> mk_leq srk zero term
+    | `Pos -> mk_lt srk zero term
+  in
+  enum_constraints dd
+  |> BatEnum.fold
+       (fun atoms (kind, v) ->
+         formula_of_constraint srk term_of_dim (kind, v) :: atoms)
+       []
+  |> List.rev
+  |> Syntax.mk_and srk
