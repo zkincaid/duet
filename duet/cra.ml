@@ -952,14 +952,11 @@ let make_transition_system ?(simplify=true) ?(instr_gas=false) (main_entry: int)
         let elim_var v =
           V.is_global v || VSet.mem v (!assert_vars)
         in
-      (*  let _ = Printf.printf "Displaying pre-instrumented TG\n"; TSDisplay.display tg in *)
         let tg = if (instr_gas && entry = main_entry) then instrument_main tg entry init_gas_weight else tg in
         let tg = if instr_gas then instrument_with_gas tg gasweight else tg in 
-       (* let _ = Printf.printf "Displaying post-instrumented TG\n"; TSDisplay.display tg in *)
         let predicates = if instr_gas then gasexpr :: predicates else predicates in  
         let tg = if simplify then TS.simplify point_of_interest tg else tg in
         let tg = TS.remove_temporaries elim_var tg in
-        (*let _ = Printf.printf "Displaying simplified TG\n"; TSDisplay.display tg in *)
         let tg =
           if !forward_inv_gen then
             Log.phase "Forward invariant generation"
@@ -967,7 +964,6 @@ let make_transition_system ?(simplify=true) ?(instr_gas=false) (main_entry: int)
           else
             tg
         in
-       (* let _ = Printf.printf "Displaying invariant-generated TG\n"; TSDisplay.display tg in *)
         WG.fold_edges (fun (src, label, tgt) ts ->
             match label with
             | Weight w -> WG.add_edge ts src (Weight w) tgt

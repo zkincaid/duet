@@ -104,6 +104,10 @@ module Make
       contract vertices with loops or vertices adjacent to call edges. *)
   val simplify :  ?try_rtc:bool -> (vertex -> bool) -> t -> t
 
+  (** Perform inlining of a potentially recursive iCFG.
+   *)
+  val inline : ?depth:int -> t -> t 
+
   (** Given a transition system and entry, compute a set of loop
      headers along with the set of variables that are read within the
      body of the associated loop *)

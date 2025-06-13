@@ -68,7 +68,7 @@ let process_interproc_assertion (ts: cfg_t) (phi: Ctx.formula) v =
 *)
 
 (* Convert assertion checking problem to vertex reachability problem. *)
-let make_ts_assertions_unreachable (ts : cfg_t) assertions =
+let safety_to_reachability (ts : cfg_t) assertions =
   let err_loc = 1 + (WG.fold_vertex (fun v max -> if v > max then v else max) ts 0) in
   let ts = WG.add_vertex ts err_loc in
   let ts =
@@ -610,7 +610,7 @@ let analyze_mc enable_gas enable_summary file =
       let rg = Interproc.make_recgraph file in
       let entry = (RG.block_entry rg main).did in
       let (ts, assertions) = make_transition_system ~simplify:true ~instr_gas:enable_gas entry rg in
-      let ts, err_loc = make_ts_assertions_unreachable ts assertions in
+      let ts, err_loc = safety_to_reachability ts assertions in
       if !CmdLine.display_graphs then TSDisplay.display ts;
       logf "\nentry: %d\n" entry;
       Printf.printf "testing reachability of location %d\n" err_loc ;
@@ -634,7 +634,7 @@ let analyze_sgt enable_gas enable_summary file =
         let rg = Interproc.make_recgraph file in
         let entry = (RG.block_entry rg main).did in
         let (ts, assertions) = make_transition_system ~simplify:true ~instr_gas:enable_gas entry rg in
-        let ts, err_loc = make_ts_assertions_unreachable ts assertions in
+        let ts, err_loc = safety_to_reachability ts assertions in
         if !CmdLine.display_graphs then TSDisplay.display ts;
         logf "\nentry: %d\n" entry;
         Printf.printf "testing reachability of location %d\n" err_loc ;
@@ -664,7 +664,7 @@ let analyze_impact file =
         let rg = Interproc.make_recgraph file in
         let entry = (RG.block_entry rg main).did in
         let (ts, assertions) = make_transition_system ~simplify:true entry rg in
-        let ts, err_loc = make_ts_assertions_unreachable ts assertions in
+        let ts, err_loc = safety_to_reachability ts assertions in
         if !CmdLine.display_graphs then TSDisplay.display ts;
         logf "\nentry: %d\n" entry;
         Printf.printf "testing reachability of location %d\n" err_loc ;
@@ -710,7 +710,7 @@ let dump_cfg simplify instrument file =
       let rg = Interproc.make_recgraph file in
       let entry  = (RG.block_entry rg main).did in
       let (ts, assertions) = make_transition_system ~simplify:simplify ~instr_gas:instrument entry rg in
-      let ts, _ = make_ts_assertions_unreachable ts assertions in
+      let ts, _ = safety_to_reachability ts assertions in
       TSDisplay.display ts
     end
   | _ -> assert false

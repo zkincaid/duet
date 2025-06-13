@@ -520,7 +520,14 @@ module Make
     let hash = Hashtbl.hash
   end
 
+  module IntPairPair = struct 
+    type t = IntPair.t * IntPair.t [@@deriving ord]
+    let equal (x, y) (x', y') = (x=x' && y=y')
+    let hash = Hashtbl.hash 
+  end 
+
   module PS = BatSet.Make(IntPair)
+  module PPS = BatSet.Make(IntPairPair) (* used in inliner *)
   module PHT = BatHashtbl.Make(IntPair)
   module VHT = BatHashtbl.Make(Var)
 
@@ -677,6 +684,80 @@ module Make
     in
     List.map invariants (L.all_loops (L.loop_nest tg))
 
+    
+  let inline ?(depth=(-1)) tg = 
+    let pmap = PHT.create 998 in (* y in pmap[x] means call from x->y *)
+    let qmap = PHT.create 998 in (* (x, z) in qmap[y] means call from x->y via call-edge z *)
+    let procedures = 
+      WG.fold_edges (fun (_, w, _) acc -> 
+        match w with 
+        | Call (x, y) -> 
+          begin match PHT.find_opt pmap (x, y) with 
+          | None -> 
+            PHT.add pmap (x, y) PS.empty 
+          | Some _ -> ()
+          end;
+          begin match PHT.find_opt qmap (x, y) with 
+          | None -> 
+            PHT.add qmap (x, y) PPS.empty 
+          | Some _ -> () 
+          end;
+          PS.add (x, y) acc
+        | _ -> acc 
+        ) tg PS.empty in 
+    let rec dfs (proc: int * int) tg src (visited : ISet.t) = 
+      WG.iter_succ_e (fun (_, w, v) -> 
+        match w with 
+        | Call (x, y) -> 
+          let caller_set = PHT.find pmap proc in 
+          let callee_set = PHT.find qmap (x, y) in
+          PHT.add pmap proc (PS.add (x, y) caller_set);
+          PHT.add qmap (x, y) (PPS.add (proc, (src, v)) callee_set);
+          begin match ISet.find_opt v visited with 
+          | None -> dfs proc tg v (ISet.add v visited)
+          | Some _ -> ()
+          end 
+        | _ -> 
+          begin match ISet.find_opt v visited with 
+          | None -> dfs proc tg v (ISet.add v visited)
+          | Some _ -> () 
+           end
+        ) tg src in 
+      PS.iter (fun (x, y) -> dfs (x, y) tg x ISet.empty) procedures; (* populate pmap, qmap *)
+      let compute_sinks () = 
+        PS.fold (fun (x, y) acc -> (* compute sink locations to start inlining from *)
+          match (PHT.find_opt pmap (x, y), PHT.find_opt qmap (x, y)) with 
+          | Some callees, Some callers -> 
+            (* a procedure is considered for inlining if it is (1) a sink in the call graph (2) at least one function calls it.*)
+            if ((PS.cardinal callees) == 0) && ((PPS.cardinal callers) > 0) then PS.add (x, y) acc else acc 
+          | (_, _) -> failwith ""
+          ) procedures PS.empty in
+      let inline_one tg (src, dst) (call_x, call_y) (call_src, call_dst) = 
+        let tg = WG.add_edge tg call_x (Weight T.one) src in 
+        let tg = WG.add_edge tg dst (Weight T.one) dst in 
+        let tg = WG.remove_edge tg call_x call_y in
+        let callees = PHT.find pmap (call_src, call_dst) in
+        let callers = PHT.find qmap (src, dst) in 
+        (* remove (src, dst) from callees list in caller *) 
+        PHT.add pmap (call_src, call_dst) (PS.remove (src, dst) callees);
+        (* remove (call_src, call_dst) from callers list *)
+        PHT.add qmap (src, dst) (PPS.remove ((call_src, call_dst),(call_x, call_y)) callers);
+        tg
+      in let rec do_inline depth tg =
+        if depth == 0 then tg else 
+          let sinks = compute_sinks () in 
+          let aux currproc tg = (* inline currproc into procedures that call it, assuming currproc is inlined. *)
+            let inline_targets = PHT.find qmap currproc in 
+              PPS.fold (fun (call_proc, (call_x, call_y)) tg -> 
+                inline_one tg currproc (call_x, call_y) call_proc
+              ) inline_targets tg 
+          in 
+            PS.fold (fun call tg -> aux call tg) sinks tg
+            |> do_inline (if depth > 0 then depth - 1 else depth)
+        in do_inline depth tg
+
+
+  
 
   let simplify ?(try_rtc=true) p tg =
     let rec go tg =
