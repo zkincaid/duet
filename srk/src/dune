@@ -12,6 +12,7 @@
   (public_name srk)
   (modules (:standard \ bigtop))
   (modes native)
+  (flags (:standard -w -32))
   (libraries
     batteries
     ppx_deriving ppx_deriving.show ppx_deriving.ord ppx_deriving.eq
