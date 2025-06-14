@@ -765,14 +765,12 @@ module Make
       let tg' =
         WG.fold_vertex (fun v tg ->
             let ug = WG.forget_weights tg in
-            Printf.printf "visiting vertex %d\n" v;
             if (p v
                 || WG.mem_edge tg v v
                 || (WG.U.in_degree ug v != 1
                     && WG.U.out_degree ug v != 1))
             then
               begin if try_rtc then begin 
-                let _ = Printf.printf "trying rtc on vertex %d\n " v in 
                   begin if WG.mem_edge tg v v then
                       match WG.edge_weight tg v v with
                       | Weight tr ->
@@ -780,16 +778,14 @@ module Make
                         | Some rtc ->
                           let u = -1 in
                           (try
-                              Printf.printf "removing edge from %d %d\n" v v;
                               let tg = WG.remove_edge tg v v in
                               let tg =
-                                Printf.printf "success: contracting vertex %d %d\n" v u;
                                 WG.contract_vertex (WG.split_vertex tg v (Weight rtc) u) u
                               in
                               continue := true;
                               tg
                             with _ -> tg)
-                        | None -> Printf.printf "...failed.\n"; tg end
+                        | None -> tg end
                           with _ -> tg)
                       | Call (_, _) -> tg
                     else
