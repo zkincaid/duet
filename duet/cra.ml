@@ -976,7 +976,12 @@ let make_transition_system ?(simplify=true) ?(instr_gas=false) (main_entry: int)
       TS.empty
       (RG.bodies rg)
   in
-  (ts, !assertions)
+  (* perform some inlining *)
+  Printf.printf "calling inliner...\n";
+  let inlined_ts = 
+    TS.inline ts main_entry (fun _ -> ()) in 
+    Printf.printf "----------inlining done-----\n";
+    (inlined_ts, !assertions)
 
 let mk_query ts entry =
   TS.mk_query ts entry

@@ -481,11 +481,12 @@ let tr_instr ctx instr =
         mk_def (Assign (v, Havoc (Concrete (Int 1))))
       | ("__VERIFIER_nondet_uchar", Some (Variable v), []) -> 
         let havoc = mk_def (Assign (v, Havoc (Concrete (Int 1)))) in
-        let assume0 =
+        (*let assume0 =
           mk_def (Assume (Atom (Le, Aexpr.zero, AccessPath (Variable v)))) in 
           let assume1 = 
           mk_def (Assume (Atom (Le, AccessPath (Variable v), Constant (CInt (255, 1))))) in 
-          mk_seq havoc @@ mk_seq assume0 assume1 
+          mk_seq havoc @@ mk_seq assume0 assume1 *)
+          havoc
       | ("__VERIFIER_nondet_int", Some (Variable v), []) ->
         mk_def (Assign (v, Havoc (Concrete (Int machine_int_width))))
       | ("__VERIFIER_nondet_long", Some (Variable v), []) ->
@@ -494,12 +495,14 @@ let tr_instr ctx instr =
       | ("__VERIFIER_nondet_pointer", Some (Variable v), []) ->
         mk_def (Assign (v, Havoc (Concrete (Int pointer_width))))
       | ("__VERIFIER_nondet_bool", Some (Variable v), []) -> 
-          let assume_lb = 
+          (*let assume_lb = 
             mk_def (Assume (Atom (Le, Aexpr.zero, AccessPath (Variable v)))) in (* 0 <= v *) 
           let assume_ub = 
             mk_def (Assume (Atom (Le, AccessPath (Variable v), Aexpr.one))) in  (* v <= 1 *)     
           let havoc = mk_def (Assign (v, Havoc (Concrete (Int 1)))) in 
             mk_seq havoc @@ mk_seq assume_lb assume_ub  
+            havoc*)
+            mk_def (Assign (v, Havoc (Concrete (Int 1))))
       | ("__VERIFIER_nondet_uint", Some (Variable v), []) ->
         let havoc = mk_def (Assign (v, Havoc (Concrete (Int unknown_width)))) in
         let assume =

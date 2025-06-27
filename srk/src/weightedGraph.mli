@@ -29,6 +29,8 @@ type vertex = int
 (** Create an empty weighted graph over the given algebra of weights. *)
 val empty : ('a algebra) -> 'a t
 
+val get_algebra : 'a t -> ('a algebra)
+
 (** Add a vertex to a graph. *)
 val add_vertex : 'a t -> vertex -> 'a t
 

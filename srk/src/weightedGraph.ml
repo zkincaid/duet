@@ -50,6 +50,9 @@ let empty algebra =
     labels = M.empty;
     algebra = algebra }
 
+let get_algebra wg = 
+  wg.algebra 
+
 let add_vertex wg vertex =
   { wg with graph = U.add_vertex wg.graph vertex }
 

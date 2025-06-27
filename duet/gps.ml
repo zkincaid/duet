@@ -686,7 +686,7 @@ let analyze_impact file =
              else if ART.maps_to art u == err_loc then
                match ART.generate_test art u with
                | `Pruned ->
-                  List.iter (fun v -> ignore (ART.close art v)) (ART.tree_path art u);
+                  List.iter (fun v -> ignore (ART.lclose art v)) (ART.tree_path art u);
                   loop ()
                | `Test _ -> `Unsafe
              else (ART.expand art u; loop ())
