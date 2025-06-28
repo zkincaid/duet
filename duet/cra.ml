@@ -200,15 +200,15 @@ module K = struct
   let refine_star x =
     let x_dnf = Log.time "cra:to_dnf" to_dnf x in
     if (List.length x_dnf) = 1 then star (List.hd x_dnf)
-    else 
+    else
       let pp_list f = List.iteri (fun i p -> Format.fprintf f "Path %d : @[%a@]@." i pp p) in
       log_pp ~level:`warn pp_list x_dnf;
       CRARefinement.refinement x_dnf
 
-  let star x = 
-    if (!cra_refine) then 
+  let star x =
+    if (!cra_refine) then
       Log.time "cra:refine_star" refine_star x
-    else 
+    else
       Log.time "cra:star" star x
 
   let project = exists V.is_global
@@ -364,7 +364,7 @@ and tr_bexpr bexpr =
                    :: sign_constraint))
             | _ ->
               Ctx.mk_eq x y
-            else 
+            else
               Ctx.mk_eq x y
           end
         | Ne ->
@@ -904,10 +904,10 @@ let analyze file =
 
 let preimage transition formula =
   let open Syntax in
-  let transition = 
-    if get_theory srk = `LIRR then 
-      transition 
-    else K.linearize transition 
+  let transition =
+    if get_theory srk = `LIRR then
+      transition
+    else K.linearize transition
   in
   let fresh_skolem =
     Memo.memo (fun sym ->
@@ -1126,7 +1126,7 @@ let prove_termination_main file =
         | `Sat -> Format.printf "Cannot prove that program always terminates\n"
         | `Unsat -> Format.printf "Program always terminates\n"
         | `Unknown -> Format.printf "Unknown analysis result\n"
-      else  
+      else
         match Quantifier.simsat srk omega_paths_sum with
         | `Sat ->
           Format.printf "Cannot prove that program always terminates\n";
@@ -1378,9 +1378,23 @@ let _ =
      Arg.Set Srk.ConvexHull.dump_hull,
      " Output convex hull goals in SMTLIB2 format");
   CmdLine.register_config
-    ("-retype-as-real-for-lira-convhull"
-    , Arg.Set ConvexHull.lira_retype_as_real
-    , " Use real relaxation when computing convex hulls"
+    ("-algo-for-lira-convhull",
+     (let open PolyhedronLatticeTiling in
+      Arg.String
+        (fun algo ->
+          if String.equal algo "fmcad15" then
+            ConvexHull.abstraction_algorithm := LraCCH FullProject
+          else if String.equal algo "lw" then
+            ConvexHull.abstraction_algorithm := LraCCH LwMbp
+          else if String.equal algo "pc" then
+            ConvexHull.abstraction_algorithm := LiraCCH PolyReccone
+          else if String.equal algo "pc-lplh" then
+            ConvexHull.abstraction_algorithm := LiraCCH (PolyReccone_LPLH None)
+          else
+            failwith "Invalid algorithm"
+        )
+     ),
+     " Use algorithm (fmcad15, lw, pc, or pc-lplh) when computing convex hulls. Without this option, PC-LPLH is default."
     )
 
 let _ =
