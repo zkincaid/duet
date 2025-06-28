@@ -685,10 +685,11 @@ module Make
     List.map invariants (L.all_loops (L.loop_nest tg))
 
 
-  let inline ?(depth=(-1)) tg entry (displayer: t -> unit)= 
+  let inline ?(depth=(-1)) tg entry (displayer: t -> unit) (assertion_map : 'x SrkUtil.Int.Map.t) = 
     let pmap = PHT.create 998 in (* y in pmap[x] means call from x->y *)
     let qmap = PHT.create 998 in (* (x, z) in qmap[y] means call from x->y via call-edge z *)
     let greatest = ref (WG.fold_vertex max tg (-1)) in
+    let assertions = ref assertion_map in   
     PHT.add pmap (entry, -1) PS.empty;
     PHT.add qmap (entry, -1) PPS.empty;
     let procedures = 
@@ -746,6 +747,10 @@ module Make
           ISet.iter (fun x -> 
             greatest := !greatest + 1;
             Hashtbl.add to_map x (!greatest);
+            begin match SrkUtil.Int.Map.find_opt x !assertions with (* if x in assertions, new vertex also in assertions *)
+              | Some assert_value -> 
+                assertions := SrkUtil.Int.Map.add !greatest assert_value !assertions 
+              | None -> () end;
             rtg := WG.add_vertex !rtg !greatest
             ) vertices;
           ISet.iter (fun x -> 
@@ -755,7 +760,14 @@ module Make
           (!rtg, Hashtbl.find to_map)
       in let remove_subgraph tg src = 
         let vertices = dfs (-1, -1) tg src (fun _ _ _ -> ()) (ISet.add src ISet.empty) in 
-        ISet.fold (fun vtx tg' -> WG.remove_vertex tg' vtx) vertices tg in 
+        ISet.fold (fun vtx tg' -> 
+          begin match SrkUtil.Int.Map.find_opt vtx !assertions with 
+          (* remove vertex from assertions map, new copied vertices already in it *)
+          | Some _ -> 
+            assertions := SrkUtil.Int.Map.remove vtx !assertions 
+          | None -> ()
+          end;
+          WG.remove_vertex tg' vtx) vertices tg in 
       let inline_one tg (src, dst) (call_x, call_y) (call_src, call_dst) = 
         Printf.printf "inlining %d-%d into call edge %d-%d\n" src dst call_x call_y;
         let (tg, to_map) = copy_subgraph tg src in 
@@ -792,7 +804,8 @@ module Make
                   Printf.printf "doing more inling...\n";
                   if depth > 0 then depth - 1 else depth)
               | _ -> Printf.printf "no more sinks to inline. done\n"; tg 
-        in let result = do_inline depth tg in Printf.printf "inlining done"; result 
+        in let result = do_inline depth tg in 
+          (result, !assertions) 
 
 
   

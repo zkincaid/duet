@@ -106,7 +106,7 @@ module Make
 
   (** Perform inlining of a potentially recursive iCFG.
    *)
-  val inline : ?depth:int -> t -> vertex -> (t -> unit) -> t 
+  val inline : ?depth:int -> t -> vertex -> (t -> unit) -> ('x SrkUtil.Int.Map.t) -> (t * 'x SrkUtil.Int.Map.t) 
 
   (** Given a transition system and entry, compute a set of loop
      headers along with the set of variables that are read within the

@@ -978,10 +978,10 @@ let make_transition_system ?(simplify=true) ?(instr_gas=false) (main_entry: int)
   in
   (* perform some inlining *)
   Printf.printf "calling inliner...\n";
-  let inlined_ts = 
-    TS.inline ts main_entry (fun _ -> ()) in 
+  let inlined_ts, new_assertions = 
+    TS.inline ts main_entry (fun _ -> ()) (!assertions) in 
     Printf.printf "----------inlining done-----\n";
-    (inlined_ts, !assertions)
+    (inlined_ts, new_assertions)
 
 let mk_query ts entry =
   TS.mk_query ts entry
