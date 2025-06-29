@@ -873,6 +873,11 @@ let analyze file =
             Ctx.mk_and [K.guard path; Ctx.mk_not phi]
             |> SrkSimplify.simplify_terms srk
           in
+          let path_condition =
+            if Syntax.get_theory srk = `LIRA && !monotone then
+              Nonlinear.uninterpret srk path_condition
+            else path_condition
+          in
           logf "Path condition to %s:%d:@\n%a"
             loc.Cil.file
             loc.Cil.line
