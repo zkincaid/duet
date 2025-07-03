@@ -8,6 +8,14 @@ module TS = TransitionSystem.Make(Ctx)(V)(K)
 
 include Log.Make(struct let name = "gps" end)
 
+(** some global flags for GPS *)
+let enable_gas = ref true 
+let enable_summary = ref true 
+let enable_inlining = ref true
+let enable_acceleration = ref true
+let enable_ts_simplify = ref true
+let print_stats = ref false
+
 module ProcName = struct
   type t = int * int
 
@@ -250,7 +258,6 @@ module GPS = struct
   end
 
   (* ART module *)
-  (*  module ReachTree = ReachTree.ART(Ctx)(K)(TS')(ProcName)(VN)(Summarizer)*)
   module ReachTree = ReachTree.ART(Graph)(Label)(Transition)
 
   let generate_test_sgt art node =
@@ -609,7 +616,7 @@ let analyze_mc enable_gas enable_summary file =
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
       let entry = (RG.block_entry rg main).did in
-      let (ts, assertions) = make_transition_system ~simplify:true ~instr_gas:enable_gas entry rg in
+      let (ts, assertions) = make_transition_system ~simplify:(!enable_ts_simplify) ~instr_gas:enable_gas entry rg in
       let ts, err_loc = safety_to_reachability ts assertions in
       if !CmdLine.display_graphs then TSDisplay.display ts;
       logf "\nentry: %d\n" entry;
@@ -667,8 +674,8 @@ let analyze_impact file =
         let ts, err_loc = safety_to_reachability ts assertions in
         if !CmdLine.display_graphs then TSDisplay.display ts;
         logf "\nentry: %d\n" entry;
-        Printf.printf "testing reachability of location %d\n" err_loc ;
-        Printf.printf "------------------------------\n";
+        logf "testing reachability of location %d\n" err_loc ;
+        logf "------------------------------\n";
         let graph =
           GPS.Graph.{ graph = ts
                     ; call_summary = (fun _ -> failwith "IMPACT: procedure call")
@@ -716,25 +723,24 @@ let dump_cfg simplify instrument file =
   | _ -> assert false
 
 let _ =
+  CmdLine.register_config 
+    ("-gps-disable-gas", Arg.Clear enable_gas, " Disable gas-instrumentation in GPS (enabled by default)");
+  CmdLine.register_config 
+    ("-gps-disable-summary", Arg.Clear enable_summary, " Disable CRA-generated summaries in GPS (enabled by default)");
+  CmdLine.register_config
+    ("-gps-disable-acceleration", Arg.Clear enable_acceleration, " Disable loop acceleration during preprocessing (enabled by default)");
+  CmdLine.register_config
+    ("-gps-disable-simplify", Arg.Clear enable_ts_simplify, " Disable CFG simplification (enabled by default)");
+  CmdLine.register_config
+    ("-gps-stats", Arg.Unit (fun () -> print_stats := true), " Enable statistics reporting of a GPS run (disabled by default)");
+  
   CmdLine.register_pass
-    ("-gps", analyze_mc false true, " GPS model checking algorithm, without gas-instrumentation");
-  CmdLine.register_pass
-    ("-gps-gas", analyze_mc true true, " GPS model checking algorithm, with gas-instrumentation (i.e., refutation-complete)");
-  CmdLine.register_pass
-    ("-gps-nosum", analyze_mc false false, "GPS with neither gas nor CRA-generated summary");
-  CmdLine.register_pass
-    ("-gps-nosum-nogas", analyze_mc true false, "GPS with gas but without CRA-generated summary (i.e., refutation-complete)");
+    ("-gps", analyze_mc !enable_gas !enable_summary, " GPS model checker for intraprocedural programs");
 
   CmdLine.register_pass
-    ("-sgt", analyze_sgt false true, "Summary-guided testing, without gas-instrumentation");
+    ("-gpslite", analyze_sgt !enable_gas !enable_summary, " GPSLite summary-guided tester for intraprocedural programs");
+  
   CmdLine.register_pass
-    ("-sgt-gas", analyze_sgt true true, "Summary-guided testing, with gas");
-  CmdLine.register_pass
-    ("-sgt-nosum", analyze_sgt false false, "Summary-guided testing without CRA-generated summary");
-  CmdLine.register_pass
-    ("-sgt-nosum-nogas", analyze_sgt true false, "Summary-guided testing with gas but without CRA-generated summary");
-
-    CmdLine.register_pass
     ("-impact", analyze_impact, "Lazy abstraction with interpolants");
 
   CmdLine.register_pass

@@ -710,7 +710,6 @@ module Make
         | _ -> acc 
         ) tg (PS.add (entry, -1) PS.empty) in 
     let rec dfs (proc: int * int) tg src (f: (vertex * vertex) -> vertex -> vertex * 'a label * vertex -> unit) (visited : ISet.t) = 
-      Printf.printf "dfs: visiting %d\n" src;
       WG.fold_succ_e (fun (u, w, v) visited -> 
         f proc src (u, w, v);
         begin match ISet.find_opt v visited with 
@@ -718,7 +717,6 @@ module Make
             | Some _ -> visited 
             end) tg src visited in 
       PS.iter (fun (x, y) -> 
-        Printf.printf "populating p/qmaps with dfs... %d %d\n" x y;
         ignore @@ dfs (x, y) tg x (fun proc src (_, w, v) -> 
           match w with 
           | Call (x, y) -> 
@@ -733,11 +731,7 @@ module Make
           match (PHT.find_opt pmap (x, y), PHT.find_opt qmap (x, y)) with 
           | Some callees, Some callers -> 
             (* a procedure is considered for inlining if it is (1) a sink in the call graph (2) at least one function calls it.*)
-            if ((PS.cardinal callees) == 0) && ((PPS.cardinal callers) > 0) then PS.add (x, y) acc else 
-              begin 
-                Printf.printf "%d %d is not a sink; num callees = %d num callers = %d\n" x y (PS.cardinal callees) (PPS.cardinal callers);
-                acc
-              end 
+            if ((PS.cardinal callees) == 0) && ((PPS.cardinal callers) > 0) then PS.add (x, y) acc else acc
           | (_, _) -> failwith ""
           ) procedures PS.empty in
       let copy_subgraph tg src = 
@@ -769,7 +763,6 @@ module Make
           end;
           WG.remove_vertex tg' vtx) vertices tg in 
       let inline_one tg (src, dst) (call_x, call_y) (call_src, call_dst) = 
-        Printf.printf "inlining %d-%d into call edge %d-%d\n" src dst call_x call_y;
         let (tg, to_map) = copy_subgraph tg src in 
         let tg = WG.add_edge tg call_x (Weight T.one) (to_map src) in 
         let tg = WG.add_edge tg (to_map dst) (Weight T.one) call_y in 
@@ -788,7 +781,6 @@ module Make
             let inline_targets = PHT.find qmap currproc in 
               let tg' = 
                 PPS.fold (fun (call_proc, (call_x, call_y)) tg -> 
-                  Printf.printf "do_inline: at edge %d %d\n\n" call_x call_y;
                   inline_one tg currproc (call_x, call_y) call_proc
                 ) inline_targets tg in 
                 let (src, _) = currproc in 
@@ -797,13 +789,11 @@ module Make
             displayer tg;
             match PS.cardinal sinks with 
               | n when n > 0 ->  
-                Printf.printf "inliner: there are %d sinks to inline \n" n;
                 let tg' = (PS.fold aux sinks tg) in
                    tg'
                 |> do_inline (
-                  Printf.printf "doing more inling...\n";
                   if depth > 0 then depth - 1 else depth)
-              | _ -> Printf.printf "no more sinks to inline. done\n"; tg 
+              | _ -> (); tg 
         in let result = do_inline depth tg in 
           (result, !assertions) 
 
