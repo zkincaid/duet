@@ -20,7 +20,6 @@ module ART
        val bottom : t
        val meet : t -> t -> t
        val leq : t -> t -> bool
-       val negate : t -> t
        val pp : Format.formatter -> t -> unit
      end)
     (T : sig
@@ -42,6 +41,11 @@ module ART
   type t
   type state = T.state
   type weight = T.t
+  type stats = {
+    mutable num_covers_added : int;
+    mutable num_covers_removed : int;
+    mutable num_refinements_performed : int;
+  }
   val make : G.t -> L.t -> src:G.vertex -> dst:G.vertex -> t
   val get_entry : t -> G.vertex 
   val get_err_loc : t -> G.vertex
@@ -67,7 +71,6 @@ module ART
   val root : node
   val pp_node : Format.formatter -> node -> unit
   val execute : t -> node -> T.state -> [ `Safe | `Unsafe of node ]
-  val gps : t -> [ `Safe | `Unsafe of node ]
   val path_to_error : t -> node -> weight
-  val generate_test : t -> node -> [ `Test of state | `Pruned ]
+  val get_statistics : t -> stats 
 end

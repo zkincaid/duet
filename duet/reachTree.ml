@@ -35,7 +35,6 @@ module ART
        val top : t
        val meet : t -> t -> t
        val leq : t -> t -> bool
-       val negate : t -> t
        val pp : Format.formatter -> t -> unit
      end)
     (T : sig
@@ -82,6 +81,12 @@ struct
     ; mutable label : L.t
     ; mutable children : int list }
 
+  type stats = {
+    mutable num_covers_added : int;
+    mutable num_covers_removed : int;
+    mutable num_refinements_performed : int;
+  }
+
   type t = {
     graph : G.t;
     err_loc : G.vertex;
@@ -94,6 +99,8 @@ struct
     (* precedent_nodes[v] stores all tree nodes mapping to CFG vertex v. Used in mc_close. *)
     mutable precedent_nodes : ISet.t VertexMap.t;
     mutable frontier : node DQ.t;
+    
+    statistics : stats;
   }
 
   let root = 0
@@ -111,7 +118,11 @@ struct
     ; covers = IntMap.empty (* for (u, v) in cover, u is ancestor of v and label(v) |= label(u). v is covered if (u, v) in cover. Then cover[v] = u. *)
     ; reverse_covers = IntMap.empty (* for each v, store the v's that cover it: i.e. cover[v] *)
     ; precedent_nodes = VertexMap.empty
-    ; frontier = DQ.cons root DQ.empty }
+    ; frontier = DQ.cons root DQ.empty 
+    ; statistics = {
+        num_covers_added = 0
+      ; num_covers_removed = 0
+      ; num_refinements_performed = 0 }}
 
   let get_err_loc (art : t) = art.err_loc
   let get_entry (art: t) = (ARR.get art.nodes 0).cfg_vertex
@@ -240,6 +251,7 @@ struct
         let reverse_covers_w =
           IntMap.find_default ISet.empty w art.reverse_covers
         in
+        art.statistics.num_covers_added <- art.statistics.num_covers_added + 1;
         art.covers <- IntMap.add v w art.covers;
         art.reverse_covers <-
           IntMap.add w (ISet.add v reverse_covers_w) art.reverse_covers;
@@ -287,7 +299,9 @@ struct
                      (* Iterate through and remove pairs (x, y) from covering relation. *)
                      (* Step 1: Remove (x |-> y) from ptt.covers. *)
                      ISet.iter
-                       (fun x -> art.covers <- IntMap.remove x art.covers)
+                       (fun x -> 
+                        art.covers <- IntMap.remove x art.covers;
+                        art.statistics.num_covers_removed <- art.statistics.num_covers_removed + 1)
                        xs;
                      (* Step 2: Remove (y |-> xs) from pthit.reverse_covers. *)
                      art.reverse_covers <- IntMap.remove y art.reverse_covers;
@@ -321,6 +335,7 @@ struct
 
   (* refine the label of each tree node u along path from tree root to v. *)
   let refine (art : t) path interpolants =
+    art.statistics.num_refinements_performed <- art.statistics.num_refinements_performed + 1;
     List.iter2
       (fun u interpolant ->
         let u_info = ARR.get art.nodes u in
@@ -352,6 +367,7 @@ struct
                       (* remove (x, u) from covering. *)
                       logf "   refine: removing cover (%d->%d)\n"
                         x u;
+                      art.statistics.num_covers_removed <- art.statistics.num_covers_removed + 1;
                       art.covers <- IntMap.remove x art.covers;
                       (* add x's subtree leaves back to the worklist. *)
                       fold_leaves
@@ -563,54 +579,5 @@ struct
 
   let path_to_error art node = G.summary art.graph (maps_to art node)
 
-  let generate_test art node =
-    let post = L.negate (T.guard (path_to_error art node)) in
-    let rec get_path rest node =
-      match parent_weight art node with
-      | Some (p, weight) -> get_path (weight::rest) p
-      | None -> rest
-    in
-    let path = get_path [] node in
-    match T.check art.precondition path post with
-    | `Invalid v_model ->
-       logf ~level:`trace "-> found test";
-       `Test v_model
-    | `Unknown -> failwith "generate_test: got UNKNOWN as a result for interpolate_or_get_model"
-    | `Valid interpolants ->
-       logf ~level:`trace "-> pruned";
-       log_formulas "interpolants - " interpolants;
-       refine art (tree_path art node) interpolants;
-       `Pruned
-
-  let gps art =
-    let rec loop () =
-      match deque_frontier art with
-      | None -> `Safe
-      | Some u ->
-         (* Fetched tree node u from work list. First attempt to close it. *)
-         logf ~level:`trace "At frontier node %d:" u;
-         if is_covered art u then
-           (logf ~level:`trace "-> covered";
-            loop ())
-         else begin
-             if lclose art u then (* Close succeeded. No need to further explore it. *)
-               (logf ~level:`trace "-> closed"; loop ())
-             else begin
-                 (* u is uncovered. *)
-                 match generate_test art u with
-                 | `Pruned -> (* refinement succeeded *)
-                    (* for every node along path of refinement try close *)
-                    List.iter (fun v -> ignore (close art v)) (tree_path art u);
-
-                    loop ()
-                 | `Test state ->
-                    logf ~level:`trace "-> found test";
-                    match execute art u state with
-                    | `Safe -> loop ()
-                    | `Unsafe n -> `Unsafe n
-               end
-           end
-    in
-    loop ()
-
+  let get_statistics art = art.statistics
 end

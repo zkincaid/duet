@@ -11,10 +11,13 @@ include Log.Make(struct let name = "gps" end)
 (** some global flags for GPS *)
 let enable_gas = ref true 
 let enable_summary = ref true 
+let enable_refinement = ref true (* main distinction between GPS / GPSLite *)
 let enable_inlining = ref true
 let enable_acceleration = ref true
 let enable_ts_simplify = ref true
 let print_stats = ref false
+
+let num_tests_generated = ref 0
 
 module ProcName = struct
   type t = int * int
@@ -59,21 +62,6 @@ let log_weights prefix weights =
 let log_model prefix model =
   logf "[model] %s: %a\n" prefix Interpretation.pp model
 
-(*
-let assert_i = ref 0
-let new_assert_var cond =
-  let i = !assert_i in
-  let name = "__assert" ^ (string_of_int i) in
-  let v = Varinfo.mk_global name (Concrete (Int 8)) |> Var.mk in
-  let assert_var = Syntax.mk_symbol srk ~name:name `TyInt in
-  let assert_term = Syntax.mk_const srk assert_var in
-  assert_i := !assert_i + 1;
-  K.assign v cond
-
-let process_interproc_assertion (ts: cfg_t) (phi: Ctx.formula) v =
-  let a_var, a_term = new_assert_var @@ Ctx.mk_not phi in
-
-*)
 
 (* Convert assertion checking problem to vertex reachability problem. *)
 let safety_to_reachability (ts : cfg_t) assertions =
@@ -233,7 +221,6 @@ module GPS = struct
       match Smt.entails Ctx.context f g with
       | `Yes -> true
       | _ -> false
-    let negate f = Ctx.mk_not f
     let pp = Syntax.Formula.pp srk
   end
   module Transition = struct
@@ -260,354 +247,65 @@ module GPS = struct
   (* ART module *)
   module ReachTree = ReachTree.ART(Graph)(Label)(Transition)
 
-  let generate_test_sgt art node =
+  let generate_test art node =
     logf "Generating test @ %a\n" ReachTree.pp_node node;
-    let post = Ctx.mk_not (K.guard (ReachTree.path_to_error art node)) in
+    let post = 
+      if !enable_summary then 
+        Ctx.mk_not (K.guard (ReachTree.path_to_error art node)) 
+      else  
+        mk_true () 
+      in
     let rec path_weight v =
       match ReachTree.parent_weight art v with
       | Some (parent, w) -> K.mul (path_weight parent) w
       | None -> K.one
     in
+    num_tests_generated := !num_tests_generated + 1;
     match K.interpolate_or_concrete_model [path_weight node] post with
     | `Invalid v_model -> `Test v_model
-    | `Unknown -> failwith "generate_test_sgt: got UNKNOWN as a result for interpolate_or_get_model"
-    | `Valid _ -> `Pruned
+    | `Unknown -> failwith "GPS.generate_test: got UNKNOWN as a result for interpolate_or_get_model"
+    | `Valid interpolants -> `Pruned (interpolants)
 
-  let sgt graph src dst =
-    let art = ReachTree.make graph Ctx.mk_true ~src ~dst in
+  let gps graph src dst =
+    let art = ReachTree.make graph Ctx.mk_true ~src ~dst in 
     let rec loop () =
       match ReachTree.deque_frontier art with
-      | None -> `Safe
-      | Some node ->
-         match generate_test_sgt art node with
-         | `Pruned -> loop ()
-         | `Test state ->
-            match ReachTree.execute art node state with
-            | `Safe -> loop ()
-            | `Unsafe _ -> `Unsafe
+      | None -> `Safe art
+      | Some u ->
+         (* Fetched tree node u from work list. First attempt to close it. *)
+         logf ~level:`trace "At frontier node %d:" (ReachTree.of_node u);
+         if !enable_refinement && (ReachTree.is_covered art u) then
+           (logf ~level:`trace "-> covered";
+            loop ())
+         else begin
+             if !enable_refinement && (ReachTree.lclose art u) then (* Close succeeded. No need to further explore it. *)
+               (logf ~level:`trace "-> closed"; loop ())
+             else begin
+                 (* u is uncovered. *)
+                 match generate_test art u with
+                 | `Pruned (interpolants) -> 
+                    if !enable_refinement then begin 
+                      (* refinement *)
+                      ReachTree.refine art (ReachTree.tree_path art u) interpolants;
+                      (* for every node along path of refinement try close *)
+                      List.iter (fun v -> ignore (ReachTree.close art v)) (ReachTree.tree_path art u);
+                      loop ()
+                    end else begin (* GPSlite, no refinement *)
+                      loop ()
+                    end 
+                 | `Test state ->
+                    logf ~level:`trace "-> found test";
+                    match ReachTree.execute art u state with
+                    | `Safe -> loop ()
+                    | `Unsafe n -> `Unsafe (n, art)
+               end
+           end
     in
     loop ()
-
-
-  (* to print the reachability tree (+ worklist), or not *)
-  (* RF 3/2/25: If you enable this flag, and even if     *)
-  (* the logf output stream is suppressed, it incurs a _huge_ *)
-  (* performance penalty. *)
-  let print_tree = false
-
-  type global_context =
-    { g_graph : cfg_t
-    ; g_summarizer : Summarizer.t
-    ; g_errloc : int }
-
-  and mc_result =
-    | Safe of K.t
-    | Unsafe of K.t
-
-
-  (* contextual information maintained by GPS algorithm. *)
-  (* intraprocedural context *)
-  type intra_context = {
-    id : ProcName.t;
-    cfg : Graph.t;
-    mutable art : ReachTree.t;
-    global_ctx : global_context;
-  }
-  (* global context *)
-  (** some helper functions that operate on the context *)
-  let get_summarizer ctx = ctx.global_ctx.g_summarizer
-
-  let log_labelled_weights ctx uu prefix weights =
-  List.iteri
-    (fun i f ->
-      match f with
-      | Call (u, v) ->
-        let p =
-          begin match uu with
-          | OverApprox -> Summarizer.over_proc_summary ctx.g_summarizer (ProcName.make (u, v))
-          | UnderApprox -> Summarizer.under_proc_summary ctx.g_summarizer (ProcName.make (u, v))
-        end in
-        logf "[labelled weight] %s(%i, call(%d,%d)): %a\n" prefix i u v K.pp p
-      | Weight w ->
-        logf "[labelled weight] %s(%i): %a\n" prefix i K.pp w) weights
-
-
-  (* Express a relational query as a precondition/postcondition pair over
-     prophecy variables *)
-  let demote_precondition (query : K.t) =
-    let preconditions, postconditions =
-    BatEnum.fold (fun (preconditions, postconditions) (var, asgn) ->
-        let prophecy_var = V.prophesize var in
-        let prophecy_sym = V.symbol_of prophecy_var in
-        let prophecy_term = Syntax.mk_const srk prophecy_sym in
-        let var_term = Syntax.mk_const srk (V.symbol_of var) in
-        (Syntax.mk_eq srk prophecy_term asgn::preconditions,
-         Syntax.mk_eq srk prophecy_term var_term::postconditions))
-      ([K.guard query], [])
-      (K.transform query)
-    in
-    (Syntax.mk_and srk preconditions, Syntax.mk_and srk postconditions)
-
-
-  (* promote an arbitrary state formula (not necessarily the pre-state) to a transition formula. *)
-  (* To do so, we substitute in fresh skolem symbols for all prophecy variables inside [f], and *)
-  (* create a transform map, treating the substituted formula as guard. *)
-  let promote (f : Ctx.t Syntax.formula) =
-    let sym_map = ValueHT.create 991 in
-    let substitute = Memo.memo (fun sym ->
-      match V.of_symbol sym with
-      | Some v ->
-        begin match V.var_of_prophecy_var v with
-        | Some original_var ->
-          let fresh_skolem = Syntax.mk_symbol srk (Syntax.typ_symbol srk sym) in
-          let term = Syntax.mk_const srk fresh_skolem in
-          ValueHT.add sym_map original_var term;
-          term
-        | None -> Syntax.mk_const srk sym
-        end
-      | None -> Syntax.mk_const srk sym) in
-    K.construct (Syntax.substitute_const srk substitute (Syntax.mk_not srk f)) (ValueHT.to_seq sym_map |> List.of_seq)
-
-
-  let mk_intra_context (gctx: global_context) ((src,tgt): ProcName.t) (query: K.t) =
-    let pre_state, equalities = demote_precondition query in
-    let target_summary v =
-      K.mul
-        (Summarizer.path_weight_intra gctx.g_summarizer v tgt)
-        (K.assume equalities)
-    in
-    let dst = gctx.g_errloc in
-    let graph =
-      Graph.{ graph = WG.add_edge (gctx.g_graph) tgt (Weight (K.assume equalities)) dst
-            ; call_summary = Summarizer.over_proc_summary gctx.g_summarizer
-            ; target_summary = target_summary }
-    in
-    {
-      id = (src,dst);
-      cfg = graph;
-      art = ReachTree.make graph pre_state ~src ~dst;
-      global_ctx = gctx;
-    }
-
-  let rec art_cfg_path_pair (ctx: intra_context) (p: ReachTree.node list) =
-    match p with
-    | u :: v :: t ->
-      let u_vtx = ReachTree.maps_to ctx.art u in
-      let v_vtx = ReachTree.maps_to ctx.art v in
-      (u, (u_vtx, v_vtx), v) :: (art_cfg_path_pair ctx (v :: t))
-    | _ -> []
-
-
-  let print_vocabulary tr =
-    let g_vocab, l_vocab = K.vocabulary tr in
-    let vname x =
-      match V.of_symbol x with
-      | Some var -> V.show var
-      | None -> " [havoc] "
-    in
-    log_weights " [vocabulary of transition] " [tr];
-    logf " ------ globals: ---- {\n";
-    List.iter (fun x -> logf "     %s %s\n" (Syntax.show_symbol srk x) (vname x)) g_vocab;
-    logf "}\n ------ locals:  ---- {\n";
-    List.iter (fun x -> logf "     %s %s\n" (Syntax.show_symbol srk x) (vname x)) l_vocab
-
-  (* CFG path condition from art.src -> art.v *)
-  let path_condition (ctx: intra_context) condition_type (v: ReachTree.node) =
-    let art = ctx.art in
-    let art_nodes = ReachTree.tree_path art v in
-    let ts = ctx.cfg.Graph.graph in
-    let cfg_nodes = List.map (fun x -> ReachTree.maps_to art x) art_nodes in
-    let rec to_weights l : K.t label list =
-      match l with
-      | a :: b :: t ->
-        WG.edge_weight ts a b :: (to_weights (b :: t))
-      | _ -> []
-    in
-    let summ = get_summarizer ctx in
-    let pathcond = List.map (fun (weight: K.t label) ->
-      match weight with
-      | Call (src, dst) ->
-        begin match condition_type with
-        | OverApprox -> Summarizer.over_proc_summary summ (ProcName.make (src, dst))
-        | UnderApprox ->
-            let under = Summarizer.under_proc_summary summ (ProcName.make (src, dst)) in
-              log_weights "underapproximate summary" [under];
-              print_vocabulary under;
-              under
-        end
-      | Weight w -> w) (to_weights cfg_nodes) in
-      logf " ---- path_condition: path length: %d, before add1: %d\n" ((List.length pathcond)+1) (List.length pathcond);
-    let l = (K.assume (ReachTree.get_precondition ctx.art)) :: pathcond in
-        log_weights "path conditions " l; l
-
-  let get_global_ctx (ctx: intra_context) = ctx.global_ctx
-
-  let extract_refinement (ctx: intra_context) =
-    let art = ctx.art in
-    let rfn = ReachTree.label art ReachTree.root |> promote in
-    log_weights "refinement: " [rfn];
-    K.exists (fun v -> V.is_global v) (rfn)
-
-  let seq = List.fold_left K.mul K.one (* sequentially multiply, left-right *)
-
-
-  let rec handle_path_to_error ctx left curr right dir err_leaf : [`Unsafe of K.t | `Safe] =
-    let handle_right_case caller_id =
-      let f = List.map (fun (_, w, _) -> w) in
-      let left = f left in
-      let right = f right in
-      match K.project_mbp (V.is_global) (path_condition ctx UnderApprox err_leaf |> seq) with
-      | `Sat t -> `Unsafe t
-      | _ ->
-        logf " ------------------------ handle_path_to_error debug info: called by case %s ------------------\n" caller_id;
-        log_weights "faulty weight: " (path_condition ctx UnderApprox err_leaf);
-        logf "\nlength of left path: %d" (List.length left);
-        logf "\nlength of right path: %d" (List.length right);
-        logf "\nPrinting left path... \n";
-
-        log_labelled_weights ctx.global_ctx UnderApprox "left path - " left;
-        logf "error: handle_path_to_error: cannot project path condition" ;
-        `Safe in
-    let handle_left_case caller_id =
-      logf "handle_path_to_error: %s\n" caller_id;
-      `Safe in
-    match curr with
-    | (_, Weight _, _) ->
-      begin match left, dir, right with
-      | [], `Left, _ ->
-        handle_left_case "reached leftmost item, `curr` variable is NOT a call-edge"
-      | _, `Right, [] ->
-          handle_right_case "reached rightmost item, `curr` variable is NOT a call-edge"
-      | a :: left', `Left, _ -> handle_path_to_error ctx left' a (curr :: right) dir err_leaf
-      | _, `Right, a :: right' -> handle_path_to_error ctx (curr :: left) a right' dir err_leaf
-      end
-    | (u, (Call (src, dst)), _) ->
-      let prefix = path_condition ctx UnderApprox u |> seq in
-      let summ = get_summarizer ctx in
-      let suffix =
-        List.map (fun (_, ew, _) ->
-          match ew with
-          | Weight w -> w
-          | Call (s, t) -> Summarizer.over_proc_summary summ (ProcName.make (s, t)))
-        right
-        |> seq in
-      let summary = Summarizer.over_proc_summary summ (ProcName.make (src, dst)) in
-      begin match K.contextualize prefix summary suffix with
-      | `Sat query ->
-        let answer =
-          mk_intra_context (ctx.global_ctx) (ProcName.make (src, dst)) query
-          |> intraproc_check
-        in begin match answer with
-           | Safe r ->
-              Summarizer.refine_over_summary summ (ProcName.make (src, dst)) r;
-            handle_path_to_error ctx left curr right dir err_leaf
-           | Unsafe trs ->
-            begin match trs |> K.project_mbp (V.is_global) with
-            | `Sat tr ->
-               Summarizer.refine_under_summary summ (ProcName.make (src, dst)) tr;
-              begin match right with
-              | a :: right' ->
-                handle_path_to_error ctx (curr::left) a right' `Right err_leaf
-              | [] -> (* we're done *)
-                handle_right_case "rightmost edge is call-edge, underapproximation successful"
-              end
-            | _ -> failwith "error: cannot do mbp on returned error trace in handle_path_to_error"
-            end
-        end
-      | `Unsat -> (* procedure summary at `curr` is UNSAT, so backtrack *)
-        begin match left with
-        | a :: left' ->
-          handle_path_to_error ctx left' a (curr :: right) `Left err_leaf
-        | [] -> (* at the very left. we're done *)
-           handle_left_case "at the leftmost edge, is a call-edge, done"
-      end
-      end
-
-
-  and intraproc_check (ctx: intra_context) : mc_result =
-    match ReachTree.gps ctx.art with
-    | `Safe -> Safe (extract_refinement ctx)
-    | `Unsafe w ->
-       logf "--- GPS: found path-to-error at tree node %d (cfg vertex %d) \n" (ReachTree.of_node w) (ReachTree.maps_to ctx.art w);
-       logf " --- forming path to error... \n";
-       let has_calls, path_to_w =
-         ReachTree.tree_path ctx.art w
-         |> art_cfg_path_pair ctx
-         |> List.map (fun (u, (u_vtx, v_vtx), v) -> (u, WG.edge_weight ctx.cfg.Graph.graph u_vtx v_vtx, v))
-         |> List.fold_left (fun (has_call, l) (u, w, v) ->
-                match w with
-                | Call _ -> (true, (u, w, v) :: l)
-                | _ -> (has_call, (u, w, v) :: l)
-              ) (false, [])
-       in
-       logf " --- finished forming path to error, calling handle_path_to_error ... \n";
-       begin match has_calls, path_to_w with
-       | true, curr :: right ->
-          begin match handle_path_to_error ctx [] curr right `Right w with
-          | `Safe -> (* path-to-error concretization failed. frontier_node is the src node of a call-edge. *)
-             (* we can mark `w` as a frontier node to be refined, and continue. *)
-             ReachTree.add_frontier ctx.art w;
-             intraproc_check ctx
-          | `Unsafe pathcond ->
-             logf "--- GPS: managed to concretize an intraprocedural path-to-error. returning... ";
-             Unsafe pathcond end
-       | false, _::_ ->
-          (* TODO! *)
-(*          Unsafe (seq (List.map (fun (_, w, _) ->
-                           match w with
-                           | Weight w -> w
-                           | _ -> assert false)
-                         path_to_w))
- *)
-
-          Unsafe K.one
-       | _, [] ->
-          (* corner case: either no calls along the path, or if the path to error is of length 0. *)
-          Unsafe K.one
-       end
-
-
-  let execute (ts : cfg_t) (entry : int) (err_loc : int) (enable_summary:bool) : mc_result =
-    let gctx =
-      { g_graph = ts
-      ; g_summarizer = Summarizer.init ts entry err_loc enable_summary
-      ; g_errloc = err_loc }
-    in
-    (* interproc_graph represents the language of interprocedural paths from
-       entry to err_loc (including interprocedural paths that make calls that
-       never return---i.e., the ``unbalanced left'' language of
-       interprocedurally-valid paths) *)
-    let interproc_graph =
-      WG.fold_edges (fun (u, w, _) interproc_graph ->
-          match w with
-          | Call (en, _) ->
-             WG.add_edge interproc_graph u (Weight K.one) en
-          | Weight _ -> interproc_graph)
-        ts
-        ts
-    in
-    let graph =
-      Graph.{ graph = interproc_graph
-            ; call_summary = Summarizer.over_proc_summary gctx.g_summarizer
-            ; target_summary = Summarizer.path_weight_inter gctx.g_summarizer }
-    in
-    let main_context =
-      {
-        id = (entry,err_loc);
-        cfg = graph;
-        art = ReachTree.make graph Ctx.mk_true ~src:entry ~dst:err_loc;
-        global_ctx = gctx;
-      }
-    in
-    logf "executing GPS: start\n";
-    intraproc_check main_context
 end
 
 
-module BM = BatMap.Make(Int)
-
-
-let analyze_mc enable_gas enable_summary file =
+let analyze_mc file =
   let open Srk.Iteration in
   populate_offset_table file;
   K.domain := split (product [ PolyhedronGuard.exp
@@ -616,50 +314,35 @@ let analyze_mc enable_gas enable_summary file =
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
       let entry = (RG.block_entry rg main).did in
-      let (ts, assertions) = make_transition_system ~simplify:(!enable_ts_simplify) ~instr_gas:enable_gas entry rg in
+      let (ts, assertions) = make_transition_system ~simplify:(!enable_ts_simplify) ~instr_gas:!enable_gas entry rg in
       let ts, err_loc = safety_to_reachability ts assertions in
       if !CmdLine.display_graphs then TSDisplay.display ts;
       logf "\nentry: %d\n" entry;
       Printf.printf "testing reachability of location %d\n" err_loc ;
       Printf.printf "------------------------------\n";
-      begin match GPS.execute ts entry err_loc enable_summary with
-      | Safe _ -> Printf.printf "  proven safe\n";
-      | Unsafe _ -> Printf.printf "  proven unsafe\n"
+      let summ = Summarizer.init ts entry err_loc !enable_summary in 
+      let graph =
+          GPS.Graph.{ graph = ts
+                    ; call_summary = (fun _ -> failwith "GPS: procedure call")
+                    ; target_summary = (Summarizer.path_weight_inter summ) }
+        in
+      let art = 
+        begin match GPS.gps graph entry err_loc with
+        | `Safe art -> Printf.printf "  proven safe\n"; art
+        | `Unsafe (_, art) -> Printf.printf "  proven unsafe\n"; art
+        end in 
+      if !print_stats then begin 
+        let statistics = GPS.ReachTree.get_statistics art in 
+          Printf.printf " Statistics\n";
+          Printf.printf "  Number of tests generated: %d\n" !num_tests_generated;
+          Printf.printf "  Number of refinements performed: %d\n" statistics.num_refinements_performed;
+          Printf.printf "  Number of coverings added: %d\n" statistics.num_covers_added;
+          Printf.printf "  Number of coverings removed: %d\n" statistics.num_covers_removed
       end;
       Printf.printf "------------------------------\n"
     end
   | _ -> assert false
 
-
-let analyze_sgt enable_gas enable_summary file =
-    let open Srk.Iteration in
-    populate_offset_table file;
-    K.domain := split (product [ PolyhedronGuard.exp
-                               ; LossyTranslation.exp ]);
-    match file.entry_points with
-    | [main] -> begin
-        let rg = Interproc.make_recgraph file in
-        let entry = (RG.block_entry rg main).did in
-        let (ts, assertions) = make_transition_system ~simplify:true ~instr_gas:enable_gas entry rg in
-        let ts, err_loc = safety_to_reachability ts assertions in
-        if !CmdLine.display_graphs then TSDisplay.display ts;
-        logf "\nentry: %d\n" entry;
-        Printf.printf "testing reachability of location %d\n" err_loc ;
-        Printf.printf "------------------------------\n";
-        let summ = Summarizer.init ts entry err_loc enable_summary in
-        let graph =
-          GPS.Graph.{ graph = ts
-                    ; call_summary = (fun _ -> failwith "SGT: procedure call")
-                    ; target_summary = Summarizer.path_weight_inter summ }
-        in
-        begin match GPS.sgt graph entry err_loc with
-        | `Safe  -> Printf.printf "  proven safe\n";
-        | `Unsafe -> Printf.printf "  proven unsafe\n"
-        | `Error s -> Printf.printf "ERR: %s\n" s
-        end;
-        Printf.printf "------------------------------\n"
-      end
-    | _ -> assert false
 
 let analyze_impact file =
     let open Srk.Iteration in
@@ -691,8 +374,9 @@ let analyze_impact file =
              if ART.is_covered art u then loop ()
              else if ART.lclose art u then loop ()
              else if ART.maps_to art u == err_loc then
-               match ART.generate_test art u with
-               | `Pruned ->
+               match GPS.generate_test art u with
+               | `Pruned interpolants ->
+                  ART.refine art (ART.tree_path art u) interpolants;
                   List.iter (fun v -> ignore (ART.lclose art v)) (ART.tree_path art u);
                   loop ()
                | `Test _ -> `Unsafe
@@ -732,22 +416,19 @@ let _ =
   CmdLine.register_config
     ("-gps-disable-simplify", Arg.Clear enable_ts_simplify, " Disable CFG simplification (enabled by default)");
   CmdLine.register_config
+    ("-gps-disable-refinement", Arg.Clear enable_refinement, " Disable invariant synthesis capabilities of GPS");
+  CmdLine.register_config
     ("-gps-stats", Arg.Unit (fun () -> print_stats := true), " Enable statistics reporting of a GPS run (disabled by default)");
-  
   CmdLine.register_pass
-    ("-gps", analyze_mc !enable_gas !enable_summary, " GPS model checker for intraprocedural programs");
+    ("-gps", analyze_mc, " GPS model checker for intraprocedural programs");
+  CmdLine.register_pass
+    ("-impact", analyze_impact, " Lazy abstraction with interpolants");
 
   CmdLine.register_pass
-    ("-gpslite", analyze_sgt !enable_gas !enable_summary, " GPSLite summary-guided tester for intraprocedural programs");
-  
+    ("-dump-unsimplified-cfg", dump_cfg false false, " dump unsimplified CFG");
   CmdLine.register_pass
-    ("-impact", analyze_impact, "Lazy abstraction with interpolants");
-
+    ("-dump-simplified-cfg", dump_cfg true false, " dump simplified CFG");
   CmdLine.register_pass
-    ("-dump-unsimplified-cfg", dump_cfg false false, "dump unsimplified CFG");
+    ("-dump-instrumented-unsimplified-cfg", dump_cfg false true, " dump unsimplified CFG");
   CmdLine.register_pass
-    ("-dump-simplified-cfg", dump_cfg true false, "dump simplified CFG");
-  CmdLine.register_pass
-    ("-dump-instrumented-unsimplified-cfg", dump_cfg false true, "dump unsimplified CFG");
-  CmdLine.register_pass
-    ("-dump-instrumented-simplified-cfg", dump_cfg true true, "dump simplified CFG");
+    ("-dump-instrumented-simplified-cfg", dump_cfg true true, " dump simplified CFG");
