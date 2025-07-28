@@ -65,9 +65,9 @@ struct
         List.fold_left (fun m (v, term) -> M.add v term m) M.empty assignment;
       guard = guard }
 
-  let construct_map guard transform = 
+  let create guard transform_e = 
     {
-      transform = transform; 
+      transform = M.of_enum transform_e; 
       guard = guard 
     }
 
@@ -343,6 +343,9 @@ struct
   let mem_transform x tr = M.mem x tr.transform
   let get_transform x tr = M.find x tr.transform
   let transform tr = M.enum tr.transform
+
+  let transform_map tr = tr.transform
+
   let guard tr = tr.guard
 
   let rec destruct_and srk phi =

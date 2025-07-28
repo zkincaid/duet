@@ -22,112 +22,30 @@ module StdInterpolate
         type var = V.t
         val equal : t -> t -> bool
         val compare : t -> t -> int
-        val show : t -> string
 
         (** Guarded parallel assignment *)
         val construct : C.t formula -> (var * C.t arith_term) list -> t
 
-        (** [assume phi] is a transition that doesn't modify any variables, but can
-            only be executed when [phi] holds *)
-        val assume : C.t formula -> t
-
-        (** [assign v t] is a transition that assigns the term [t] to the variable
-            [v]. *)
-        val assign : var -> C.t arith_term -> t
-
-        (** Parallel assignment of a list of terms to a list of variables.
-            If a variable appears multiple times as a target for an
-            assignment, the rightmost assignment is taken. *)
-        val parallel_assign : (var * C.t arith_term) list -> t
-
-        (** Assign a list of variables non-deterministic values. *)
-        val havoc : var list -> t
-
-        (** Sequentially compose two transitions. *)
-        val mul : t -> t -> t
-
-        (** Non-deterministically choose between two transitions *)
-        val add : t -> t -> t
-
-        (** take conjunction of two transition formulas *)
-        val conjunct : t -> t -> t
-
-        (** Unexecutable transition (unit of [add]). *)
-        val zero : t
-
-        (** Skip (unit of [mul]). *)
-        val one : t
-
+        val create : C.t formula -> (var * C.t arith_term) BatEnum.t -> t 
         (** [exists ex tr] removes the variables that do not satisfy the predicate
             [ex] from the footprint of a transition.  For example, projecting a
             variable [x] out of a transition [tr] is logically equivalent to
             [(exists x. tr) && x' = x]. *)
         val exists : (var -> bool) -> t -> t
 
-        val is_zero : t -> bool
-        val is_one : t -> bool
-
-        (** Retrieve the value of a variable after a transition as a term over input
-            variables (and Skolem constants) *)
-        val get_transform : var -> t -> C.t arith_term
+        (** (Needed by interpolation) *)
+        val destruct_and : (C.t context) -> (C.t formula) -> (C.t formula) list
 
         (** Enumerate the variables and values assigned in a transition. *)
         val transform : t -> (var * C.t arith_term) BatEnum.t
 
         (** The condition under which a transition may be executed. *)
         val guard : t -> C.t formula
-
-        (**  
-            transtion : guard, transform
-            interpretation: M
-            find a model of the guard where we use M to replace all the pre-state value.
-            check interpretation.substitute 
-        *)
-        val get_post_model : C.t Interpretation.interpretation -> t -> (C.t Interpretation.interpretation) option 
-
-
-        (** Underapproximate existential quantification using model-based projection. 
-            The variables to be preserved are set to `true` in the initial map. 
-            Note the input map specifies variables to be preserved, not removed. *)
-        val project_mbp : (var -> bool) -> t -> [> `Sat of t | `Unsat]
-
-
-        (** Given a pre-condition [P], a path [path], and a post-condition [Q],
-            determine whether the Hoare triple [{P}path{Q}] is valid. *)
-        val valid_triple : C.t formula -> t list -> C.t formula -> [ `Valid
-                                                                    | `Invalid
-                                                                    | `Unknown ]
-
-        val contains_havoc : t -> bool
-
-
-        val defines : t -> var list
-        val uses : t -> var list
-
-        val abstract_post : (C.t,'abs) SrkApron.property -> t -> (C.t,'abs) SrkApron.property
-
-        (** Compute a representation of a transition as a transition formula. *)
-        val to_transition_formula : t -> C.t TransitionFormula.t
-
-        val domain : (C.t Iteration.exp_op) ref
-        val star : t -> t
-        val linearize : t -> t
-
-        (** If [is_deterministic tr] holds, [tr] is deterministic (at most one
-            post-state for any given pre-state).  If [is_deterministic tr] does not
-            hold, either [tr] is non-deterministic, or a proof of determinacy could
-            not be found. *)
-        val is_deterministic : t -> bool
-
-
-        (** vocabulary of a transition formula, (globals, locals)*)
-        val vocabulary : t -> ((Syntax.symbol list) * (Syntax.symbol list))
-end) = 
+  end) = 
   struct
   
     let srk = C.context
-    module M = BatMap.Make(Var)
-
+    module M = BatMap.Make(V)
 
     let interpolate trs post =
       let trs =
@@ -141,16 +59,16 @@ end) =
                             let typ = typ_symbol srk sym in
                             mk_const srk (mk_symbol srk ~name typ))
                   in
-                    let transform = M.map (substitute_const srk fresh_skolem) (T.transform tr) in 
-                    let guard = substitute_const srk fresh_skolem T.guard tr in 
-                      T.construct_map guard transform 
+                    let transform = M.map (substitute_const srk fresh_skolem) (M.of_enum @@ T.transform tr) in 
+                    let guard = substitute_const srk fresh_skolem (T.guard tr) in 
+                      T.create guard @@ M.enum transform)
       in
       (* Break guards into conjunctions, associate each conjunct with an indicator *)
       let guards =
         List.map (fun tr ->
             List.map
               (fun phi -> (mk_symbol srk `TyBool, phi))
-              (destruct_and srk tr.guard))
+              (T.destruct_and srk (T.guard tr)))
           trs
       in
       let indicators =
@@ -180,7 +98,7 @@ end) =
               let term_ss = substitute_const srk subscript term in
               ((var_sym, var_ss_term)::ss,
               mk_eq srk var_ss_term term_ss::phis))
-            tr.transform
+            (M.of_enum (T.transform tr))
             ([], ss_guards)
         in
         List.iter (fun (k, v) -> Hashtbl.add subscript_tbl k v) ss;
@@ -210,8 +128,8 @@ end) =
               let subst sym =
                 match V.of_symbol sym with
                 | Some var ->
-                    if M.mem var tr.transform then
-                      M.find var tr.transform
+                    if M.mem var (M.of_enum (T.transform tr)) then
+                      M.find var (M.of_enum (T.transform tr))
                     else
                       mk_const srk sym
                 | None -> mk_const srk sym
@@ -242,38 +160,6 @@ end) =
         `Valid (List.tl itp)
 
 
-        let get_post_model m f =
-          let f_guard = guard f in
-          let replacer (sym : Syntax.symbol) =
-            if V.of_symbol sym == None then Syntax.mk_const C.context sym
-            else mk_real C.context @@ Interpretation.real m sym
-          in
-          let f_guard' = Syntax.substitute_const C.context replacer f_guard in
-          let symbols = Syntax.symbols f_guard' |> Symbol.Set.elements in
-          let post pm =
-            BatEnum.fold (fun m' (lhs, rhs) ->
-                let sub_expr = Syntax.substitute_const C.context replacer rhs in
-                let lhs_symbol =  V.symbol_of lhs in
-                let sub_val = Interpretation.evaluate_term pm sub_expr in
-                Interpretation.add lhs_symbol (`Real sub_val) m')
-              m
-              (M.enum f.transform)
-          in
-          match Formula.destruct srk f_guard' with
-          | `Fls -> None
-          | `Tru ->
-            let zero_model = Interpretation.wrap srk (fun s ->
-                match typ_symbol srk s with
-                | `TyInt | `TyReal -> `Real QQ.zero
-                | `TyBool -> `Bool true
-                | _ -> assert false)
-            in
-            Some (post zero_model)
-          | _ ->
-            match Smt.get_model ~symbols:(symbols) C.context f_guard' with
-            | `Sat skolem_model -> Some (post skolem_model)
-            | _ -> None
-
     (* helper method for interpolate/extrapolate procedures. creates fresh copies of skolem variables in tr *)
     let rename_skolems tr =
       let fresh_skolem =
@@ -285,8 +171,9 @@ end) =
                 let typ = typ_symbol srk sym in
                 mk_const srk (mk_symbol srk ~name typ))
       in
-      { transform = M.map (substitute_const srk fresh_skolem) tr.transform;
-        guard = substitute_const srk fresh_skolem tr.guard }
+        let transform = M.map (substitute_const srk fresh_skolem) (M.of_enum @@ T.transform tr) in 
+        let guard = substitute_const srk fresh_skolem (T.guard tr) in 
+          T.create guard (M.enum transform) 
 
     let interpolate_unsat_core trs post guards core =
       let core_symbols =
@@ -302,8 +189,8 @@ end) =
             let subst sym =
               match V.of_symbol sym with
               | Some var ->
-                if M.mem var tr.transform then
-                  M.find var tr.transform
+                if M.mem var (M.of_enum @@ T.transform tr) then
+                  M.find var (M.of_enum @@ T.transform tr)
                 else
                   mk_const srk sym
               | None -> mk_const srk sym
@@ -340,7 +227,7 @@ end) =
         List.map (fun tr ->
             List.map
               (fun phi -> (mk_symbol srk `TyBool, phi))
-              (destruct_and srk tr.guard))
+              (T.destruct_and srk @@ T.guard tr))
           trs in
       let indicators, indicator_symbols =
         List.concat_map (List.map (fun (s, _) -> mk_const srk s)) guards,
@@ -372,7 +259,7 @@ end) =
               let term_ss = substitute_const srk subscript term in
               ((var_sym, var_ss_sym, var_ss_term)::ss,
               mk_eq srk var_ss_term term_ss::phis))
-            tr.transform
+            (M.of_enum @@ T.transform tr)
             ([], ss_guards)
         in
         List.iter (fun (k, l, v) ->

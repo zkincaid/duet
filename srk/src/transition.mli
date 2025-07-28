@@ -12,9 +12,6 @@ module type Var = sig
   val is_global : t -> bool
 end
 
-module M = BatMap.Make(Var)
-
-
 module Make
     (C : sig
        type t
@@ -51,7 +48,7 @@ module Make
 
   (** Guarded parallel assignment *)
   val construct : C.t formula -> (var * C.t arith_term) list -> t
-  val construct_map : C.t formula -> (C.t arith_term) M.t -> t 
+  val create : C.t formula -> (var * C.t arith_term) BatEnum.t -> t 
 
   (** [assume phi] is a transition that doesn't modify any variables, but can
       only be executed when [phi] holds *)
@@ -108,6 +105,9 @@ module Make
 
   (** Enumerate the variables and values assigned in a transition. *)
   val transform : t -> (var * C.t arith_term) BatEnum.t
+
+  (** Destruct conjunctions, needed by the interpolation API *)
+  val destruct_and : (C.t context) -> (C.t formula) -> (C.t formula) list
 
   (** The condition under which a transition may be executed. *)
   val guard : t -> C.t formula
