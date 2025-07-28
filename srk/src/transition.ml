@@ -65,6 +65,12 @@ struct
         List.fold_left (fun m (v, term) -> M.add v term m) M.empty assignment;
       guard = guard }
 
+  let construct_map guard transform = 
+    {
+      transform = transform; 
+      guard = guard 
+    }
+
   let assign v term =
     { transform = M.add v term M.empty;
       guard = mk_true srk }
