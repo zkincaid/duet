@@ -13,6 +13,7 @@
   (modules (:standard \ bigtop))
   (modes native)
   (flags (:standard -w -32))
+  (modules_without_implementation interpolant)
   (libraries
     batteries
     ppx_deriving ppx_deriving.show ppx_deriving.ord ppx_deriving.eq

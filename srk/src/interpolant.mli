@@ -1,7 +1,7 @@
 (** Interpolation of transition formulas. *)
 open Syntax 
 
-module StdInterpolate
+module type Interpolant = functor 
     (C: sig 
         type t 
         val context : t context 
@@ -39,7 +39,7 @@ module StdInterpolate
 
         (** The condition under which a transition may be executed. *)
         val guard : t -> C.t formula
-  end) : sig 
+  end) -> sig 
 
 
       (** Given a path (list of transitions [tr_1 ... tr_n]) and a post-condition
@@ -58,6 +58,4 @@ module StdInterpolate
         -> [`Valid of C.t formula list 
         | `Invalid of C.t Interpretation.interpretation 
         | `Unknown ]
-
-
 end

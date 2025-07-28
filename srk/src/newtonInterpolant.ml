@@ -1,10 +1,10 @@
 open Syntax
 open BatPervasives
+open Interpolant 
 
-include Log.Make(struct let name = "srk.interpolate" end)
+include Log.Make(struct let name = "srk.newtonInterpolant" end)
 
-module StdInterpolate
-    (C: sig 
+module Newton : Interpolant = functor (C: sig 
         type t 
         val context : t context 
     end)
@@ -41,8 +41,7 @@ module StdInterpolate
 
         (** The condition under which a transition may be executed. *)
         val guard : t -> C.t formula
-  end) = 
-  struct
+  end) -> struct
   
     let srk = C.context
     module M = BatMap.Make(V)
