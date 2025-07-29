@@ -75,7 +75,11 @@ module NewtonBackwards : Interpolant = functor (C: sig
 
     let is_future_live x trs =
       if trs = [] then false else begin 
-        (* acc is a pair of booleans, acc_0 means *) 
+        (* In srk, havocs are writes, so suffices to detect writes only.
+           Logic: Scan the transitions from right-to-left,
+            - if tr_j reads x, then switch to verify that all transitions left of tr_j does not write to x.
+            - if some tr_k writes to x, then we need to re-find some j<k that reads x, or x is marked as not live.
+        *)
         let state = List.fold_left (fun (has_been_read, has_been_written) tr -> 
           if has_been_read then begin 
             if has_been_written then begin  
@@ -102,6 +106,43 @@ module NewtonBackwards : Interpolant = functor (C: sig
         ) ([], []) (List.rev trs) in 
         live_vars
     
+    (** figure out set of variables with non-deterministic right-hand-side expressions in [tr]. *)
+    let havoc_vars tr = 
+      let transform = T.transform tr in 
+      BatEnum.fold (fun curr (v, term) -> 
+        if (Syntax.symbols term 
+        |> Symbol.Set.filter (fun x -> V.of_symbol x = None) (* every skolem symbol is non-deterministic. *)
+        |> Symbol.Set.cardinal) > 0 then 
+          curr (* variable v is deterministically assigned *) 
+        else 
+          v :: curr (* variable v is assigned a non-det expression *)
+        ) [] transform
+
+
+    (** test whether a variable [x] is past-live w.r.t. past transitions [trs]. *)
+    let is_past_live x trs = 
+      let used x tr = List.mem x (T.uses tr) || List.mem x (T.defines tr) in 
+      let havoced x tr = List.mem x (havoc_vars tr) in 
+      if trs = [] then false else begin
+        (* A simpler definition of past-variable is if a variable x is 
+          (1) used and (2) never havoc'ed beyond some point j in [trs].
+        *)
+        let state = List.fold_left (fun (been_used, been_havoced) tr ->
+          if been_used then begin 
+              if been_havoced then begin
+                if (used x tr) && not(havoced x tr) then (been_used, false)
+                else (been_used, been_havoced)
+              end else 
+                (been_used, havoced x tr)
+          end else begin 
+            (used x tr, false)
+          end
+          ) (false, false) trs in 
+          match state with 
+          | (true, false) -> true 
+          | _ -> false 
+      end
+
 
     let interpolate trs post =
       (* The following step ensures all Skolem constants in [trs] are unique. *)
