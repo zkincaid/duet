@@ -142,7 +142,14 @@ module NewtonBackwards : Interpolant = functor (C: sig
           | (true, false) -> true 
           | _ -> false 
       end
-
+    
+    let past_live_analysis trs = 
+      let live_vars, _ = 
+        List.fold_left (fun (acc, trs') tr -> 
+          let vars = List.map (fun (x, _) -> x) (T.state_vocabulary tr) in 
+          (List.filter (fun x -> is_past_live x trs') vars :: acc, tr :: trs') 
+        ) ([], []) trs in 
+        live_vars
 
     let interpolate trs post =
       (* The following step ensures all Skolem constants in [trs] are unique. *)
