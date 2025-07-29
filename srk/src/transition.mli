@@ -154,7 +154,10 @@ module Make
   val contains_havoc : t -> bool
 
 
+  (** Variables written to inside the transform of a transition. *)
   val defines : t -> var list
+
+  (** Variables used by a a transition, including non-Skolem symbols in both the guard and the transform. *)
   val uses : t -> var list
 
   val abstract_post : (C.t,'abs) SrkApron.property -> t -> (C.t,'abs) SrkApron.property
@@ -179,4 +182,8 @@ module Make
 
   (** vocabulary of a transition formula, (globals, locals)*)
   val vocabulary : t -> ((Syntax.symbol list) * (Syntax.symbol list))
+
+  (** non-existentially quantified vocabulary of a transition formula, with all skolem symbols left out.
+      returns a list of pairs [var, sym] with a Var.t and a symbol corresponding to the variable. *)
+  val state_vocabulary: t -> (var * Syntax.symbol) list     
 end

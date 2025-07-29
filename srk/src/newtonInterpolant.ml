@@ -4,7 +4,7 @@ open Interpolant
 
 include Log.Make(struct let name = "srk.newtonInterpolant" end)
 
-module Newton : Interpolant = functor (C: sig 
+module NewtonBackwards : Interpolant = functor (C: sig 
         type t 
         val context : t context 
     end)
@@ -39,17 +39,76 @@ module Newton : Interpolant = functor (C: sig
         (** Enumerate the variables and values assigned in a transition. *)
         val transform : t -> (var * C.t arith_term) BatEnum.t
 
+        val defines : t -> var list
+
+        (** Variables used by a a transition, including non-Skolem symbols in both the guard and the transform. *)
+        val uses : t -> var list
+
         (** The condition under which a transition may be executed. *)
         val guard : t -> C.t formula
+
+        val state_vocabulary : t -> (var * Syntax.symbol) list 
   end) -> struct
   
     let srk = C.context
     module M = BatMap.Make(V)
 
+    (* The helper functions below implement the live-variables analysis described in:
+
+        Daniel Dietsch, Matthias Heizmann, Betim Musa, Alexander Nutz, and Andreas Podelski. 
+          Craig vs. Newton in software model checking. ESEC/FSE 2017.
+       
+       For a sequence of transition formulas [trs]:
+    
+       Def 1 (future-live variable). We call a variable [x] future-live in [trs] at position i if there is
+        a transition tr_j in [trs] with j > i, such that
+          - tr_j reads x, and 
+          - for all k with i < k < j the transition tr_k neither writes nor havocs [x].
+          
+       Def 2 (past-live variable).We call a variable [x] past-live in [trs] at i if there is a transition tr_j in [trs] with
+        j <= i, such that 
+          - tr_j writes x or reads x, and 
+          - for all k with j < k <= i the transition tr_k does not havoc x. 
+    *)
+
+    (** test whether a variable [x] of type [var] is future-live in future transitions [trs]. *)
+
+    let is_future_live x trs =
+      if trs = [] then false else begin 
+        (* acc is a pair of booleans, acc_0 means *) 
+        let state = List.fold_left (fun (has_been_read, has_been_written) tr -> 
+          if has_been_read then begin 
+            if has_been_written then begin  
+              if List.mem x (T.uses tr) && (not (List.mem x (T.defines tr))) then (has_been_read, false)
+              else (has_been_read, has_been_written)
+            end else (has_been_read, List.mem x (T.defines tr))
+          end else begin
+            (List.mem x (T.uses tr) && not(List.mem x (T.defines tr)), false)
+          end
+          ) (false, false) (List.rev trs) in 
+          match state with 
+          (* a variable is future-live if it's used in the future and not modified between current point and point-of-use. *)
+          | (true, false) -> true
+          | _ -> false 
+      end
+
+    (** For a list of transitions [trs], compute the set of future-live variables for each transition's vocabulary.
+        Returns a list of type [var Set.t] where the i-th set is the set of non-live variables at transition i. *)    
+    let future_live_analysis trs = 
+      let live_vars, _ = 
+        List.fold_left (fun (acc, trs') tr -> 
+          let vars = List.map (fun (x, _) -> x) (T.state_vocabulary tr) in 
+          (List.filter (fun x -> is_future_live x trs') vars :: acc, tr :: trs') 
+        ) ([], []) (List.rev trs) in 
+        live_vars
+    
+
     let interpolate trs post =
+      (* The following step ensures all Skolem constants in [trs] are unique. *)
       let trs =
         trs |> List.map (fun tr ->
                   let fresh_skolem =
+                    (* If sym is a non-skolem (i.e. stored in V), return the same symbol. Otherwise, create a fresh Skolem symbol. *)
                     Memo.memo (fun sym ->
                         match V.of_symbol sym with
                         | Some _ -> mk_const srk sym
@@ -62,7 +121,9 @@ module Newton : Interpolant = functor (C: sig
                     let guard = substitute_const srk fresh_skolem (T.guard tr) in 
                       T.create guard @@ M.enum transform)
       in
-      (* Break guards into conjunctions, associate each conjunct with an indicator *)
+      (* Take the list of guards for each transition in the sequence.
+         Break guards into a list of conjunctions, and associate each conjunct with 
+         an indicator variable that is true iff the conjunct is included in the final UNSAT core. *)
       let guards =
         List.map (fun tr ->
             List.map

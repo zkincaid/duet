@@ -37,9 +37,18 @@ module type Interpolant = functor
         (** Enumerate the variables and values assigned in a transition. *)
         val transform : t -> (var * C.t arith_term) BatEnum.t
 
+        (** Variables written to inside the transform of a transition. *)
+        val defines : t -> var list
+
+        (** Variables used by a a transition, including non-Skolem symbols in both the guard and the transform. *)
+        val uses : t -> var list
+
         (** The condition under which a transition may be executed. *)
         val guard : t -> C.t formula
-  end) -> sig 
+
+        val state_vocabulary : t -> (var * Syntax.symbol) list 
+
+     end) -> sig 
 
 
       (** Given a path (list of transitions [tr_1 ... tr_n]) and a post-condition

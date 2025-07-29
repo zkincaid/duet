@@ -697,6 +697,13 @@ struct
     let locals = Symbol.Set.diff v globals in
     (Symbol.Set.to_list globals, Symbol.Set.to_list locals)
 
+  let state_vocabulary tr = 
+    let global_v, local_v = vocabulary tr in 
+    List.filter_map (fun x -> 
+      match Var.of_symbol x with 
+      | Some var -> Some(var, x)
+      | None -> None
+      ) (global_v @ local_v) 
 
   let contextualize t1 t2 t3 : [`Sat of t | `Unsat ] =
     let t1 = rename_skolems t1
