@@ -255,6 +255,7 @@ module GPS = struct
       | None -> rest
     in
     let path = get_path [] node in
+    num_tests_generated := !num_tests_generated + 1;
     match K.interpolate_or_concrete_model ((K.assume @@ ReachTree.get_precondition art) :: path) post with
     | `Invalid v_model ->
        logf ~level:`trace "-> found test";
