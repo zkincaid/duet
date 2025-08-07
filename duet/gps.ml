@@ -248,6 +248,25 @@ module GPS = struct
   module ReachTree = ReachTree.ART(Graph)(Label)(Transition)
 
   let generate_test art node =
+    let post = Ctx.mk_not (K.guard (ReachTree.path_to_error art node)) in
+    let rec get_path rest node =
+      match ReachTree.parent_weight art node with
+      | Some (p, weight) -> get_path (weight::rest) p
+      | None -> rest
+    in
+    let path = get_path [] node in
+    match K.interpolate_or_concrete_model ((K.assume @@ ReachTree.get_precondition art) :: path) post with
+    | `Invalid v_model ->
+       logf ~level:`trace "-> found test";
+       `Test v_model
+    | `Unknown -> failwith "generate_test: got UNKNOWN as a result for interpolate_or_get_model"
+    | `Valid interpolants ->
+       logf ~level:`trace "-> pruned";
+       log_formulas "interpolants - " interpolants;
+       `Pruned (interpolants)
+
+  (* RF: this is unused for now, delete fully once I test out the function above *)
+  let generate_test' art node =
     logf "Generating test @ %a\n" ReachTree.pp_node node;
     let post = 
       if !enable_summary then 
@@ -286,6 +305,8 @@ module GPS = struct
                  | `Pruned (interpolants) -> 
                     if !enable_refinement then begin 
                       (* refinement *)
+                      logf ~level:`trace " * refinement: path length %d\n" (List.length (ReachTree.tree_path art u));
+                      logf ~level:`trace " * interpolants length: %d\n" (List.length interpolants);
                       ReachTree.refine art (ReachTree.tree_path art u) interpolants;
                       (* for every node along path of refinement try close *)
                       List.iter (fun v -> ignore (ReachTree.close art v)) (ReachTree.tree_path art u);
