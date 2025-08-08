@@ -17,7 +17,10 @@ let enable_acceleration = ref true
 let enable_ts_simplify = ref true
 let print_stats = ref false
 
+let num_check_calls = ref 0
 let num_tests_generated = ref 0
+
+let num_interpolants_generated = ref 0 
 
 module ProcName = struct
   type t = int * int
@@ -255,36 +258,18 @@ module GPS = struct
       | None -> rest
     in
     let path = get_path [] node in
-    num_tests_generated := !num_tests_generated + 1;
+    num_check_calls := !num_check_calls + 1;
     match K.interpolate_or_concrete_model ((K.assume @@ ReachTree.get_precondition art) :: path) post with
     | `Invalid v_model ->
        logf ~level:`trace "-> found test";
+       num_tests_generated := !num_tests_generated + 1;
        `Test v_model
     | `Unknown -> failwith "generate_test: got UNKNOWN as a result for interpolate_or_get_model"
     | `Valid interpolants ->
+        num_interpolants_generated := !num_interpolants_generated + 1;
        logf ~level:`trace "-> pruned";
        log_formulas "interpolants - " interpolants;
        `Pruned (interpolants)
-
-  (* RF: this is unused for now, delete fully once I test out the function above *)
-  let generate_test' art node =
-    logf "Generating test @ %a\n" ReachTree.pp_node node;
-    let post = 
-      if !enable_summary then 
-        Ctx.mk_not (K.guard (ReachTree.path_to_error art node)) 
-      else  
-        mk_true () 
-      in
-    let rec path_weight v =
-      match ReachTree.parent_weight art v with
-      | Some (parent, w) -> K.mul (path_weight parent) w
-      | None -> K.one
-    in
-    num_tests_generated := !num_tests_generated + 1;
-    match K.interpolate_or_concrete_model [path_weight node] post with
-    | `Invalid v_model -> `Test v_model
-    | `Unknown -> failwith "GPS.generate_test: got UNKNOWN as a result for interpolate_or_get_model"
-    | `Valid interpolants -> `Pruned (interpolants)
 
   let gps graph src dst =
     let art = ReachTree.make graph Ctx.mk_true ~src ~dst in 
@@ -356,7 +341,9 @@ let analyze_mc file =
       if !print_stats then begin 
         let statistics = GPS.ReachTree.get_statistics art in 
           Printf.printf " Statistics\n";
+          Printf.printf "  Number of check calls: %d\n" !num_check_calls;
           Printf.printf "  Number of tests generated: %d\n" !num_tests_generated;
+          Printf.printf "  Number of dead-end-interpolants generated: %d\n" !num_interpolants_generated;
           Printf.printf "  Number of refinements performed: %d\n" statistics.num_refinements_performed;
           Printf.printf "  Number of coverings added: %d\n" statistics.num_covers_added;
           Printf.printf "  Number of coverings removed: %d\n" statistics.num_covers_removed
