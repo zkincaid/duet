@@ -11,6 +11,7 @@ open! Cra
 open! Proofspace
 open! Dependence
 open! Categorize
+open! Gps
 
 let usage_msg = "Duet program analyzer\nUsage: duet [OPTIONS] file.[c|bp]"
 
@@ -18,6 +19,12 @@ let anon_fun s = ignore (CmdLine.parse s)
 
 let _ =
   Sys.set_signal Sys.sigtstp (Sys.Signal_handle (fun _ -> Log.print_stats ()));
+  Printexc.record_backtrace true;;
+  Sys.set_signal Sys.sigint (Sys.Signal_handle (fun _ ->
+    Printf.eprintf "SIGINT received. Backtrace:\n%!";
+    Printexc.print_backtrace stderr;
+    exit 1
+  ));;
   let spec_list = CmdLine.spec_list () in
   Arg.parse (Arg.align spec_list) anon_fun usage_msg;
   match !CfgIr.gfile with

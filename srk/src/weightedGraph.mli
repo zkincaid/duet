@@ -29,6 +29,8 @@ type vertex = int
 (** Create an empty weighted graph over the given algebra of weights. *)
 val empty : ('a algebra) -> 'a t
 
+val get_algebra : 'a t -> ('a algebra)
+
 (** Add a vertex to a graph. *)
 val add_vertex : 'a t -> vertex -> 'a t
 
@@ -61,6 +63,7 @@ val cut_graph : 'a t -> vertex list -> 'a t
 
 (** Remove a vertex from a graph. *)
 val remove_vertex : 'a t -> vertex -> 'a t
+val remove_edge : 'a t -> vertex -> vertex -> 'a t
 
 (** [contract g v] removes vertex [v] from [g] while preserving all weighted
     paths among remaining vertices.  That is, for each pair of edges [p -pw->
@@ -146,6 +149,10 @@ module RecGraph : sig
      weight queries. *)
   type 'a weight_query
 
+  (** A weight query is an intermediate structure for perfoming
+     single-destination path weight queries. *)
+  type 'a reverse_query
+
   exception No_summary of call
 
   (** The callgraph of a recursive graph has calls as vertices, and an
@@ -192,6 +199,11 @@ module RecGraph : sig
      weights to call edges. *)
   val mk_weight_query : query -> 'a Pathexpr.nested_algebra -> 'a weight_query
 
+  (** Create a reverse query for the selected destination.  The reverse query
+     shares procedure summaries with the underlying weight query, so
+     [set_summary] impacts both. *)
+  val mk_reverse_query : 'a weight_query -> vertex -> 'a reverse_query
+
   (** Build call summaries via successive approximation. *)
   val summarize_iterative : query ->
                             'a Pathexpr.nested_algebra ->
@@ -206,10 +218,18 @@ module RecGraph : sig
   (** Find the sum of weights of all intraprocedural paths through a
      given call. *)
   val call_weight : 'a weight_query -> call -> 'a
-
   val get_summary : 'a weight_query -> call -> 'a
   val set_summary : 'a weight_query -> call -> 'a -> unit
 
+  (** [exit_summary rq u v] computes the sum of the weights of all
+     intraprocedural paths beginning at [u] and ending at [v].  The target
+     vertex [v] is required to be the exit vertex of some procedure. *)
+  val exit_summary : 'a reverse_query -> vertex -> vertex -> 'a
+
+  (** Find the sum of weights of all interprocedural paths beginning
+      at the given vertex and ending in the query's target *)
+  val target_summary : 'a reverse_query -> vertex -> 'a
+ 
   (** Find the sum of weights of all infinite interprocedural paths
      beginning at the query's source vertex. *)
   val omega_path_weight : 'a weight_query -> ('a,'b) Pathexpr.omega_algebra -> 'b

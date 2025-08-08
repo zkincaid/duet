@@ -6,9 +6,9 @@ type 'a label =
 
 module Make
     (C : sig
-       type t
-       val context : t Syntax.context
-     end)
+      type t
+      val context : t context
+      end)
     (Var : sig
        type t
        val pp : Format.formatter -> t -> unit
@@ -35,12 +35,14 @@ module Make
        val one : t
        val star : t -> t
        val exists : (var -> bool) -> t -> t
+       val try_rtc : t -> t option
      end) : sig
 
   type vertex = int
   type transition = T.t
   type t = (transition label) WeightedGraph.t
   type query = T.t WeightedGraph.RecGraph.weight_query
+  type reverse_query = T.t WeightedGraph.RecGraph.reverse_query
 
   module VarSet : BatSet.S with type elt = Var.t
 
@@ -68,9 +70,19 @@ module Make
      starting at a given vertex. *)
   val omega_path_weight : query -> (transition,'b) Pathexpr.omega_algebra -> 'b
 
-  (** Project out local variables from each transition that are referenced
-      only by that transition. *)
-  val remove_temporaries : t -> t
+  val mk_reverse_query : query -> vertex -> reverse_query
+  val exit_summary : reverse_query -> vertex -> vertex -> T.t
+  val target_summary : reverse_query -> vertex -> T.t
+
+  (** Project out variables that do not satisfy the given predicate from each
+     transition that are referenced only by that transition. *)
+  val remove_temporaries : (Var.t -> bool) -> t -> t
+
+  (** Set procedure summary; delegates call to WG.RecGraph.set_summary *)
+  val set_summary : query -> (vertex * vertex) -> transition -> unit 
+
+  (** Get procedure summary; delegates call to WG.RecGraph.get_summary *)
+  val get_summary : query -> (vertex * vertex) -> transition
 
   (** Compute interval invariants for each loop header of a transition system.
       The invariant computed for a loop is defined only over the variables
@@ -90,7 +102,11 @@ module Make
       the given predicate.  Simplification does not guarantee that all such
       vertices are contracted.  In particular, simplification will not
       contract vertices with loops or vertices adjacent to call edges. *)
-  val simplify : (vertex -> bool) -> t -> t
+  val simplify :  ?try_rtc:bool -> (vertex -> bool) -> t -> t
+
+  (** Perform inlining of a potentially recursive iCFG.
+   *)
+  val inline : ?depth:int -> t -> vertex -> (t -> unit) -> ('x SrkUtil.Int.Map.t) -> (t * 'x SrkUtil.Int.Map.t) 
 
   (** Given a transition system and entry, compute a set of loop
      headers along with the set of variables that are read within the

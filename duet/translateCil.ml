@@ -298,8 +298,8 @@ let rec tr_expr = function
      | Cil.Mod -> BinaryOp (e1, Mod, e2, typ)
      | Cil.Shiftlt -> BinaryOp (e1, ShiftL, e2, typ)
      | Cil.Shiftrt -> BinaryOp (e1, ShiftR, e2, typ)
-     | Cil.BAnd -> BinaryOp (e1, BAnd, e2, typ)
-     | Cil.BOr -> BinaryOp (e1, BOr, e2, typ)
+     | Cil.BAnd -> BoolExpr (And (Bexpr.of_aexpr e1, Bexpr.of_aexpr e2)) (* BinaryOp (e1, BAnd, e2, typ) *)
+     | Cil.BOr -> BoolExpr (Or (Bexpr.of_aexpr e1, Bexpr.of_aexpr e2)) (* BinaryOp (e1, BOr, e2, typ) *)
      | Cil.BXor -> BinaryOp (e1, BXor, e2, typ)
      | Cil.Lt -> BoolExpr (Atom (Lt, e1, e2))
      | Cil.Gt -> BoolExpr (Bexpr.gt e1 e2)
@@ -396,6 +396,7 @@ let verifier_builtins =
    "pthread_mutex_lock"; "pthread_mutex_unlock"; "spin_lock"; "spin_unlock";
    "pthread_create"; "pthread_create"; "exit"; "abort";
    "rand"; "__VERIFIER_nondet_char"; "__VERIFIER_nondet_int"; "__VERIFIER_nondet_long";
+   "__VERIFIER_nondet_bool"; "__VERIFIER_nondet_uchar";
    "__VERIFIER_nondet_pointer"; "__VERIFIER_nondet_uint";
    "__CPROVER_atomic_begin"; "__CPROVER_atomic_end";
    "__VERIFIER_atomic_begin"; "__VERIFIER_atomic_end"]
@@ -478,6 +479,13 @@ let tr_instr ctx instr =
 
       | ("__VERIFIER_nondet_char", Some (Variable v), []) ->
         mk_def (Assign (v, Havoc (Concrete (Int 1))))
+      | ("__VERIFIER_nondet_uchar", Some (Variable v), []) -> 
+        let havoc = mk_def (Assign (v, Havoc (Concrete (Int 1)))) in
+        let assume0 =
+          mk_def (Assume (Atom (Le, Aexpr.zero, AccessPath (Variable v)))) in 
+          let assume1 = 
+          mk_def (Assume (Atom (Le, AccessPath (Variable v), Constant (CInt (255, 1))))) in 
+          mk_seq havoc @@ mk_seq assume0 assume1 
       | ("__VERIFIER_nondet_int", Some (Variable v), []) ->
         mk_def (Assign (v, Havoc (Concrete (Int machine_int_width))))
       | ("__VERIFIER_nondet_long", Some (Variable v), []) ->
@@ -485,6 +493,13 @@ let tr_instr ctx instr =
         mk_def (Assign (v, Havoc (Concrete (Int sz))))
       | ("__VERIFIER_nondet_pointer", Some (Variable v), []) ->
         mk_def (Assign (v, Havoc (Concrete (Int pointer_width))))
+      | ("__VERIFIER_nondet_bool", Some (Variable v), []) -> 
+          let assume_lb = 
+            mk_def (Assume (Atom (Le, Aexpr.zero, AccessPath (Variable v)))) in (* 0 <= v *) 
+          let assume_ub = 
+            mk_def (Assume (Atom (Le, AccessPath (Variable v), Aexpr.one))) in  (* v <= 1 *)     
+          let havoc = mk_def (Assign (v, Havoc (Concrete (Int 1)))) in 
+            mk_seq havoc @@ mk_seq assume_lb assume_ub  
       | ("__VERIFIER_nondet_uint", Some (Variable v), []) ->
         let havoc = mk_def (Assign (v, Havoc (Concrete (Int unknown_width)))) in
         let assume =
@@ -791,3 +806,4 @@ let parse filename =
 let () =
   CmdLine.register_parser ("c", parse);
   CmdLine.register_parser ("i", parse_preprocessed);
+

@@ -5,15 +5,17 @@ include Log.Make(struct let name = "srk.transitionSystem" end)
 
 module WG = WeightedGraph
 module Int = SrkUtil.Int
+module ISet = BatSet.Make(Int)
 
 type 'a label =
   | Weight of 'a
   | Call of int * int
 
+
 module Make
     (C : sig
        type t
-       val context : t context
+       val context : t context     
      end)
     (Var : sig
        type t
@@ -41,6 +43,7 @@ module Make
        val one : t
        val star : t -> t
        val exists : (var -> bool) -> t -> t
+       val try_rtc : t -> t option
      end)
 = struct
 
@@ -49,6 +52,7 @@ module Make
   type tlabel = T.t label
 
   type query = T.t WG.RecGraph.weight_query
+  type reverse_query = T.t WG.RecGraph.reverse_query
 
   let mk_query ?(delay=1) ts source dom =
     let rg =
@@ -148,6 +152,17 @@ module Make
       (fun refs (var, term) -> add_symbols (symbols term) (VarSet.add var refs))
       (add_symbols (symbols (T.guard tr)) VarSet.empty)
       (T.transform tr)
+
+
+  let set_summary q (u, v) summary = 
+    WG.RecGraph.set_summary q (u, v) summary
+  
+  let get_summary q (u, v) = 
+    WG.RecGraph.get_summary q (u, v)
+    
+  let mk_reverse_query = WG.RecGraph.mk_reverse_query
+  let exit_summary = WG.RecGraph.exit_summary
+  let target_summary = WG.RecGraph.target_summary
 
   (* Variables whose abstract values may change as the result of a
      transition *)
@@ -505,16 +520,23 @@ module Make
     let hash = Hashtbl.hash
   end
 
+  module IntPairPair = struct 
+    type t = IntPair.t * IntPair.t [@@deriving ord]
+    let equal (x, y) (x', y') = (x=x' && y=y')
+    let hash = Hashtbl.hash 
+  end 
+
   module PS = BatSet.Make(IntPair)
+  module PPS = BatSet.Make(IntPairPair) (* used in inliner *)
   module PHT = BatHashtbl.Make(IntPair)
   module VHT = BatHashtbl.Make(Var)
 
   (* Remove temporary variables that are referenced by only one transition *)
-  let remove_temporaries tg =
+  let remove_temporaries proj tg =
     (* Map each local variable to the set of transitions that refer to it *)
     let ref_map = VHT.create 991 in
     let add_ref var (u, v) =
-      if not (Var.is_global var) then
+      if not (proj var) then
         VHT.modify_def PS.empty var (PS.add (u,v)) ref_map
     in
     tg |> WG.iter_edges (fun (u, label, v) ->
@@ -541,7 +563,7 @@ module Make
               List.fold_right VarSet.remove (uses tr) (PHT.find tmp_map (u, v))
             in
             Weight (T.exists (fun x -> not (VarSet.mem x tmp)) tr)
-          with Not_found -> label)
+          with Not_found -> label)  
 
   let forward_invariants_ivl tg entry =
     let init v =
@@ -662,18 +684,158 @@ module Make
     in
     List.map invariants (L.all_loops (L.loop_nest tg))
 
-  let simplify p tg =
+
+  let inline ?(depth=(-1)) tg entry (displayer: t -> unit) (assertion_map : 'x SrkUtil.Int.Map.t) = 
+    let pmap = PHT.create 998 in (* y in pmap[x] means call from x->y *)
+    let qmap = PHT.create 998 in (* (x, z) in qmap[y] means call from x->y via call-edge z *)
+    let greatest = ref (WG.fold_vertex max tg (-1)) in
+    let assertions = ref assertion_map in   
+    PHT.add pmap (entry, -1) PS.empty;
+    PHT.add qmap (entry, -1) PPS.empty;
+    let procedures = 
+      WG.fold_edges (fun (_, w, _) acc -> 
+        match w with 
+        | Call (x, y) -> 
+          begin match PHT.find_opt pmap (x, y) with 
+          | None -> 
+            PHT.add pmap (x, y) PS.empty 
+          | Some _ -> ()
+          end;
+          begin match PHT.find_opt qmap (x, y) with 
+          | None -> 
+            PHT.add qmap (x, y) PPS.empty 
+          | Some _ -> () 
+          end;
+          PS.add (x, y) acc
+        | _ -> acc 
+        ) tg (PS.add (entry, -1) PS.empty) in 
+    let rec dfs (proc: int * int) tg src (f: (vertex * vertex) -> vertex -> vertex * 'a label * vertex -> unit) (visited : ISet.t) = 
+      WG.fold_succ_e (fun (u, w, v) visited -> 
+        f proc src (u, w, v);
+        begin match ISet.find_opt v visited with 
+            | None -> ISet.union (dfs proc tg v f (ISet.add v visited)) visited 
+            | Some _ -> visited 
+            end) tg src visited in 
+      PS.iter (fun (x, y) -> 
+        ignore @@ dfs (x, y) tg x (fun proc src (_, w, v) -> 
+          match w with 
+          | Call (x, y) -> 
+            let caller_set = PHT.find pmap proc in 
+            let callee_set = PHT.find qmap (x, y) in
+            PHT.add pmap proc (PS.add (x, y) caller_set);
+            PHT.add qmap (x, y) (PPS.add (proc, (src, v)) callee_set);
+          | _ -> () 
+          ) (ISet.add x ISet.empty)) procedures; (* populate pmap, qmap *)
+      let compute_sinks () = 
+        PS.fold (fun (x, y) acc -> (* compute sink locations to start inlining from *)
+          match (PHT.find_opt pmap (x, y), PHT.find_opt qmap (x, y)) with 
+          | Some callees, Some callers -> 
+            (* a procedure is considered for inlining if it is (1) a sink in the call graph (2) at least one function calls it.*)
+            if ((PS.cardinal callees) == 0) && ((PPS.cardinal callers) > 0) then PS.add (x, y) acc else acc
+          | (_, _) -> failwith ""
+          ) procedures PS.empty in
+      let copy_subgraph tg src = 
+        let vertices = dfs (-1, -1) tg src (fun _ _ _ -> ()) (ISet.add src ISet.empty) in 
+        let to_map = Hashtbl.create 998 in 
+        let rtg = ref tg in 
+          ISet.iter (fun x -> 
+            greatest := !greatest + 1;
+            Hashtbl.add to_map x (!greatest);
+            begin match SrkUtil.Int.Map.find_opt x !assertions with (* if x in assertions, new vertex also in assertions *)
+              | Some assert_value -> 
+                assertions := SrkUtil.Int.Map.add !greatest assert_value !assertions 
+              | None -> () end;
+            rtg := WG.add_vertex !rtg !greatest
+            ) vertices;
+          ISet.iter (fun x -> 
+              rtg := WG.fold_succ_e (fun (u, w, v) tg' -> 
+                  WG.add_edge tg' (Hashtbl.find to_map u) w (Hashtbl.find to_map v)) 
+                !rtg x !rtg) vertices;
+          (!rtg, Hashtbl.find to_map)
+      in let remove_subgraph tg src = 
+        let vertices = dfs (-1, -1) tg src (fun _ _ _ -> ()) (ISet.add src ISet.empty) in 
+        ISet.fold (fun vtx tg' -> 
+          begin match SrkUtil.Int.Map.find_opt vtx !assertions with 
+          (* remove vertex from assertions map, new copied vertices already in it *)
+          | Some _ -> 
+            assertions := SrkUtil.Int.Map.remove vtx !assertions 
+          | None -> ()
+          end;
+          WG.remove_vertex tg' vtx) vertices tg in 
+      let inline_one tg (src, dst) (call_x, call_y) (call_src, call_dst) = 
+        let (tg, to_map) = copy_subgraph tg src in 
+        let tg = WG.add_edge tg call_x (Weight T.one) (to_map src) in 
+        let tg = WG.add_edge tg (to_map dst) (Weight T.one) call_y in 
+        let tg = WG.remove_edge tg call_x call_y in
+        let callees = PHT.find pmap (call_src, call_dst) in
+        let callers = PHT.find qmap (src, dst) in 
+        (* remove (src, dst) from callees list in caller *) 
+        PHT.add pmap (call_src, call_dst) (PS.remove (src, dst) callees);
+        (* remove (call_src, call_dst) from callers list *)
+        PHT.add qmap (src, dst) (PPS.remove ((call_src, call_dst),(call_x, call_y)) callers);
+        tg
+      in let rec do_inline depth tg =
+        if depth == 0 then tg else 
+          let sinks = compute_sinks () in 
+          let aux currproc tg = (* inline currproc into procedures that call it, assuming currproc is inlined. *)
+            let inline_targets = PHT.find qmap currproc in 
+              let tg' = 
+                PPS.fold (fun (call_proc, (call_x, call_y)) tg -> 
+                  inline_one tg currproc (call_x, call_y) call_proc
+                ) inline_targets tg in 
+                let (src, _) = currproc in 
+                  remove_subgraph tg' src  
+          in
+            displayer tg;
+            match PS.cardinal sinks with 
+              | n when n > 0 ->  
+                let tg' = (PS.fold aux sinks tg) in
+                   tg'
+                |> do_inline (
+                  if depth > 0 then depth - 1 else depth)
+              | _ -> (); tg 
+        in let result = do_inline depth tg in 
+          (result, !assertions) 
+
+
+  
+
+  let simplify ?(try_rtc=true) p tg =
     let rec go tg =
+      Printf.printf "simplify: simplifying...\n";
       let continue = ref false in
       let tg' =
         WG.fold_vertex (fun v tg ->
             let ug = WG.forget_weights tg in
             if (p v
                 || WG.mem_edge tg v v
-                || WG.U.in_degree ug v != 1
-                || WG.U.out_degree ug v != 1)
+                || (WG.U.in_degree ug v != 1
+                    && WG.U.out_degree ug v != 1))
             then
-              tg
+              begin if try_rtc then begin 
+                  begin if WG.mem_edge tg v v then
+                      match WG.edge_weight tg v v with
+                      | Weight tr ->
+                        (try begin match T.try_rtc tr with
+                        | Some rtc ->
+                          let u = -1 in
+                          (try
+                              let tg = WG.remove_edge tg v v in
+                              let tg =
+                                WG.contract_vertex (WG.split_vertex tg v (Weight rtc) u) u
+                              in
+                              continue := true;
+                              tg
+                            with _ -> tg)
+                        | None -> tg end
+                          with _ -> tg)
+                      | Call (_, _) -> tg
+                    else
+                      tg
+                    end
+                  end 
+                else tg 
+              end
             else begin
               try
                 let tg = WG.contract_vertex tg v in

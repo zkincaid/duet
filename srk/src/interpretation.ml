@@ -453,3 +453,7 @@ let select_ite interp ?(env=Env.empty) expr =
   in
   let expr' = rewrite interp.srk ~down:rewriter expr in
   (expr', !conditions)
+
+
+let restrict (f : symbol -> bool) interp = 
+  {interp with map = SM.filter (fun k _ -> f k) interp.map}

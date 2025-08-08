@@ -27,6 +27,11 @@ let verbose_arg =
    Arg.String (fun v -> Log.set_verbosity_level v `info),
    " Raise verbosity for a particular module")
 
+let trace_arg =
+  ("-trace",
+   Arg.String (fun v -> Log.set_verbosity_level v `trace),
+   " Set verbosity for a particular module to trace")
+
 let verbose_list_arg =
   ("-verbose-list",
    Arg.Unit (fun () ->
@@ -36,7 +41,7 @@ let verbose_list_arg =
          ) Log.loggers;
        exit 0;
      ),
-   " List modules which can be used with -verbose")
+   " List modules which can be used with -verbose/-trace")
 
 let stats_arg =
   ("-stats", Arg.Set show_stats, " Display statistics")
@@ -113,6 +118,7 @@ let debug_args = ref
 let config_args = ref
     [
       verbose_arg;
+      trace_arg;
       verbose_list_arg;
       verbosity_arg;
       stats_arg;

@@ -559,6 +559,9 @@ val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
 val pp_expr_unnumbered : ?env:(string Env.t) -> 'a context -> 
     Format.formatter -> ('a, 'b) expr -> unit
 
+val pp_expr : ?env:(string Env.t) -> 'a context -> 
+  Format.formatter -> ('a, 'b) expr -> unit
+
 module Formula : sig
   type 'a t = 'a formula
   val equal : 'a formula -> 'a formula -> bool

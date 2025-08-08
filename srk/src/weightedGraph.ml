@@ -50,6 +50,9 @@ let empty algebra =
     labels = M.empty;
     algebra = algebra }
 
+let get_algebra wg = 
+  wg.algebra 
+
 let add_vertex wg vertex =
   { wg with graph = U.add_vertex wg.graph vertex }
 
@@ -203,9 +206,9 @@ let _solve_dense (wg : 'a weighted_graph) (src : vertex) =
    v, and reachable is an enumeration of the vertices reachable from
    src.  *)
 let _path_weight
-      (wg : 'a t)
-      (omega : ('a, 'b) omega_algebra)
-      (src : vertex) =
+    (wg : 'a t)
+    (omega : ('a, 'b) omega_algebra)
+    (src : vertex) =
   (* Ensure that src has no incoming edges *)
   let (wg, src) =
     let start = max_vertex wg + 1 in
@@ -225,11 +228,11 @@ let _path_weight
     if BatHashtbl.mem wg_to_forest v then
       BatHashtbl.find wg_to_forest v
     else begin
-        let r = F.root forest in
-        BatHashtbl.add wg_to_forest v r;
-        BatHashtbl.add forest_to_wg r v;
-        r
-      end
+      let r = F.root forest in
+      BatHashtbl.add wg_to_forest v r;
+      BatHashtbl.add forest_to_wg r v;
+      r
+    end
   in
   let find v =
     BatHashtbl.find forest_to_wg (F.find forest (to_forest v))
@@ -239,6 +242,9 @@ let _path_weight
   in
   let eval v = F.eval forest (to_forest v) in
   let idom = D.compute_idom wg.graph src in
+  let is_reachable x =
+    try ignore (idom x); true with Not_found -> false
+  in
   let children = D.idom_to_dom_tree wg.graph idom in
   let rec solve (v : vertex) =
     let children_omega = List.map solve (children v) in
@@ -249,13 +255,15 @@ let _path_weight
     let sibling_graph =
       List.fold_left
         (fun sg child ->
-          U.fold_pred (fun pred sg ->
-              let pred = find pred in
-              if pred = v then sg
-              else U.add_edge sg pred child)
-            wg.graph
-            child
-            (U.add_vertex sg child))
+           U.fold_pred (fun pred sg ->
+               if is_reachable pred then
+                 let pred = find pred in
+                 if pred = v then sg
+                 else U.add_edge sg pred child
+               else sg)
+             wg.graph
+             child
+             (U.add_vertex sg child))
         U.empty
         (children v)
     in
@@ -263,32 +271,32 @@ let _path_weight
     let omega_weight =
       List.fold_right
         (fun component omega_weight ->
-          let component_wg =
-            List.fold_left (fun component_wg v ->
-                U.fold_pred (fun p component_wg ->
-                    let weight = mul (eval p) (edge_weight wg p v) in
-                    add_edge component_wg (find p) weight v)
-                  wg.graph
-                  v
-                  component_wg)
-              (empty wg.algebra)
-              component
-          in
-          let reduced = _solve_dense component_wg v in
-          List.fold_left (fun omega_weight c ->
-              let v_to_c = edge_weight reduced v c in
-              let (omega_weight, weight) =
-                if U.mem_edge reduced.graph c c then
-                  let c_to_c = edge_weight reduced c c in
-                  let v_c_omega = omega.omega_mul v_to_c (omega.omega c_to_c) in
-                  (omega.omega_add omega_weight v_c_omega,
-                   mul v_to_c (star c_to_c))
-                else (omega_weight, v_to_c)
-              in
-              link c weight v;
-              omega_weight)
-            omega_weight
-            component)
+           let component_wg =
+             List.fold_left (fun component_wg v ->
+                 U.fold_pred (fun p component_wg ->
+                     let weight = mul (eval p) (edge_weight wg p v) in
+                     add_edge component_wg (find p) weight v)
+                   wg.graph
+                   v
+                   component_wg)
+               (empty wg.algebra)
+               component
+           in
+           let reduced = _solve_dense component_wg v in
+           List.fold_left (fun omega_weight c ->
+               let v_to_c = edge_weight reduced v c in
+               let (omega_weight, weight) =
+                 if U.mem_edge reduced.graph c c then
+                   let c_to_c = edge_weight reduced c c in
+                   let v_c_omega = omega.omega_mul v_to_c (omega.omega c_to_c) in
+                   (omega.omega_add omega_weight v_c_omega,
+                    mul v_to_c (star c_to_c))
+                 else (omega_weight, v_to_c)
+               in
+               link c weight v;
+               omega_weight)
+             omega_weight
+             component)
         (C.scc_list sibling_graph)
         (omega.omega wg.algebra.zero)
     in
@@ -553,6 +561,11 @@ module RecGraph = struct
       (* An algebra for assigning weights to non-call edges and *)
       algebra : 'a Pathexpr.nested_algebra }
 
+  type 'a reverse_query =
+    { parent : 'a weight_query
+    ; path_to_exit : Pathexpr.nested Pathexpr.t weighted_graph
+    ; path_to_target : int -> Pathexpr.nested Pathexpr.t }
+
   let pathexpr_algebra context =
     { mul = mk_mul context;
       add = mk_add context;
@@ -612,6 +625,7 @@ module RecGraph = struct
       interproc = interproc;
       interproc_paths = msat_path_weight interproc [src];
       src = src }
+
 
   let call_pathexpr query (src, tgt) =
     (* intraproc_paths is only set when src is an entry vertex *)
@@ -723,12 +737,84 @@ module RecGraph = struct
     query.changed := CallSet.add call !(query.changed);
     HT.replace query.summaries call weight
 
+  let exit_summary rev_query src tgt = 
+    let (table, algebra) = prepare rev_query.parent in
+    Pathexpr.eval_nested ~table ~algebra (path_weight rev_query.path_to_exit tgt src)
+   
+  let target_summary rev_query src =
+    let (table, algebra) = prepare rev_query.parent in
+    Pathexpr.eval_nested ~table ~algebra (rev_query.path_to_target src)
+
   let mk_weight_query query algebra =
     { query = query;
       summaries = HT.create 991;
       changed = ref CallSet.empty;
       table = Pathexpr.mk_table ();
       algebra = algebra }
+
+  let mk_reverse_query weight_query tgt =
+    let rg = weight_query.query.recgraph in
+    let context = rg.context in
+    let reverse f graph = (* Reverse edges in a graph *)
+      let reverse_algebra =
+        { mul = (fun x y -> mk_mul context y x);
+          add = mk_add context;
+          star = mk_star context;
+          zero = mk_zero context;
+          one = mk_one context }
+      in
+      let vertices =
+        fold_vertex
+          (fun v rev_graph -> add_vertex rev_graph v)
+          graph
+          (empty reverse_algebra)
+      in
+      fold_edges
+        (fun (u, w, v) rev_graph -> add_edge rev_graph v (f w) u)
+        graph
+        vertices
+    in
+    (* rg.path_graph, with each edge reversed *)
+    let reverse_graph = reverse Pathexpr.promote rg.path_graph in
+    let callset =
+      M.fold (fun _ call callset ->
+          CallSet.add call callset)
+        rg.call_edges
+        CallSet.empty
+    in
+    let entries, exits =
+      let entries, exits =
+        CallSet.fold (fun (entry, exit) (entries, exits) ->
+            (VertexSet.add entry entries, VertexSet.add exit exits))
+          callset
+          (VertexSet.empty, VertexSet.empty)
+      in
+      (VertexSet.elements entries, VertexSet.elements exits)
+    in
+    (* Intraprocedural paths from entries to target *)
+    let (_, entry_to_target, _) =
+      _path_weight reverse_graph omega_trivial tgt
+    in
+    let reverse_interproc =
+      List.fold_left (fun g entry ->
+          add_edge g tgt (Pathexpr.mk_segment context (entry_to_target entry)) entry)
+        (reverse (fun x -> x) weight_query.query.interproc)
+        entries
+    in
+    let (_, entry_to_target, _) =
+      _path_weight reverse_interproc omega_trivial tgt
+    in
+    (* Interprocedural paths from entries to target *)
+    let instrumented_graph = 
+      M.fold (fun (u, _) (entry, _) acc ->
+          add_edge acc tgt (entry_to_target entry) u)
+        rg.call_edges
+        reverse_graph
+    in
+    let (_, path_to_target, _) = _path_weight instrumented_graph omega_trivial tgt in
+    let path_to_exit = msat_path_weight reverse_graph exits in
+    { parent = weight_query; path_to_exit; path_to_target }
+
 
   let path_weight query tgt =
     let (table, algebra) = prepare query in
