@@ -7,7 +7,7 @@ module type Var = sig
   type t
   val pp : Format.formatter -> t -> unit
   val show : t -> string
-  val typ : t -> [ `TyInt | `TyReal ]
+  val typ : t -> typ_term
   val compare : t -> t -> int
   val symbol_of : t -> symbol
   val of_symbol : symbol -> t option
@@ -22,12 +22,11 @@ module Make
 struct
   module M = BatMap.Make(Var)
 
-  module Term = ArithTerm
 
   type var = Var.t
 
   type t =
-    { transform : (C.t arith_term) M.t;
+    { transform : (C.t term) M.t;
       guard : C.t formula }
 
   let compare x y =
@@ -136,8 +135,12 @@ struct
             | Some t -> t
             | None -> mk_const srk (Var.symbol_of v)
           in
-          left_eq := (mk_eq srk left_term phi)::(!left_eq);
-          right_eq := (mk_eq srk right_term phi)::(!right_eq);
+          left_eq := (match Term.refine srk left_term with 
+          | `ArithTerm at -> (mk_eq srk at phi)::(!left_eq)
+          | `ArrTerm at -> (mk_arr_eq srk at phi)::(!left_eq));
+          right_eq := (match Term.refine srk right_term with
+          | `ArithTerm at -> (mk_eq srk at phi)::(!right_eq)
+          | `ArrTerm at -> (mk_arr_eq srk at phi)::(!right_eq));
           Some phi
       in
       M.merge merge left.transform right.transform
@@ -163,8 +166,11 @@ struct
           let pre_sym = Var.symbol_of var in
           let post_sym = post_symbol pre_sym in
           let post_term = mk_const srk post_sym in
+          let update = (match Term.refine srk term with 
+          | `ArithTerm at -> mk_eq srk post_term at
+          | `ArrTerm at -> mk_arr_eq srk post_term at) in 
           ((pre_sym,post_sym)::symbols,
-           (mk_eq srk post_term term)::post_def))
+           update::post_def))
         tr.transform
         ([], [])
     in
@@ -257,7 +263,10 @@ struct
               else
                 mk_const srk (Var.symbol_of var)
             in
-            (mk_eq srk term term')::eqs)
+            match Term.refine srk term' with 
+            | `ArithTerm at -> (mk_eq srk term at)::eqs
+            | `ArrTerm _ -> eqs (* ignore array equalities for wedge domain*)
+            )
           transform
           []
       in
@@ -383,8 +392,11 @@ struct
             let var_ss_sym = mk_symbol srk (Var.typ var :> typ) in
             let var_ss_term = mk_const srk var_ss_sym in
             let term_ss = substitute_const srk subscript term in
+            let update = (match Term.refine srk term_ss with 
+            | `ArithTerm at -> mk_eq srk var_ss_term at
+            | `ArrTerm at -> mk_arr_eq srk var_ss_term at) in
             ((var_sym, var_ss_term)::ss,
-             mk_eq srk var_ss_term term_ss::phis))
+             update::phis))
           tr.transform
           ([], ss_guards)
       in
@@ -482,7 +494,10 @@ struct
     let transform_formula =
       transform tr
       /@ (fun (lhs, rhs) ->
-          (mk_eq srk (mk_const srk (Var.symbol_of lhs)) (tr_subst rhs)))
+          match Term.refine srk (tr_subst rhs) with 
+          | `ArithTerm at -> mk_eq srk (mk_const srk (Var.symbol_of lhs)) at
+          | `ArrTerm at -> mk_arr_eq srk (mk_const srk (Var.symbol_of lhs)) at
+          )
       |> BatList.of_enum
     in
     mk_and srk ((tr_subst (SrkApron.formula_of_property pre))

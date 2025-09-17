@@ -153,9 +153,9 @@ let simple_loop () =
   let query =
     let open Infix in
     mk_query
-      [(0, T.assign "x" (int 0), 1);
+      [(0, T.assign "x" (Term.promote_arith srk (int 0)), 1);
        (1, T.assume (x < (int 10)), 2);
-       (2, T.assign "x" (x + (int 1)), 1);
+       (2, T.assign "x" (Term.promote_arith srk (x + (int 1))), 1);
        (1, T.assume ((int 10) <= x), 3)]
       []
       0
@@ -171,9 +171,9 @@ let simple_branch () =
   let open Infix in
   let query =
     mk_query
-      [(0, T.assign "x" (int 0), 1);
-       (1, T.assign "x" (x + (int 1)), 2);
-       (1, T.assign "x" (x - (int 1)), 2)]
+      [(0, T.assign "x" (Term.promote_arith srk (int 0)), 1);
+       (1, T.assign "x" (Term.promote_arith srk (x + (int 1))), 2);
+       (1, T.assign "x" (Term.promote_arith srk (x - (int 1))), 2)]
       []
       0
   in
@@ -185,15 +185,15 @@ let nested_loop () =
   let open Infix in
   let query =
     mk_query
-      [(0, T.assign "x" (int 0), 1);
-       (1, T.assign "y" (int 0), 2);
+      [(0, T.assign "x" (Term.promote_arith srk (int 0)), 1);
+       (1, T.assign "y" (Term.promote_arith srk (int 0)), 2);
        (2, T.assume (x < (int 10)), 3);
-       (3, T.assign "z" (int 0), 4);
+       (3, T.assign "z" (Term.promote_arith srk (int 0)), 4);
        (4, T.assume (z < (int 5)), 5);
-       (5, T.assign "z" (z + (int 1)), 6);
-       (6, T.assign "y" (y + (int 1)), 4);
+       (5, T.assign "z" (Term.promote_arith srk (z + (int 1))), 6);
+       (6, T.assign "y" (Term.promote_arith srk (y + (int 1))), 4);
        (4, T.assume ((int 5) <= z), 7);
-       (7, T.assign "x" (x + (int 1)), 2);
+       (7, T.assign "x" (Term.promote_arith srk (x + (int 1))), 2);
        (2, T.assume ((int 10) <= x), 8)]
       []
       0
@@ -207,11 +207,11 @@ let nonrec_call () =
   let open Infix in
   let query =
     mk_query
-      [(0, T.assign "x" (int 0), 1);
+      [(0, T.assign "x" (Term.promote_arith srk (int 0)), 1);
        (1, T.assume (x < (int 10)), 2);
        (1, T.assume ((int 10) <= x), 3);
-       (10, T.assign "x" (x + (int 1)), 11);
-       (10, T.assign "x" (x - (int 1)), 11)]
+       (10, T.assign "x" (Term.promote_arith srk (x + (int 1))), 11);
+       (10, T.assign "x" (Term.promote_arith srk (x - (int 1))), 11)]
       [(2, (10, 11), 1)]
       0
   in
@@ -224,11 +224,11 @@ let recursive () =
   let open Infix in
   let query =
     mk_query
-      [(0, T.parallel_assign [("x", int 100); ("y", int 0)], 1);
+      [(0, T.parallel_assign [("x", (Term.promote_arith srk (int 100))); ("y", (Term.promote_arith srk (int 0)))], 1);
        (10, T.assume ((int 0) < x), 11);
        (10, T.assume (x <= (int 0)), 12);
-       (11, T.assign "x" (x - (int 1)), 13);
-       (14, T.assign "y" (y + (int 1)), 12)]
+       (11, T.assign "x" (Term.promote_arith srk (x - (int 1))), 13);
+       (14, T.assign "y" (Term.promote_arith srk (y + (int 1))), 12)]
       [(1, (10, 12), 2);
        (13, (10, 12),14)]
       0
@@ -245,10 +245,10 @@ let aff_eq1 () =
   let open Infix in
   let ts =
     mk_ts
-      [(0, T.parallel_assign [("x", int 0); ("y", int 10)], 1);
+      [(0, T.parallel_assign [("x", (Term.promote_arith srk (int 0))); ("y", (Term.promote_arith srk (int 10)))], 1);
        (1, T.assume (x <= (int 10)), 2);
-       (2, T.assign "x" (x + (int 1)), 3);
-       (3, T.assign "y" (y + (int 1)), 1)]
+       (2, T.assign "x" (Term.promote_arith srk (x + (int 1))), 3);
+       (3, T.assign "y" (Term.promote_arith srk (y + (int 1))), 1)]
       []
   in
   let inv = affine_invariants ts 0 in
@@ -264,15 +264,15 @@ let aff_collatz () =
        (1,
         T.parallel_assign
           [("x",
-            mk_ite srk
+            (Term.promote_arith srk (mk_ite srk
               (x mod (int 2) = (int 0))
               (x / (int 2))
-              ((int 3) * x + (int 1)));
+              ((int 3) * x + (int 1)))));
            ("y",
-            mk_ite srk
+            (Term.promote_arith srk (mk_ite srk
               (y mod (int 2) = (int 0))
               (y / (int 2))
-              ((int 3) * y + (int 1)))],
+              ((int 3) * y + (int 1)))))],
         1)]
       []
   in
@@ -284,10 +284,10 @@ let aff_karr_fig4 () =
   let ts =
     mk_ts
       [
-        (0, T.assign "x" (y + (int 1)), 1);
-        (0, T.assign "y" (x + (int 1)), 2);
-        (1, T.assign "x" (x - (int 2)), 2);
-        (2, T.assign "y" (y - (int 2)), 1);
+        (0, T.assign "x" (Term.promote_arith srk (y + (int 1))), 1);
+        (0, T.assign "y" (Term.promote_arith srk (x + (int 1))), 2);
+        (1, T.assign "x" (Term.promote_arith srk (x - (int 2))), 2);
+        (2, T.assign "y" (Term.promote_arith srk (y - (int 2))), 1);
       ]
       []
   in
@@ -301,13 +301,13 @@ let aff_karr_fig5 () =
     mk_ts
       [(0,
         T.parallel_assign
-          [("x", int 2);
-           ("y", z + (int 5))],
+          [("x", (Term.promote_arith srk (int 2)));
+           ("y", (Term.promote_arith srk (z + (int 5))))],
         1);
        (1,
         T.parallel_assign
-          [("x", x + int 1);
-           ("y", y + (int 3))],
+          [("x", (Term.promote_arith srk (x + int 1)));
+           ("y", (Term.promote_arith srk (y + (int 3))))],
         1)]
       []
   in
@@ -501,10 +501,10 @@ let suite = "WeightedGraph" >::: [
       let open Infix in
       let query =
         mk_query
-          [(0, T.assign "x" (int 0), 1);
-           (3, T.assign "x" (x + (int 1)), 4);
-           (6, T.assign "x" (x + (int 2)), 7);
-           (9, T.assign "x" (x + (int 3)), 10)]
+          [(0, T.assign "x" (Term.promote_arith srk (int 0)), 1);
+           (3, T.assign "x" (Term.promote_arith srk (x + (int 1))), 4);
+           (6, T.assign "x" (Term.promote_arith srk (x + (int 2))), 7);
+           (9, T.assign "x" (Term.promote_arith srk (x + (int 3))), 10)]
           [(1, (3, 5), 2);
            (4, (6, 8), 5);
            (7, (9, 10), 8)]

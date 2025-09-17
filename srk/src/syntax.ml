@@ -1078,6 +1078,8 @@ module Term = struct
       | Node (_, _, `TyReal) -> `ArithTerm sexpr
     | Node (_, _, `TyArr) -> `ArrTerm sexpr
     | Node (_, _, `TyBool) -> assert false
+
+  let promote_arith _srk (arith_term : 'a arith_term) : 'a term = arith_term
 end
 
 module ArithTerm = struct

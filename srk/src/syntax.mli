@@ -411,6 +411,7 @@ module Term : sig
   val typ : 'a context -> 'a t -> typ_term
   val refine : 'a context -> 'a t -> [ `ArithTerm of 'a arith_term
                                      | `ArrTerm of 'a arr_term ]
+  val promote_arith : 'a context -> 'a arith_term -> 'a term
 end
 
 module ArithTerm : sig

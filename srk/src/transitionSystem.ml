@@ -18,7 +18,7 @@ module Make
     (Var : sig
        type t
        val pp : Format.formatter -> t -> unit
-       val typ : t -> [ `TyInt | `TyReal ]
+       val typ : t -> typ_term
        val compare : t -> t -> int
        val symbol_of : t -> symbol
        val of_symbol : symbol -> t option
@@ -31,9 +31,9 @@ module Make
        type var = Var.t
        val pp : Format.formatter -> t -> unit
        val guard : t -> C.t formula
-       val transform : t -> (var * C.t arith_term) BatEnum.t
+       val transform : t -> (var * C.t term) BatEnum.t
        val mem_transform : var -> t -> bool
-       val get_transform : var -> t -> C.t arith_term
+       val get_transform : var -> t -> C.t term
        val assume : C.t formula -> t
        val mul : t -> t -> t
        val add : t -> t -> t
@@ -275,6 +275,7 @@ module Make
               else
                 mk_const srk (Var.symbol_of v))
             vars
+          |> List.filter_map (fun t -> match Term.refine srk t with |`ArithTerm at -> Some at | `ArrTerm _ -> None) 
         in
         let result =
           match Nonlinear.optimize_box ~context srk guard objectives with
@@ -829,7 +830,11 @@ module Make
         let transform_eqs =
           T.transform tr
           /@ (fun (v, t) ->
-              mk_eq srk (mk_const srk (Var.symbol_of v)) (substitute_map srk subst t))
+              let s =  substitute_map srk subst t in 
+              match Term.refine srk s with 
+              | `ArithTerm at -> mk_eq srk (mk_const srk (Var.symbol_of v)) at
+              | `ArrTerm at -> mk_arr_eq srk (mk_const srk (Var.symbol_of v)) at
+              )
           |> BatList.of_enum
         in
         let pre_formula = domain.formula_of pre in

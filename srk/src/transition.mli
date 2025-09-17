@@ -5,7 +5,7 @@ module type Var = sig
   type t
   val pp : Format.formatter -> t -> unit
   val show : t -> string
-  val typ : t -> [ `TyInt | `TyReal ]
+  val typ : t -> typ_term
   val compare : t -> t -> int
   val symbol_of : t -> symbol
   val of_symbol : symbol -> t option
@@ -46,7 +46,7 @@ module Make
   val show : t -> string
 
   (** Guarded parallel assignment *)
-  val construct : C.t formula -> (var * C.t arith_term) list -> t
+  val construct : C.t formula -> (var * C.t term) list -> t
 
   (** [assume phi] is a transition that doesn't modify any variables, but can
       only be executed when [phi] holds *)
@@ -54,12 +54,12 @@ module Make
 
   (** [assign v t] is a transition that assigns the term [t] to the variable
       [v]. *)
-  val assign : var -> C.t arith_term -> t
+  val assign : var -> C.t term -> t
 
   (** Parallel assignment of a list of terms to a list of variables.
      If a variable appears multiple times as a target for an
      assignment, the rightmost assignment is taken. *)
-  val parallel_assign : (var * C.t arith_term) list -> t
+  val parallel_assign : (var * C.t term) list -> t
 
   (** Assign a list of variables non-deterministic values. *)
   val havoc : var list -> t
@@ -96,10 +96,10 @@ module Make
 
   (** Retrieve the value of a variable after a transition as a term over input
       variables (and Skolem constants) *)
-  val get_transform : var -> t -> C.t arith_term
+  val get_transform : var -> t -> C.t term
 
   (** Enumerate the variables and values assigned in a transition. *)
-  val transform : t -> (var * C.t arith_term) BatEnum.t
+  val transform : t -> (var * C.t term) BatEnum.t
 
   (** The condition under which a transition may be executed. *)
   val guard : t -> C.t formula

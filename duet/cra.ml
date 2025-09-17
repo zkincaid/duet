@@ -167,8 +167,12 @@ module K = struct
       BatEnum.fold (fun (x_tr, guard, rhs_symbols) (v, rhs) ->
           let fresh_sym = mk_symbol srk (expr_typ srk rhs) in
           let fresh_rhs = mk_const srk fresh_sym in
+          let update = match Term.refine srk rhs with 
+            | `ArithTerm at -> mk_eq srk fresh_rhs at
+            | `ArrTerm at -> mk_arr_eq srk fresh_rhs at
+          in
           ((v, fresh_rhs)::x_tr,
-           (mk_eq srk fresh_rhs rhs)::guard,
+           update::guard,
            Symbol.Set.add fresh_sym rhs_symbols))
         ([], [guard], Symbol.Set.empty)
         (transform x)
@@ -485,13 +489,13 @@ let rec record_assign (lhs : varinfo) loff rhs roff fields =
         begin match tr_expr (AccessPath (Variable (rhs, OffsetFixed roff))) with
           | TPointer rhs ->
             BatList.reduce K.mul [
-              K.assign (VVal lhs) rhs.ptr_val;
-              K.assign (VPos lhs) rhs.ptr_pos;
-              K.assign (VWidth lhs) rhs.ptr_width;
+              K.assign (VVal lhs) (Syntax.Term.promote_arith srk rhs.ptr_val);
+              K.assign (VPos lhs) (Syntax.Term.promote_arith srk rhs.ptr_pos);
+              K.assign (VWidth lhs) (Syntax.Term.promote_arith srk rhs.ptr_width);
             ]
           | TInt tint -> begin
               BatList.reduce K.mul [
-                K.assign (VVal lhs) tint;
+                K.assign (VVal lhs) (Syntax.Term.promote_arith srk tint);
                 K.assign (VPos lhs) (nondet_const "type_err" `TyInt);
                 K.assign (VWidth lhs) (nondet_const "type_err" `TyInt)
               ]
@@ -500,7 +504,7 @@ let rec record_assign (lhs : varinfo) loff rhs roff fields =
       | _ ->
         let lhs = (lhs, OffsetFixed (loff+fioffset)) in
         let rhs = tr_expr_val (AccessPath (Variable (rhs, OffsetFixed (fioffset+roff)))) in
-        K.assign (VVal lhs) rhs)
+        K.assign (VVal lhs) (Syntax.Term.promote_arith srk rhs))
   |> BatList.reduce K.mul
 
 let weight def =
@@ -528,22 +532,22 @@ let weight def =
         begin match tr_expr rhs with
           | TPointer rhs ->
             BatList.reduce K.mul [
-              K.assign (VVal lhs) rhs.ptr_val;
-              K.assign (VPos lhs) rhs.ptr_pos;
-              K.assign (VWidth lhs) rhs.ptr_width;
+              K.assign (VVal lhs) (Syntax.Term.promote_arith srk rhs.ptr_val);
+              K.assign (VPos lhs) (Syntax.Term.promote_arith srk rhs.ptr_pos);
+              K.assign (VWidth lhs) (Syntax.Term.promote_arith srk rhs.ptr_width);
             ]
           | TInt tint -> begin
               (match Var.get_type lhs, rhs with
                | (_, Havoc _) | (Concrete Dynamic, _) -> ()
                | _ -> Log.errorf "Ill-typed pointer assignment: %a" Def.pp def);
               BatList.reduce K.mul [
-                K.assign (VVal lhs) tint;
+                K.assign (VVal lhs) (Syntax.Term.promote_arith srk tint);
                 K.assign (VPos lhs) (nondet_const "type_err" `TyInt);
                 K.assign (VWidth lhs) (nondet_const "type_err" `TyInt)
               ]
             end
         end
-      | _, _ -> K.assign (VVal lhs) (tr_expr_val rhs)
+      | _, _ -> K.assign (VVal lhs) (Syntax.Term.promote_arith srk (tr_expr_val rhs))
     end
   | Store (lhs, rhs) ->
     (* Havoc all the variables lhs could point to *)
@@ -559,12 +563,12 @@ let weight def =
           match offset with
           | OffsetUnknown ->
             Int.Set.fold (fun offset tr ->
-                K.add tr (K.assign (VVal (v, OffsetFixed offset)) rhs_val))
+                K.add tr (K.assign (VVal (v, OffsetFixed offset)) (Syntax.Term.promote_arith srk rhs_val)))
               (get_offsets v)
               K.one (* weak update *)
             |> K.mul tr
           | _ ->
-            K.mul tr (K.assign (VVal (v,offset)) rhs_val)
+            K.mul tr (K.assign (VVal (v,offset)) (Syntax.Term.promote_arith srk rhs_val))
         end
       | (MAddr v, offset) ->
         if typ_has_offsets (Var.get_type (v,offset)) then begin
@@ -584,8 +588,8 @@ let weight def =
   | Builtin (Alloc (v, size, _)) ->
     BatList.reduce K.mul [
       K.assign (VVal v) (nondet_const "alloc" `TyInt);
-      K.assign (VWidth v) (tr_expr_val size);
-      K.assign (VPos v) (Ctx.mk_real QQ.zero)
+      K.assign (VWidth v) (Syntax.Term.promote_arith srk (tr_expr_val size));
+      K.assign (VPos v) (Syntax.Term.promote_arith srk (Ctx.mk_real QQ.zero))
     ]
   | Builtin AtomicBegin | Builtin AtomicEnd
   | Builtin (Acquire _) | Builtin (Release _)
@@ -1192,7 +1196,7 @@ let resource_bound_analysis file =
                 % Nonlinear.simplify_terms_rewriter srk
               in
               Ctx.mk_and [Syntax.substitute_const srk subst (K.guard summary);
-                          Ctx.mk_eq (Ctx.mk_const cost_symbol) rhs ]
+                          (match Syntax.Term.refine srk rhs with | `ArithTerm at -> Ctx.mk_eq (Ctx.mk_const cost_symbol) at | `ArrTerm at -> Ctx.mk_arr_eq (Ctx.mk_const cost_symbol) at) ]
               |> Syntax.rewrite srk ~up:simplify
             in
             match Wedge.symbolic_bounds_formula ~exists srk guard cost_symbol with
