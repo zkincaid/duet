@@ -829,7 +829,9 @@ module Make
         let transform_eqs =
           T.transform tr
           /@ (fun (v, t) ->
-              mk_eq srk (mk_const srk (Var.symbol_of v)) (substitute_map srk subst t))
+              let s =  substitute_map srk subst t in 
+              Term.set_expr srk (mk_const srk (Var.symbol_of v)) s
+              )
           |> BatList.of_enum
         in
         let pre_formula = domain.formula_of pre in

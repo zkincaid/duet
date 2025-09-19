@@ -66,6 +66,12 @@ struct
   let assign v term =
     { transform = M.add v term M.empty;
       guard = mk_true srk }
+  
+  let arith_assign v (t : C.t arith_term) = 
+    assign v (t :> C.t term)
+
+  let arr_assign v (t : C.t arr_term) = 
+    assign v (t :> C.t term)
 
   let parallel_assign assignment = construct (mk_true srk) assignment
 
@@ -136,8 +142,8 @@ struct
             | Some t -> t
             | None -> mk_const srk (Var.symbol_of v)
           in
-          left_eq := (mk_eq srk left_term phi)::(!left_eq);
-          right_eq := (mk_eq srk right_term phi)::(!right_eq);
+          left_eq := (Term.set_expr srk phi left_term)::(!left_eq);
+          right_eq := (Term.set_expr srk phi right_term)::(!right_eq);
           Some phi
       in
       M.merge merge left.transform right.transform
@@ -164,7 +170,7 @@ struct
           let post_sym = post_symbol pre_sym in
           let post_term = mk_const srk post_sym in
           ((pre_sym,post_sym)::symbols,
-           (mk_eq srk post_term term)::post_def))
+           (Term.set_expr srk post_term term)::post_def))
         tr.transform
         ([], [])
     in
@@ -384,7 +390,7 @@ struct
             let var_ss_term = mk_const srk var_ss_sym in
             let term_ss = substitute_const srk subscript term in
             ((var_sym, var_ss_term)::ss,
-             mk_eq srk var_ss_term term_ss::phis))
+             (Term.set_expr srk var_ss_term term_ss)::phis))
           tr.transform
           ([], ss_guards)
       in
@@ -482,7 +488,8 @@ struct
     let transform_formula =
       transform tr
       /@ (fun (lhs, rhs) ->
-          (mk_eq srk (mk_const srk (Var.symbol_of lhs)) (tr_subst rhs)))
+          Term.set_expr srk (mk_const srk (Var.symbol_of lhs)) rhs
+          )
       |> BatList.of_enum
     in
     mk_and srk ((tr_subst (SrkApron.formula_of_property pre))
