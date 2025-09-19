@@ -65,6 +65,12 @@ struct
   let assign v term =
     { transform = M.add v term M.empty;
       guard = mk_true srk }
+  
+  let arith_assign v (t : C.t arith_term) = 
+    assign v (t :> C.t term)
+
+  let arr_assign v (t : C.t arr_term) = 
+    assign v (t :> C.t term)
 
   let parallel_assign assignment = construct (mk_true srk) assignment
 
@@ -135,12 +141,8 @@ struct
             | Some t -> t
             | None -> mk_const srk (Var.symbol_of v)
           in
-          left_eq := (match Term.refine srk left_term with 
-          | `ArithTerm at -> (mk_eq srk at phi)::(!left_eq)
-          | `ArrTerm at -> (mk_arr_eq srk at phi)::(!left_eq));
-          right_eq := (match Term.refine srk right_term with
-          | `ArithTerm at -> (mk_eq srk at phi)::(!right_eq)
-          | `ArrTerm at -> (mk_arr_eq srk at phi)::(!right_eq));
+          left_eq := (Term.set_expr srk phi left_term)::(!left_eq);
+          right_eq := (Term.set_expr srk phi right_term)::(!right_eq);
           Some phi
       in
       M.merge merge left.transform right.transform
@@ -166,11 +168,8 @@ struct
           let pre_sym = Var.symbol_of var in
           let post_sym = post_symbol pre_sym in
           let post_term = mk_const srk post_sym in
-          let update = (match Term.refine srk term with 
-          | `ArithTerm at -> mk_eq srk post_term at
-          | `ArrTerm at -> mk_arr_eq srk post_term at) in 
           ((pre_sym,post_sym)::symbols,
-           update::post_def))
+           (Term.set_expr srk post_term term)::post_def))
         tr.transform
         ([], [])
     in
@@ -392,11 +391,8 @@ struct
             let var_ss_sym = mk_symbol srk (Var.typ var :> typ) in
             let var_ss_term = mk_const srk var_ss_sym in
             let term_ss = substitute_const srk subscript term in
-            let update = (match Term.refine srk term_ss with 
-            | `ArithTerm at -> mk_eq srk var_ss_term at
-            | `ArrTerm at -> mk_arr_eq srk var_ss_term at) in
             ((var_sym, var_ss_term)::ss,
-             update::phis))
+             (Term.set_expr srk var_ss_term term_ss)::phis))
           tr.transform
           ([], ss_guards)
       in
@@ -494,9 +490,7 @@ struct
     let transform_formula =
       transform tr
       /@ (fun (lhs, rhs) ->
-          match Term.refine srk (tr_subst rhs) with 
-          | `ArithTerm at -> mk_eq srk (mk_const srk (Var.symbol_of lhs)) at
-          | `ArrTerm at -> mk_arr_eq srk (mk_const srk (Var.symbol_of lhs)) at
+          Term.set_expr srk (mk_const srk (Var.symbol_of lhs)) rhs
           )
       |> BatList.of_enum
     in

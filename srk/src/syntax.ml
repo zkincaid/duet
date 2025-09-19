@@ -1079,7 +1079,10 @@ module Term = struct
     | Node (_, _, `TyArr) -> `ArrTerm sexpr
     | Node (_, _, `TyBool) -> assert false
 
-  let promote_arith _srk (arith_term : 'a arith_term) : 'a term = arith_term
+  let set_expr srk expr t = 
+    match refine srk t with 
+    | `ArithTerm t' -> mk_eq srk expr t'
+    | `ArrTerm t' -> mk_arr_eq srk expr t'
 end
 
 module ArithTerm = struct
