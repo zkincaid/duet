@@ -80,9 +80,9 @@ let degree1 () =
   let tr =
     let open Infix in
     mk_block [
-      T.assign "i" (int 0);
+      T.arith_assign "i" (int 0);
       mk_while (i < n) [
-        T.assign "i" (i + (int 1));
+        T.arith_assign "i" (i + (int 1));
       ]
     ]
   in
@@ -97,15 +97,15 @@ let degree2 () =
     let open Infix in
     mk_block [
       T.assume ((int 0) <= n);
-      T.assign "i" (int 0);
-      T.assign "x" (int 0);
+      T.arith_assign "i" (int 0);
+      T.arith_assign "x" (int 0);
       mk_while (i < n) [
         T.assume ((int 0) <= n); (* Needed w/o forward inv gen *)
-        T.assign "i" (i + (int 1));
-        T.assign "j" (int 0);
+        T.arith_assign "i" (i + (int 1));
+        T.arith_assign "j" (int 0);
         mk_while (j < n) [
-          T.assign "j" (j + (int 1));
-          T.assign "x" (x + (int 1));
+          T.arith_assign "j" (j + (int 1));
+          T.arith_assign "x" (x + (int 1));
         ]
       ]
     ]
@@ -121,19 +121,19 @@ let degree3 () =
     let open Infix in
     mk_block [
       T.assume ((int 0) <= n);
-      T.assign "i" (int 0);
-      T.assign "x" (int 0);
+      T.arith_assign "i" (int 0);
+      T.arith_assign "x" (int 0);
       mk_while (i < n) [
         T.assume ((int 0) <= n); (* Needed w/o forward inv gen *)
-        T.assign "i" (i + (int 1));
-        T.assign "j" (int 0);
+        T.arith_assign "i" (i + (int 1));
+        T.arith_assign "j" (int 0);
         mk_while (j < n) [
         T.assume ((int 0) <= n); (* Needed w/o forward inv gen *)
-          T.assign "j" (j + (int 1));
-          T.assign "k" (int 0);
+          T.arith_assign "j" (j + (int 1));
+          T.arith_assign "k" (int 0);
           mk_while (k < n) [
-            T.assign "k" (k + (int 1));
-            T.assign "x" (x + (int 1));
+            T.arith_assign "k" (k + (int 1));
+            T.arith_assign "x" (x + (int 1));
           ]
         ]
       ]
@@ -150,16 +150,16 @@ let gauss_sum () =
     let open Infix in
     mk_block [
       T.assume ((int 0) <= n);
-      T.assign "i" (int 0);
-      T.assign "x" (int 0);
+      T.arith_assign "i" (int 0);
+      T.arith_assign "x" (int 0);
       mk_while (i < n) [
         T.assume ((int 0) <= n); (* Needed w/o forward inv gen *)
         T.assume ((int 0) <= i); (* Needed w/o forward inv gen *)
         T.assign "j" i;
-        T.assign "i" (i + (int 1));
+        T.arith_assign "i" (i + (int 1));
         mk_while (j < n) [
-          T.assign "j" (j + (int 1));
-          T.assign "x" (x + (int 1));
+          T.arith_assign "j" (j + (int 1));
+          T.arith_assign "x" (x + (int 1));
         ]
       ]
     ]
@@ -174,15 +174,15 @@ let inc_nondet () =
   let tr =
     let open Infix in
     mk_block [
-      T.assign "x" (int 0);
-      T.assign "y" (int 0);
-      T.assign "z" (int 0);
+      T.arith_assign "x" (int 0);
+      T.arith_assign "y" (int 0);
+      T.arith_assign "z" (int 0);
       mk_while (z < n) [
-        T.assign "z" (z + (int 1));
+        T.arith_assign "z" (z + (int 1));
         mk_if (z mod (int 2) = (int 0)) [
-          T.assign "x" (x + (int 1));
+          T.arith_assign "x" (x + (int 1));
         ] [
-          T.assign "y" (y + (int 1));
+          T.arith_assign "y" (y + (int 1));
         ]
       ]
     ]
@@ -198,14 +198,14 @@ let split () =
     let open Infix in
     mk_block [
       T.assume ((int 0) <= n);
-      T.assign "x" (int 0);
-      T.assign "y" (int 0);
+      T.arith_assign "x" (int 0);
+      T.arith_assign "y" (int 0);
       T.havoc ["z"];
       mk_while (x + y < n) [
         mk_if (z <= (int 0)) [
-          T.assign "x" (x + (int 1));
+          T.arith_assign "x" (x + (int 1));
         ] [
-          T.assign "y" (y + (int 1));
+          T.arith_assign "y" (y + (int 1));
         ]
       ]
     ]
@@ -220,15 +220,15 @@ let split2 () =
   let tr =
     let open Infix in
     mk_block [
-      T.assign "n" (int 100);
-      T.assign "x" (int 0);
-      T.assign "y" (int 0);
+      T.arith_assign "n" (int 100);
+      T.arith_assign "x" (int 0);
+      T.arith_assign "y" (int 0);
       T.havoc ["z"];
       mk_while (x + y < n) [
         mk_if (x < (int 50)) [
-          T.assign "x" (x + (int 1));
+          T.arith_assign "x" (x + (int 1));
         ] [
-          T.assign "y" (y + (int 1));
+          T.arith_assign "y" (y + (int 1));
         ]
       ]
     ]
@@ -275,11 +275,11 @@ let check_interpolant path itp =
 let interpolate1 () =
   let path =
     let open Infix in
-    [T.assign "x" (int 0);
-     T.assign "y" (int 0);
+    [T.arith_assign "x" (int 0);
+     T.arith_assign "y" (int 0);
      T.assume (x < (int 10));
-     T.assign "x" (x + (int 1));
-     T.assign "y" (y + (int 1));
+     T.arith_assign "x" (x + (int 1));
+     T.arith_assign "y" (y + (int 1));
      T.assume ((int 10) <= x);
      T.assume ((int 10) < x || x < (int 10))]
   in
@@ -293,8 +293,8 @@ let interpolate2 () =
   let path =
     let open Infix in
     [T.assume (x < (int 10));
-     T.assign "x" (x + (int 1));
-     T.assign "y" (y + (int 1));
+     T.arith_assign "x" (x + (int 1));
+     T.arith_assign "y" (y + (int 1));
      T.assume ((int 10) <= x);
      T.assume ((int 10) < x || x < (int 10))]
   in
@@ -307,8 +307,8 @@ let interpolate2 () =
 let interpolate_havoc () =
   let path =
     let open Infix in
-    [T.assign "x" (int 0);
-     T.assign "y" v; (* havoc *)
+    [T.arith_assign "x" (int 0);
+     T.arith_assign "y" v; (* havoc *)
      T.assume (x <= y);
      T.assume (y < (int 0))]
   in
@@ -324,13 +324,13 @@ let negative_eigenvalue () =
     mk_block [
       T.assume ((int 0) < x);
       T.assume ((int 0) < y);
-      T.assign "n" (x + y);
-      T.assign "k" (int 0);
+      T.arith_assign "n" (x + y);
+      T.arith_assign "k" (int 0);
       T.assume ((int 0) < y);
       mk_while ((int 0) < x && (int 0) <= y) [
         T.parallel_assign [("x", y);
-                           ("y", x - (int 1));
-                           ("k", k + (int 1))]
+                           ("y", (x - (int 1) :> Ctx.t Syntax.term));
+                           ("k", (k + (int 1) :> Ctx.t Syntax.term))]
       ]
     ]
   in

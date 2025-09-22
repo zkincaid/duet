@@ -615,7 +615,7 @@ let mk_block_graph file =
     | Assume phi ->
       `Transition (Tr.assume (index_bexpr 0 phi))
     | Assign (v, expr) ->
-      `Transition (Tr.assign (v, 0) (index_expr 0 expr))
+      `Transition (Tr.arith_assign (v, 0) (index_expr 0 expr))
     | Builtin (Fork (_, expr, _)) ->
       let func = match Aexpr.strip_casts expr with
         | AddrOf (Variable (func, OffsetNone)) -> func

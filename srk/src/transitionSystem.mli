@@ -12,7 +12,7 @@ module Make
     (Var : sig
        type t
        val pp : Format.formatter -> t -> unit
-       val typ : t -> [ `TyInt | `TyReal ]
+       val typ : t -> typ_term
        val compare : t -> t -> int
        val symbol_of : t -> symbol
        val of_symbol : symbol -> t option
@@ -25,9 +25,9 @@ module Make
        type var = Var.t
        val pp : Format.formatter -> t -> unit
        val guard : t -> C.t formula
-       val transform : t -> (var * C.t arith_term) BatEnum.t
+       val transform : t -> (var * C.t term) BatEnum.t
        val mem_transform : var -> t -> bool
-       val get_transform : var -> t -> C.t arith_term
+       val get_transform : var -> t -> C.t term
        val assume : C.t formula -> t
        val mul : t -> t -> t
        val add : t -> t -> t
