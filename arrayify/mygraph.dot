@@ -1,0 +1,16 @@
+digraph G {
+  0 [shape=box, ];
+  phi3_1 [shape=box, ];
+  phi3_2 [shape=box, ];
+  5 [shape=box, ];
+  8 [shape=box, ];
+  
+  
+  0 -> phi3_1;
+  phi3_1 -> 5;
+  phi3_1 -> 8;
+  phi3_2 -> 5;
+  phi3_2 -> 8;
+  5 -> phi3_2;
+  
+  }
