@@ -397,7 +397,7 @@ let graph_to_transition_system (g : BGraph.t) : Srk.TransitionSystem.Make(Global
 
   let empty = WG.empty label_algebra in 
 
-  BGraph.fold_edges_e (fun (v1, (f, i), v2) wg ->
+  let wg = BGraph.fold_edges_e (fun (v1, (f, i), v2) wg ->
     let (vindex1, _, _, instrs) = v1 in 
     let (vindex2, _, _, _) = v2 in 
     let instrs = match f with 
@@ -408,4 +408,16 @@ let graph_to_transition_system (g : BGraph.t) : Srk.TransitionSystem.Make(Global
       | Some i' -> instrs @ i' in
     let weight = List.fold_left (fun acc instr -> T.mul acc (boogie_instr_to_transition instr)) T.one instrs in 
     WG.add_edge wg vindex1 (Weight weight) vindex2 
-    ) g empty
+    ) g empty in 
+
+  let wg = BGraph.fold_vertex (fun v wg ->
+    if (BGraph.out_degree g v = 0) 
+      then (
+        let (vindex, _, _, instrs) = v in 
+        let weight = List.fold_left (fun acc instr -> T.mul acc (boogie_instr_to_transition instr)) T.one instrs in
+        WG.add_edge wg vindex (Weight weight) (0)
+      ) 
+      else (wg)
+    )  g wg in 
+  wg
+  
