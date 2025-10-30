@@ -20,6 +20,23 @@ let rec quantified_substitution (srk : 'a context) (f : 'a formula) (sub : int -
       (quantified_substitution srk l sub qo) 
       (quantified_substitution srk r sub qo)
 
+let rec quantified_substitution_expr (srk : 'a context) (f : 'a formula) (index : int) (e : ('a, typ_fo) expr) : 'a formula = 
+  match Formula.destruct srk f with 
+  | `Tru | `Fls -> f
+  | `And ls -> mk_and srk (List.map (fun f -> quantified_substitution_expr srk f index e) ls)
+  | `Or ls -> mk_or srk (List.map (fun f -> quantified_substitution_expr srk f index e) ls)
+  | `Not f' -> mk_not srk (quantified_substitution_expr srk f' index e)
+  | `Quantify (`Exists, name, t, body) ->
+    mk_exists srk ~name t (quantified_substitution_expr srk body (index + 1) e)
+  | `Quantify (`Forall, name, t, body) ->
+    mk_forall srk ~name t (quantified_substitution_expr srk body (index + 1) e)
+  | `Atom _ | `Proposition _ ->
+    let rep = substitute srk (fun (i, t) -> if i = index then e else mk_var srk i t) f in rep
+  | `Ite (f, l, r) -> 
+    mk_ite srk (quantified_substitution_expr srk f index e) 
+      (quantified_substitution_expr srk l index e) 
+      (quantified_substitution_expr srk r index e)
+
 
 
 let reverse_skolem (srk : 'a context) (f : 'a formula) (array_bruijn : int) : (string * typ_fo) list * 'a formula = 
@@ -195,11 +212,11 @@ let array_exponentiate (srk : 'a context) (e : 'a exp_op) : ('a TransitionFormul
     let f =  (TransitionFormula.formula tf)  in 
     let array_symbols = List.filter (fun (s, s') -> typ_symbol srk s = `TyArr && typ_symbol srk s' = `TyArr) (TransitionFormula.symbols tf) in 
     let zs = List.fold_left (fun acc (s, s') -> (s, mk_symbol srk `TyInt) :: (s', mk_symbol srk `TyInt) :: acc) [] array_symbols in 
-    let j = mk_var srk 0 `TyInt in 
-    let j' = mk_var srk 1 `TyInt in 
-    let projected_formula = mk_and srk (f :: (mk_eq srk j j') :: (List.map (fun (a, z) -> mk_eq srk (mk_select srk (mk_const srk a) j) (mk_const srk z)) zs)) in 
+    let j = mk_symbol srk ~name:"j" `TyInt in 
+    let j' = mk_symbol srk ~name:"j'" `TyInt in 
+    let projected_formula = mk_and srk (f :: (mk_eq srk (mk_const srk j) (mk_const srk j')) :: (List.map (fun (a, z) -> mk_eq srk (mk_select srk (mk_const srk a) (mk_const srk j)) (mk_const srk z)) zs)) in 
     let projected_formula = List.fold_left (fun acc (s, s') -> mk_exists_const srk s' (mk_exists_const srk s acc)) projected_formula (TransitionFormula.symbols tf) in 
-    let projected_formula = mk_exists srk ~name:"j'" `TyInt (mk_exists srk ~name:"j" `TyInt projected_formula) in 
+    let projected_formula = mk_exists_const srk j' (mk_exists_const srk j projected_formula) in 
     print_newline (); print_string (Formula.show srk projected_formula); print_newline ();
 
     let existentials, i, skolemized = bubble srk projected_formula 0 in 
@@ -207,21 +224,29 @@ let array_exponentiate (srk : 'a context) (e : 'a exp_op) : ('a TransitionFormul
     let with_universal = match i with
     | None -> skolemized
     | Some (name, typ) -> mk_forall srk ~name typ (skolemized) in (* should use Quantifier.qe_mbp to eliminate. *)
-    let to_print = List.fold_left (fun acc (n, t) -> mk_exists srk ~name:n t acc) with_universal existentials in
+    let skolemized_js = quantified_substitution_expr srk with_universal (List.length existentials - 1) (mk_const srk j') in 
+    let skolemized_js = quantified_substitution_expr srk skolemized_js (List.length existentials - 2) (mk_const srk j) in 
+    let rec drop_2 acc = function | [] | [_] | [_ ; _] -> List.rev acc | x :: xs -> drop_2 (x :: acc) xs in 
+    let existentials = drop_2 [] existentials in
+    let fully_skolemized = Formula.skolemize_free srk skolemized_js in 
+
+
+
+    let to_print = List.fold_left (fun acc (n, t) -> mk_exists srk ~name:n t acc) fully_skolemized existentials in
     let to_print = List.fold_left (fun acc (_, z) -> mk_exists_const srk z acc) to_print zs in 
     print_newline (); print_string (Formula.show srk to_print); print_newline (); 
-    (* let eliminated = Quantifier.qe_mbp srk skolemized in  *)
-    print_string "\nSkolemized formula before QE:\n"; print_string (Formula.show srk with_universal); print_newline ();
-    let eliminated = SrkZ3.qe srk with_universal in 
+    (* let with_universal = Formula.skolemize_free srk with_universal in *)
+    print_string "\nSkolemized formula before QE:\n"; print_string (Formula.show srk fully_skolemized); print_newline ();
+    let eliminated = SrkZ3.qe srk fully_skolemized in 
     print_string "\nEliminated formula:\n"; print_string (Formula.show srk eliminated); print_newline ();
-    let tf'_symbols = List.map (fun (s, s') -> if (typ_symbol srk s = `TyArr) then (((List.find (fun (sym, _) -> sym = s') zs) |> snd), ((List.find (fun (sym, _) -> sym = s') zs) |> snd)) else (s, s')) (TransitionFormula.symbols tf) in 
+    let tf'_symbols = (j, j') :: List.map (fun (s, s') -> if (typ_symbol srk s = `TyArr) then (((List.find (fun (sym, _) -> sym = s') zs) |> snd), ((List.find (fun (sym, _) -> sym = s') zs) |> snd)) else (s, s')) (TransitionFormula.symbols tf) in 
     let tf' = TransitionFormula.make ~exists:(fun sym -> (not (List.exists (fun (s, s') -> s = sym || s' = sym) tf'_symbols)) && TransitionFormula.exists tf sym) eliminated tf'_symbols in 
     print_string "\nFinal transition formula:\n"; print_string (TransitionFormula.show srk tf'); print_newline ();
     let solver' = Solver.make srk tf' in
     let exponentiated = e solver' k in 
     let ret = substitute_sym srk (fun s ->
       match List.find_opt (fun (_, z) -> s = z) zs with 
-        | Some (a, _) -> mk_select srk (mk_const srk a) j
+        | Some (a, _) -> mk_select srk (mk_const srk a) (mk_const srk j)
         | None -> mk_const srk s
       ) exponentiated in 
     print_string "\nFinal exponentiated formula:\n"; print_string (Formula.show srk ret); print_newline ();
