@@ -253,3 +253,12 @@ let array_exponentiate (srk : 'a context) (e : 'a exp_op) : ('a TransitionFormul
     ret
   in 
   e'
+
+
+let map_elim (srk : 'a context) (f : 'a formula) : 'a formula = 
+let (exists, forall, f) = bubble srk f 0 in 
+let f = match forall with 
+| None -> f
+| Some (name, t) -> mk_forall srk ~name t f in 
+let f = List.fold_left (fun acc (name, t) -> mk_exists srk ~name t acc) f exists in 
+f
