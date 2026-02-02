@@ -1,1 +1,0 @@
-procedure f ( x : [int]int ) returns ( y : [int]int ) {y := x; y[0] := 1;}
