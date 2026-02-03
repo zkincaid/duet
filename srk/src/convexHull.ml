@@ -46,7 +46,7 @@ let dump_hull_obligations srk phi terms =
           query
       in
       let filename =
-        Format.sprintf "%s-hull-%d.smt2" (!dump_hull_prefix) (!nb_hulls)
+        Format.sprintf "%s---hull-%d.smt2" (!dump_hull_prefix) (!nb_hulls)
       in
       let chan = Stdlib.open_out filename in
       let formatter = Format.formatter_of_out_channel chan in
