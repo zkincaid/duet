@@ -6,7 +6,7 @@ val dump_hull: bool ref
 val dump_hull_prefix : string ref
 
 (** False by default unless otherwise set. *)
-val lira_retype_as_real: bool ref
+val abstraction_algorithm: PolyhedronLatticeTiling.abstraction_algorithm ref
 
 (** Purify formula to have only LRA terms before computing the convex hull.
     This only affects [abstract], because purification does not add models
