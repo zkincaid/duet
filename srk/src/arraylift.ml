@@ -10,7 +10,7 @@ module SMap = Syntax.Symbol.Map
 *) 
 let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (string option) * 'a formula) = 
   (* rep_map : arr_var -> (index_var -> var) *)
-  let (rep_map : (symbol SMap.t) SMap.t ref) = ref SMap.empty in 
+  let (rep_map : (symbol, (symbol, symbol) Hashtbl.t) Hashtbl.t) = Hashtbl.create 16 in 
   let forall_symbol = mk_symbol srk `TyInt ~name:"forall_index" in
 
   (* All variables are turned into symbols as we recurse across the formula.
@@ -29,29 +29,26 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (string o
     *)
     | `Var (i, _) -> if i >= qo then ( 
       let array_symbol = Env.find env (i - qo) in 
-      let replacement_map = 
-        try SMap.find array_symbol !rep_map 
-        with Not_found -> failwith "Array variable was never existentially quantified"
-      in 
+      let replacement_map = Hashtbl.find rep_map array_symbol in 
       match ArithTerm.destruct srk index with 
         | `Var (indi, _) -> 
           ((if indi < qo then failwith "Array index variable is bound but should be free");
           let index_symbol = Env.find env (indi - qo) in 
-          if (SMap.mem index_symbol replacement_map) then (
-            mk_const srk (SMap.find index_symbol replacement_map))
-          else (
-            let replacement = mk_symbol srk ~name:("rep_" ^ (show_symbol srk array_symbol) ^ "_" ^ (show_symbol srk index_symbol)) `TyInt in
-            rep_map := SMap.add array_symbol (SMap.add index_symbol replacement replacement_map) !rep_map;
-            mk_const srk replacement
-          ))
+          match Hashtbl.find_opt replacement_map index_symbol with 
+            | Some replacement -> mk_const srk replacement
+            | None -> (
+              let replacement = mk_symbol srk `TyInt ~name:("rep_" ^ (show_symbol srk array_symbol) ^ "_" ^ (show_symbol srk index_symbol)) in
+              Hashtbl.add replacement_map index_symbol replacement;
+              mk_const srk replacement
+            ))
         | `App (s, []) -> 
-          if (SMap.mem s replacement_map) then (
-            mk_const srk (SMap.find s replacement_map))
-           else (
-            let replacement = mk_symbol srk ~name:("rep_" ^ (show_symbol srk array_symbol) ^ "_" ^ (show_symbol srk s)) `TyInt in
-            rep_map := SMap.add array_symbol (SMap.add s replacement replacement_map) !rep_map;
-            mk_const srk replacement
-           )
+          (match Hashtbl.find_opt replacement_map s with 
+            | Some replacement -> mk_const srk replacement
+            | None -> (
+              let replacement = mk_symbol srk `TyInt ~name:("rep_" ^ (show_symbol srk array_symbol) ^ "_" ^ (show_symbol srk s)) in
+              Hashtbl.add replacement_map s replacement;
+              mk_const srk replacement
+            ))
         | _ -> failwith "Array index should be a variable or a symbol"
       ) 
         else failwith "Array term is not quantified inside the forall"
@@ -106,11 +103,10 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (string o
     let  syms, forall, retf = match Formula.destruct srk f with 
     | `Quantify (`Exists, name, typ, body) -> 
       let new_sym = mk_symbol srk ~name (typ :> typ) in 
-      (if typ = `TyArr then (rep_map := (SMap.add new_sym (SMap.empty) !rep_map))); 
+      (if typ = `TyArr then ((Hashtbl.add rep_map new_sym (Hashtbl.create 16)))); 
       let (syms, forall, body) = go body (Env.push new_sym env) in
       if typ = `TyArr then (
-        let introduced_constants = SMap.find new_sym !rep_map |> 
-          SMap.bindings |> List.map snd in 
+        let introduced_constants = Hashtbl.fold (fun _ v acc -> v :: acc) (Hashtbl.find rep_map new_sym) [] in
         (introduced_constants @ syms, forall, body)
       ) else (new_sym :: syms, forall, body) 
       
