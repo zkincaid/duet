@@ -103,11 +103,73 @@ let formula_test _ctx =
   let pos = rewrite srk ~down:(pos_rewriter srk) quantified in 
   let equi_sat = Arraylift.map_elim srk pos in 
   match Quantifier.simsat srk equi_sat with
-  | `Sat -> print_string "Sat\n"
-  | `Unsat -> print_string "Unsat\n"
-  | `Unknown -> print_string "Unknown\n"
+  | `Sat -> failwith "Unexpected sat result"
+  | `Unsat -> ()
+  | `Unknown -> failwith "Unknown result from sat solver"
 
+let existential_index_test _ctx = 
+  let open Infix in 
+  let loop_summary = ((forall ~name:"j" `TyInt
+    (a'.%[(var 0 `TyInt)] = a.%[(var 0 `TyInt)] && 
+      b'.%[(var 0 `TyInt)] = b.%[(var 0 `TyInt)] &&
+      (((int 0) <= (var 0 `TyInt) && ((var 0 `TyInt) < k') && d'.%[(var 0 `TyInt)] = (var 0 `TyInt)) || 
+      ((var 0 `TyInt) < (int 0) && (k' <= (var 0 `TyInt)) && d'.%[(var 0 `TyInt)] = d.%[(var 0 `TyInt)]))
+  )) && 
+  (exists ~name:"i" `TyInt (n' = (var 0 `TyInt) && (int 0) <= (var 0 `TyInt) && (var 0 `TyInt) < k'))) in 
+  let error_condition = (exists ~name:"q" `TyInt ((int 0) <= (var 0 `TyInt) && (var 0 `TyInt) < k' && d'.%[(var 0 `TyInt)] = k' + (int 1))) in 
+  
+  let combined = mk_and srk [loop_summary; error_condition] in 
+  let quantified = List.fold_left 
+    (fun acc s -> mk_exists_const srk s acc) combined [asym; asym'; bsym; bsym'; dsym; dsym'; ksym; ksym'; nsym; nsym'] in 
+  let pos = rewrite srk ~down:(pos_rewriter srk) quantified in 
+  let equi_sat = Arraylift.map_elim srk pos in 
+  match Quantifier.simsat srk equi_sat with
+  | `Sat -> failwith "Unexpected sat result"
+  | `Unsat -> ()
+  | `Unknown -> failwith "Unknown result from sat solver"
 
+let constant_index_test _ctx = 
+  let open Infix in 
+  let loop_summary = ((forall ~name:"j" `TyInt
+    (a'.%[(var 0 `TyInt)] = a.%[(var 0 `TyInt)] && 
+      b'.%[(var 0 `TyInt)] = b.%[(var 0 `TyInt)] &&
+      (((int 0) <= (var 0 `TyInt) && ((var 0 `TyInt) < k') && d'.%[(var 0 `TyInt)] = (var 0 `TyInt)) || 
+      ((var 0 `TyInt) < (int 0) && (k' <= (var 0 `TyInt)) && d'.%[(var 0 `TyInt)] = d.%[(var 0 `TyInt)]))
+  )) && 
+  (exists ~name:"i" `TyInt (n' = (var 0 `TyInt) && (int 0) <= (var 0 `TyInt) && (var 0 `TyInt) < k'))) in 
+  let error_condition = ((k' < (int 10)) && !(d'.%[(int 10)] = d.%[(int 10)])) in 
+  
+  let combined = mk_and srk [loop_summary; error_condition] in 
+  let quantified = List.fold_left 
+    (fun acc s -> mk_exists_const srk s acc) combined [asym; asym'; bsym; bsym'; dsym; dsym'; ksym; ksym'; nsym; nsym'] in 
+  let pos = rewrite srk ~down:(pos_rewriter srk) quantified in 
+  let equi_sat = Arraylift.map_elim srk pos in 
+  match Quantifier.simsat srk equi_sat with
+  | `Sat -> failwith "Unexpected sat result"
+  | `Unsat -> ()
+  | `Unknown -> failwith "Unknown result from sat solver"
+
+let store_test _ctx = 
+  let open Infix in 
+  let loop_summary = 
+    (forall ~name:"i" `TyInt 
+    (a'.%[(var 0 `TyInt)] = a.%[(var 0 `TyInt)] + (int 1)
+     && b'.%[(var 0 `TyInt)] = (a.%[(int 7)]<- (int 42)).%[var 0 `TyInt]
+    )) 
+     in 
+  let verification_condition = forall ~name:"i" `TyInt
+    (b'.%[(var 0 `TyInt)] = a'.%[(var 0 `TyInt)] || (var 0 `TyInt) = (int 7)) in
+
+  let combined = mk_and srk [loop_summary; !verification_condition] in 
+  let quantified = List.fold_left 
+    (fun acc s -> mk_exists_const srk s acc) combined [asym; asym'; bsym; bsym'; dsym; dsym'; ksym; ksym'; nsym; nsym'] in 
+  let pos = rewrite srk ~down:(pos_rewriter srk) quantified in 
+  let equi_sat = Arraylift.map_elim srk pos in 
+  match Quantifier.simsat srk equi_sat with
+  | `Sat -> failwith "Unexpected sat result"
+  | `Unsat -> ()
+  | `Unknown -> failwith "Unknown result from sat solver"
+  
 let suite = "Iteration" >::: [
   (* "strlen_test" >:: strlen_test; *)
   (* "basic_test" >:: basic_test; *)
