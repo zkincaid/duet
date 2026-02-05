@@ -7,18 +7,14 @@ type 'a t =
 
 include Log.Make(struct let name = "srk.transitionFormula" end)
 
-let show srk tf = 
-  let symbol_strs =
-    List.map (fun (s, s') ->
-        Printf.sprintf "%s -> %s"
-          (show_symbol srk s)
-          (show_symbol srk s'))
-      tf.symbols
-    |> String.concat ", "
+let pp srk formatter tf =
+  let open Format in
+  let pp_symbol_pair formatter (s, s') =
+    fprintf formatter "%s -> %s" (show_symbol srk s) (show_symbol srk s')
   in
-  Printf.sprintf "TransitionFormula(\n  symbols = [%s],\n  formula = %s\n)"
-    symbol_strs
-    (Formula.show srk tf.formula)
+  fprintf formatter "TransitionFormula(@[<v 2>\n  symbols = [@[<hov>%a@]],@ formula = %a@])"
+    (pp_print_list ~pp_sep:(fun fmt () -> fprintf fmt ",@ ") pp_symbol_pair) tf.symbols
+    (Formula.pp srk) tf.formula
 
 let identity srk symbols =
   let formula = 
