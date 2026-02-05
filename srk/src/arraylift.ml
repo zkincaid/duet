@@ -12,8 +12,6 @@ let get_or_create_replacement srk replacement_map array_symbol symbol created_sy
       mk_const srk replacement
     )
 
-
-
 (* bubble_sym is an internal helper function for lowering formulas in the skolem array fragment
     to quantified numerical formulas. 
     [bubble_sym srk form] returns a triple of the form (syms, is_forall, form') in which:
@@ -36,11 +34,7 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * bool * 'a
   (* [replace_access arr i env qo] returns a substitute term for arr[i] *)
   let rec replace_access (arr : 'a arr_term) (index : 'a arith_term) (env : (symbol Env.t)) (qo : int) : 'a arith_term = 
     match ArrTerm.destruct srk arr with 
-    (* Should be i > qo, but is i >= qo to account for special case at line 135 (where we don't have a forall). 
-      This is not a problem when we do have a forall, since the assert at line 118 will ensure that we never 
-      universally quantify an array variable.
-    *)
-    | `Var (i, _) -> if i > qo then ( 
+    | `Var (i, _) -> if (i <= qo) then (failwith "Array term is not quantified inside the forall") else ( 
       let array_symbol = Env.find env (i - qo) in 
       let replacement_map = Hashtbl.find rep_map array_symbol in 
       match ArithTerm.destruct srk index with 
@@ -52,12 +46,12 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * bool * 'a
           get_or_create_replacement srk replacement_map array_symbol s created_symbols true
         | _ -> failwith "Array index should be a variable or a symbol"
       ) 
-        else failwith "Array term is not quantified inside the forall"
     | `App (_, _) -> failwith "Array applications not supported"
     | `Ite (f, l, r) -> mk_ite srk (replace env qo f) (replace_access l index env qo) (replace_access r index env qo)
     | `Store (a, store_index, value) ->
       let ae = replace_access a index env qo in 
-      mk_ite srk (mk_eq srk store_index index) value ae
+      let store_index' = replace_at store_index env qo in 
+      mk_ite srk (mk_eq srk store_index' index) value ae
   (* replace_at recurses over arith_terms, performing substitution *)
   and replace_at (t : 'a arith_term) (env : (symbol Env.t)) (qo : int) : 'a arith_term = 
     match ArithTerm.destruct srk t with 
@@ -141,11 +135,8 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * bool * 'a
       (branch_var :: syms, forall, mk_or srk parts)
     | `Atom _ | `Proposition _ -> 
       (* At this point, we want to run replace but cannot because we haven't yet seen a forall.
-        Ideally, we could use the equivalence f <=> \forall d. f where f is d-free.
-        However, this involves renaming free variables within f to avoid conflict. 
-
-        Instead, we can use a hacky workaround: just running replace as normal. 
-        This has a consequence at line 30. 
+        We use the equivalence f <=> \forall d. f where f is d-free
+        to map back to the forall case.
       *)
       let f' = substitute srk (fun (i, typ) -> mk_var srk (i + 1) typ) f in 
       go (mk_forall srk `TyInt f') env 
