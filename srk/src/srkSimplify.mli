@@ -43,15 +43,6 @@ val simplify_dda : 'a context -> 'a formula -> 'a formula
    division with a dominator less than [max]. *)
 val eliminate_idiv : ?max:int -> 'a context -> 'a formula -> 'a formula
 
-(** Purify floor functions in an expression: replace each function
-   application within a formula with a fresh symbol, and return both
-   the resulting formula [phi] and a mapping [f] from the fresh
-   symbols to terms, so that if we substitute each symbol [s] in the
-   domain of [f] with [floor (f s)], we get the original formula *)
-val purify_floor : 'a context ->
-                   ('a,'b) expr ->
-                   (('a,'b) expr * (('a,typ_arith) expr) Symbol.Map.t)
-
 (** Eliminate floor functions in a formula.  The formula is equivalent
    to the original, modulo the fresh symbols introduced in floor
    purification. *)
