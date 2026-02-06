@@ -1838,14 +1838,11 @@ let eliminate_floor_mod_div srk phi =
     begin
       match destruct srk expr with
       | `Unop (`Floor, t) ->
-        (* floor(t) --> [s = floor(t)] ; s : Int, s* : Real ; t = s + s* /\ 0 <= s* < 1 *)
-        let fractional_part = mk_symbol srk ~name:"fraction" `TyReal
-                              |> mk_const srk in
-        let integer_part = mk_const srk sym in
-        let sum = mk_add srk [integer_part ; fractional_part] in
-        let lower_bound = mk_leq srk (mk_real srk QQ.zero) fractional_part in
-        let upper_bound = mk_lt srk fractional_part (mk_real srk QQ.one) in
-        [mk_eq srk t sum; lower_bound; upper_bound]
+        (* floor(t) --> [s = floor(t)], iff t - 1 < s <= t /\ Int(s); Int(s) is handled by type of symbol *)
+        let s = mk_const srk sym in
+        let lower_bound = mk_lt srk (mk_sub srk t (mk_int srk 1)) s in
+        let upper_bound = mk_leq srk s t in
+        [mk_and srk [lower_bound; upper_bound]]
       | `Binop (`Mod, s, t) ->
         let quotient = mk_symbol srk ~name:"quotient" `TyInt
                        |> mk_const srk in
