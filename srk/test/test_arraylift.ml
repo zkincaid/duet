@@ -38,7 +38,7 @@ let strlen_test _ctxt =
     (forall ~name:"i" `TyInt 
     (k' = k + (int 1) && n' = n && a'.%[(var 0 `TyInt)] = a.%[(var 0 `TyInt)] && b'.%[(var 0 `TyInt)] = b.%[(var 0 `TyInt)]
      && ((k = (var 0 `TyInt) && d'.%[(var 0 `TyInt)] = a.%[(var 0 `TyInt)] + b.%[(var 0 `TyInt)]) || 
-      ((k < (var 0 `TyInt)) || ((var 0 `TyInt) < k)) && d'.%[(var 0 `TyInt)] = d.%[(var 0 `TyInt)]
+      (((k < (var 0 `TyInt)) || ((var 0 `TyInt) < k)) && d'.%[(var 0 `TyInt)] = d.%[(var 0 `TyInt)])
     ))) 
     [(asym, asym'); (bsym, bsym'); (ksym, ksym'); (dsym, dsym'); (nsym, nsym')] in 
   let aeop = array_exponentiate srk noop_eop in
@@ -46,7 +46,24 @@ let strlen_test _ctxt =
   let eop_result = aeop tf k in
 
   let expected = TransitionFormula.formula tf in 
-  assert_equal (z3_of_formula expected) (z3_of_formula eop_result)
+  assert_equiv_formula (expected) (eop_result)
+
+let subproblem _ctx = 
+  let open Infix in
+  let tf = TransitionFormula.make 
+    (forall ~name:"i" `TyInt 
+    (k' = k + (int 1)
+     && ((k = (var 0 `TyInt) && d'.%[(var 0 `TyInt)] = (int 1)) || 
+      (((k < (var 0 `TyInt)) || ((var 0 `TyInt) < k)) && d'.%[(var 0 `TyInt)] = (int 0))
+    ))) 
+    [(ksym, ksym'); (dsym, dsym')] in 
+  let aeop = array_exponentiate srk noop_eop in
+
+  let eop_result = aeop tf k in
+
+  let expected = TransitionFormula.formula tf in 
+  assert_equiv_formula (expected) (eop_result)
+
 
 let basic_test _ctx = 
   let open Infix in 
@@ -56,10 +73,10 @@ let basic_test _ctx =
       ) [(asym, asym')] in
   let aeop = array_exponentiate srk noop_eop in
   let eop_result = aeop tf k in
-  let expected = TransitionFormula.formula tf in
-  assert_equal (z3_of_formula expected) (z3_of_formula eop_result)
+  let expected = (TransitionFormula.formula tf) in               
+  assert_equiv_formula ( expected) ( eop_result)
 
-let or_test _ctx = 
+let unsat_formula _ctx = 
   let open Infix in 
   let f = (forall ~name:"i" `TyInt 
         (a'.%[(var 0 `TyInt)] = a.%[(var 0 `TyInt)] + (int 1) &&
@@ -70,21 +87,9 @@ let or_test _ctx =
   let pos = rewrite srk ~down:(pos_rewriter srk) f in
   let equi_sat = Arraylift.map_elim srk pos in
   match Quantifier.simsat srk equi_sat with
-  | `Sat -> print_string "Sat\n"
-  | `Unsat -> print_string "Unsat\n"
-  | `Unknown -> print_string "Unknown\n"
-
-let qe_investigation _ctx = 
-  let open Infix in 
-  let tf = TransitionFormula.make
-  (forall ~name:"i" `TyInt 
-    (
-      (((var 1  `TyInt) < (var 0 `TyInt) || (var 0 `TyInt) < (var 1  `TyInt)) && (var 2 `TyInt) = (int 0)) ||
-      ((var 1  `TyInt) = (var 0 `TyInt) || (var 0 `TyInt) < (var 1  `TyInt)) && (var 2 `TyInt) = (int 1)
-    )) [] in
-  print_string (TransitionFormula.show srk tf); print_newline ();
-  print_string "eliminating...\n";
-  print_string (Formula.show srk (SrkZ3.qe srk (TransitionFormula.formula tf))); print_newline ()
+  | `Sat -> failwith "Unexpected sat result"
+  | `Unsat -> ()
+  | `Unknown -> failwith "Unknown result from sat solver"
 
 let formula_test _ctx = 
   let open Infix in 
@@ -149,21 +154,47 @@ let constant_index_test _ctx =
   | `Unsat -> ()
   | `Unknown -> failwith "Unknown result from sat solver"
 
-let store_test _ctx = 
+
+  let simple_store_test _ctx = 
+    let open Infix in 
+    let loop_summary = 
+    (forall ~name:"i" `TyInt 
+    (b'.%[(var 0 `TyInt)] = (a.%[(int 7)]<- (int 42)).%[var 0 `TyInt]
+    )) 
+     in
+    let error_condition = (forall ~name:"i" `TyInt 
+    (!(b'.%[(var 0 `TyInt)] = (int 42))
+    )) in 
+     let combined = mk_and srk [loop_summary; error_condition] in 
+    let quantified = List.fold_left 
+      (fun acc s -> mk_exists_const srk s acc) combined [asym; bsym';] in 
+    let pos = rewrite srk ~down:(pos_rewriter srk) quantified in 
+    let equi_sat = Arraylift.map_elim srk pos in 
+
+    match Quantifier.simsat srk equi_sat with
+    | `Sat -> failwith "Unexpected sat result"
+    | `Unsat -> ()
+    | `Unknown -> failwith "Unknown result from sat solver"
+
+
+
+
+  let store_test _ctx = 
   let open Infix in 
   let loop_summary = 
     (forall ~name:"i" `TyInt 
-    (a'.%[(var 0 `TyInt)] = a.%[(var 0 `TyInt)] + (int 1)
+    (a'.%[(var 0 `TyInt)] = a.%[(var 0 `TyInt)]
      && b'.%[(var 0 `TyInt)] = (a.%[(int 7)]<- (int 42)).%[var 0 `TyInt]
     )) 
      in 
-  let verification_condition = forall ~name:"i" `TyInt
-    (b'.%[(var 0 `TyInt)] = a'.%[(var 0 `TyInt)] || (var 0 `TyInt) = (int 7)) in
+  let error_condition = exists ~name:"j" `TyInt
+    (!(b'.%[(var 0 `TyInt)] = a'.%[(var 0 `TyInt)]) && !((var 0 `TyInt) = (int 7))) in
 
-  let combined = mk_and srk [loop_summary; !verification_condition] in 
+  let combined = mk_and srk [loop_summary; error_condition] in 
   let quantified = List.fold_left 
-    (fun acc s -> mk_exists_const srk s acc) combined [asym; asym'; bsym; bsym'; dsym; dsym'; ksym; ksym'; nsym; nsym'] in 
-  let pos = rewrite srk ~down:(pos_rewriter srk) quantified in 
+    (fun acc s -> mk_exists_const srk s acc) combined [asym; asym'; bsym; bsym'] in 
+  let pos = rewrite srk ~down:(pos_rewriter srk) quantified in
+
   let equi_sat = Arraylift.map_elim srk pos in 
   match Quantifier.simsat srk equi_sat with
   | `Sat -> failwith "Unexpected sat result"
@@ -171,9 +202,15 @@ let store_test _ctx =
   | `Unknown -> failwith "Unknown result from sat solver"
   
 let suite = "Iteration" >::: [
-  (* "strlen_test" >:: strlen_test; *)
-  (* "basic_test" >:: basic_test; *)
-  (* "qe_investigation" >:: qe_investigation; *)
+  "strlen_test" >:: strlen_test;
+  "subproblem" >:: subproblem;
+   "basic_test" >:: basic_test;
   "formula_test" >:: formula_test;
-  (* "or_test" >:: or_test; *)
+  "existential_index_test" >:: existential_index_test;
+  "constant_index_test" >:: constant_index_test;
+  "store_test" >:: store_test;
+  "simple_store_test" >:: simple_store_test;
+  "unsat_formula" >:: unsat_formula; 
 ]
+
+
