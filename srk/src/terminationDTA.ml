@@ -249,7 +249,7 @@ let mp solver =
   | `Unknown -> failwith "SMT solver should not return unknown for LRA formulas"
   | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
   | `Sat ->
-    let tf = IS.get_transition_formula solver in
+     let tf = IS.get_transition_formula solver in
      let qdlts_abs =
        DLTSPeriodicRational.abstract_rational solver
        |> DLTS.simplify srk ~scale:true
@@ -291,7 +291,6 @@ let mp solver =
        |> Syntax.eliminate_floor_mod_div srk
        |> Quantifier.mbp srk (fun s -> Symbol.Set.mem s gz_symbols_set)
        |> SrkSimplify.simplify_dda srk
-       |> SrkSimplify.eliminate_floor srk
      in
      logf "DTA guard: %a" (Formula.pp srk) guard;
      let tr_z_exp = BatOption.get (ExpPolynomial.exponentiate_rational tr_z) in
@@ -305,8 +304,28 @@ let mp solver =
        | `And xs -> Periodic.mapn (mk_and srk) xs
        | `Or xs -> Periodic.mapn (mk_or srk) xs
        | `Not x -> Periodic.map (mk_not srk) x
-       | `Atom (`Arith (op, s, t)) -> 
-          begin
+       | `Atom (`Arith (op, s, t)) ->
+         let normalize v =
+           if op = `Lt && 
+             (expr_typ srk s == `TyInt) && (expr_typ srk t == `TyInt) 
+           then
+             (Vec.add v (Linear.const_linterm (QQ.of_int 1)), `Leq) 
+           else
+             (Vec.scalar_mul (QQ.of_zz (Vec.common_denominator v)) v , op)
+         in
+         let (v, op) = 
+           Linear.linterm_of srk (Syntax.mk_sub srk s t) 
+           |> normalize
+         in
+         let cf = closed_form gz_symbols (Vec.negate v) tr_z_exp in
+         let predicate = match op with
+           | `Eq -> `Zero
+           | `Leq -> `Nonneg
+           | `Lt -> `Pos
+         in
+         XSeq.seq_of_compare_atom srk predicate cf term_of_dim
+         (*
+         begin
             match SrkSimplify.simplify_integer_atom srk op s t with 
             | `CompareZero (op, vec) ->
                let cf = closed_form gz_symbols (Vec.negate vec) tr_z_exp in
@@ -322,9 +341,14 @@ let mp solver =
                XSeq.seq_of_divides_atom srk divisor (closed_form gz_symbols vec tr_z_exp) term_of_dim
                |> Periodic.map (mk_not srk)
           end
+          *)
        | `Quantify _ -> failwith "should not see quantifiers in the TF"
        | `Atom (`ArrEq _) -> failwith "should not see ArrEq in the TF"
-       | `Atom (`IsInt _) -> failwith "should not see IsInt in the TF"
+       | `Atom (`IsInt t) -> 
+         let vec = Linear.linterm_of srk t in 
+         let divisor = Vec.common_denominator vec in
+         let rescaled = Vec.scalar_mul (QQ.of_zz divisor) vec in
+         XSeq.seq_of_divides_atom srk divisor (closed_form gz_symbols rescaled tr_z_exp) term_of_dim
        | `Proposition _ -> failwith "should not see proposition in the TF"
        | `Ite _ -> failwith "should not see ite in the TF"
      in
