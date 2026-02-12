@@ -53,8 +53,11 @@ val symbolic_constants : 'a t -> Symbol.Set.t
    formula *)
 val wedge_hull : 'a context -> 'a t -> 'a Wedge.t
 
-(** Overapproxmate a transition formula by a linear arithmetic
-   transition formula *)
+(** [linearize ctx phi] is a transition formula 
+    whose terms are in the language of linear rational arithmetic 
+    over the symbols and constants in [phi] and possibly some new ones, and
+    whose projection onto the symbols of [phi] is an over-approximation of [phi].
+*)
 val linearize : 'a context -> 'a t -> 'a t
 
 (** Map pre-state symbols to their post-state counterparts *)

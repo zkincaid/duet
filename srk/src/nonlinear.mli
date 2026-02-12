@@ -30,7 +30,11 @@ val uninterpret : 'a context -> ('a,'b) expr -> ('a,'b) expr
 (** Replace non-linear uninterpreted functions with interpreted ones. *)
 val interpret : 'a context -> ('a,'b) expr -> ('a,'b) expr
 
-(** Compute a linear approximation of a non-linear formula. *)
+(** [linearize ctx phi] is a formula whose terms are in the language of
+    linear rational arithmetic, over the symbols of [phi] and possibly new ones,
+    and whose projection onto the symbols of [phi] is an over-approximation of
+    [phi].
+*)
 val linearize : 'a context -> 'a formula -> 'a formula
 
 val mk_log : 'a context -> 'a arith_term -> 'a arith_term -> 'a arith_term
