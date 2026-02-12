@@ -324,24 +324,6 @@ let mp solver =
           | `Lt -> `Pos
         in
         XSeq.seq_of_compare_atom srk predicate cf term_of_dim
-        (*
-        begin
-           match SrkSimplify.simplify_integer_atom srk op s t with
-           | `CompareZero (op, vec) ->
-              let cf = closed_form gz_symbols (Vec.negate vec) tr_z_exp in
-              let predicate = match op with
-                | `Eq -> `Zero
-                | `Leq -> `Nonneg
-                | `Lt -> `Pos
-              in
-              XSeq.seq_of_compare_atom srk predicate cf term_of_dim
-           | `Divides (divisor, vec) ->
-              XSeq.seq_of_divides_atom srk divisor (closed_form gz_symbols vec tr_z_exp) term_of_dim
-           | `NotDivides (divisor, vec) ->
-              XSeq.seq_of_divides_atom srk divisor (closed_form gz_symbols vec tr_z_exp) term_of_dim
-              |> Periodic.map (mk_not srk)
-         end
-         *)
       | `Quantify _ -> failwith "should not see quantifiers in the TF"
       | `Atom (`ArrEq _) -> failwith "should not see ArrEq in the TF"
       | `Atom (`IsInt t) ->
