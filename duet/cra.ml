@@ -923,7 +923,7 @@ let preimage transition formula =
          mk_const srk sym
     | None -> fresh_skolem sym
   in
-  mk_and srk [SrkSimplify.eliminate_floor srk (K.guard transition);
+  mk_and srk [K.guard transition;
               substitute_const srk subst formula]
 
 (* Attractor region analysis *)
