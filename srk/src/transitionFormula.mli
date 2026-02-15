@@ -53,10 +53,12 @@ val symbolic_constants : 'a t -> Symbol.Set.t
    formula *)
 val wedge_hull : 'a context -> 'a t -> 'a Wedge.t
 
-(** [linearize ctx phi] is a transition formula whose terms are in the language 
-   of linear rational arithmetic over the symbols and constants in [phi] and 
-   possibly some new ones, and whose projection onto the symbols of [phi] is an 
-   over-approximation of [phi]. 
+(** If the theory in [ctx] is the theory of linear integer-real arithmetic (LIRA), 
+    [linearize ctx phi] is a formula in LIRA that overapproximates [phi].
+    If [phi] is already a formula in LIRA, the result is [phi] itself.
+    Formulas in LIRA have terms constructed from rational constants, addition,
+    scalar multiplication, mod constants, and floor.
+    If the theory in [ctx] is LIRR, [linearize ctx phi] is just [phi].
 *)
 val linearize : 'a context -> 'a t -> 'a t
 

@@ -393,11 +393,7 @@ let linearize srk phi =
         in
         List.map (mk_eq srk (mk_real srk QQ.zero)) hull |> mk_and srk
       in
-      mk_and srk [
-        Syntax.eliminate_floor_mod_div srk lin_phi;
-        bounds;
-        nonlinear_eqs
-      ]
+      mk_and srk [lin_phi; bounds; nonlinear_eqs]
     | `Unsat -> mk_false srk
     | `Unknown ->
       logf ~level:`warn "linearize: optimization failed";
