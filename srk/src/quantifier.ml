@@ -1914,10 +1914,6 @@ let exists_elim solver ?(dnf=false) exists =
        let implicant =
          List.map (substitute_map srk subst) (div_constraints@implicant)
        in
-       logf ~level:`debug "Implicant after substitution: @[%a@]@\n" 
-         (Format.pp_print_list ~pp_sep:Format.pp_print_space 
-          (Syntax.Formula.pp srk)) implicant;
-       
        (* Add substitituions for symbols *not* involved in equations
           to subst *)
        let subst =
@@ -1985,12 +1981,7 @@ let exists_elim solver ?(dnf=false) exists =
          |> SrkSimplify.simplify_terms srk
        in
        disjuncts := disjunct::(!disjuncts);
-       logf ~level:`debug "Disjuncts are: @[%a@]" 
-          (Format.pp_print_list (Syntax.Formula.pp srk)) !disjuncts;
        Abstract.Solver.block solver disjunct;
-       logf ~level:`debug "Blocking @[%a@]. Formula in solver is now: @[%a@]"
-        (Formula.pp srk) disjunct 
-        (Formula.pp srk) (Abstract.Solver.get_formula solver); 
        loop ()
     | `Unsat -> mk_or srk (!disjuncts)
     | `Unknown -> raise Unknown
