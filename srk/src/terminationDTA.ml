@@ -290,6 +290,11 @@ let mp solver =
       mk_and srk (TF.formula tf::sim_constraints)
       |> Syntax.eliminate_floor_mod_div srk
       |> Quantifier.mbp srk (fun s -> Symbol.Set.mem s gz_symbols_set)
+        (* [Quantifier.mbp] can introduce floor symbols even for LIA 
+          formulas, and eliminating floor symbols using new symbols here is 
+          unsound. 
+          TODO: Modify [Quantifier.mbp] to not introduce floor for LIA.
+        *)
       |> SrkSimplify.simplify_dda srk
     in
     logf "DTA guard: %a" (Formula.pp srk) guard;
