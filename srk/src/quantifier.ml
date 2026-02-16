@@ -1875,8 +1875,6 @@ let exists_elim solver ?(dnf=false) exists =
          | Some x -> specialize_floor_cube srk interp x
          | None -> assert false
        in
-       logf ~level:`debug "Implicant: @[%a@]@;" 
-         (Format.pp_print_list (Syntax.Formula.pp srk)) implicant;
        (* Find substitutions for symbols involved in equations, along
           with divisibility constarints *)
        let (subst, div_constraints) =
