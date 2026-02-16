@@ -305,17 +305,20 @@ let mp solver =
       | `Or xs -> Periodic.mapn (mk_or srk) xs
       | `Not x -> Periodic.map (mk_not srk) x
       | `Atom (`Arith (op, s, t)) ->
-        let normalize v =
-          if op = `Lt &&
-            (expr_typ srk s == `TyInt) && (expr_typ srk t == `TyInt)
+        let normalize typ v =
+          if op = `Lt && (typ == `TyInt)
           then
+            (* Strengthen inequality in integer variables with integer 
+              coefficients 
+            *)
             (Vec.add v (Linear.const_linterm (QQ.of_int 1)), `Leq)
           else
             (Vec.scalar_mul (QQ.of_zz (Vec.common_denominator v)) v , op)
         in
         let (v, op) =
-          Linear.linterm_of srk (Syntax.mk_sub srk s t)
-          |> normalize
+          let diff = Syntax.mk_sub srk s t in
+          Linear.linterm_of srk diff
+          |> normalize (expr_typ srk diff)
         in
         let cf = closed_form gz_symbols (Vec.negate v) tr_z_exp in
         let predicate = match op with
