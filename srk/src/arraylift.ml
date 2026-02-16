@@ -10,17 +10,22 @@ open Iteration
 *) 
 let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol option) * 'a formula) = 
   (* rep_map : arr_var -> (index_term -> var) *)
-  let (rep_map : (symbol, ('a arith_term, symbol) Hashtbl.t) Hashtbl.t) = Hashtbl.create 16 in 
-  let created_symbols = ref [] in 
+  let (rep_map : (symbol, ('a, Syntax.typ_arith, symbol) Expr.HT.t) Hashtbl.t) = Hashtbl.create 16 in 
+  let leading_existentials = ref [] in 
   let forall_symbol = mk_symbol srk `TyInt ~name:"forall_index" in
 
-  let get_or_create_replacement srk replacement_map array_symbol index_term isnt_forall = 
-    match Hashtbl.find_opt replacement_map index_term with 
-      | Some replacement -> mk_const srk replacement
-      | None -> (
-        let replacement = mk_symbol srk `TyInt ~name:("rep_" ^ (show_symbol srk array_symbol) ^ "_" ^ (ArithTerm.show srk index_term)) in
-        Hashtbl.add replacement_map index_term replacement;
-        (if (isnt_forall) then (created_symbols := replacement :: !created_symbols) else ()); (* Update the mutable list *)
+  let get_or_create_replacement array_symbol index_term = 
+    let replacement_map = Hashtbl.find rep_map array_symbol in 
+    match Expr.HT.mem replacement_map index_term with 
+      | true -> mk_const srk (Expr.HT.find replacement_map index_term)
+      | false -> (
+        let name = Format.asprintf "rep_%a_%a"
+          (pp_symbol srk) array_symbol
+          (ArithTerm.pp srk) index_term
+        in
+        let replacement = mk_symbol srk `TyInt ~name in
+        Expr.HT.add replacement_map index_term replacement;
+        leading_existentials := replacement :: !leading_existentials; (* Update the mutable list *)
         mk_const srk replacement
       )
   in
@@ -37,14 +42,13 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
     | `Var (i, _) -> 
         if (i <= qo) then (failwith "Array term is not quantified inside the forall") else ( 
           let array_symbol = Env.find env (i - qo) in 
-          let replacement_map = Hashtbl.find rep_map array_symbol in 
           match ArithTerm.destruct srk index with 
             | `Var (indi, _) -> 
               ((if indi < qo then failwith "Array index variable is bound but should be free");
               let index_symbol = Env.find env (indi - qo) in 
-              get_or_create_replacement srk replacement_map array_symbol (mk_const srk index_symbol) (indi - qo != 0))
+              get_or_create_replacement array_symbol (mk_const srk index_symbol))
             | `App (_, []) | `Real _ -> 
-              get_or_create_replacement srk replacement_map array_symbol index true
+              get_or_create_replacement array_symbol index
             | _ -> failwith "Array index should be a variable, symbol, or constant"
         ) 
     | `App (_, _) -> failwith "Array applications not supported"
@@ -101,36 +105,44 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
         - \exists env . form ==> \exists syms. \forall name. form' if is_forall
         - \exists env . form ==> \exists syms. form' if not is_forall
         - form' contains no array terms *)
-  let rec go (f : 'a formula) (env : (symbol Env.t)): (symbol list * bool * 'a formula) = 
+  let rec go (f : 'a formula) (env : (symbol Env.t)): (bool * 'a formula) = 
      match Formula.destruct srk f with 
     | `Quantify (`Exists, name, typ, body) -> 
       let new_sym = mk_symbol srk ~name (typ :> typ) in 
-      (if typ = `TyArr then ((Hashtbl.add rep_map new_sym (Hashtbl.create 16)))); 
-      let (syms, forall, body) = go body (Env.push new_sym env) in
-      if typ = `TyArr then (syms , forall, body) else (new_sym :: syms, forall, body) 
+      (if typ = `TyArr then (
+        Hashtbl.add rep_map new_sym (Expr.HT.create 16);
+        let name = Format.asprintf "rep_%a_univ"
+          (pp_symbol srk) new_sym
+        in
+        Expr.HT.add (Hashtbl.find rep_map new_sym) (mk_const srk forall_symbol) (mk_symbol srk `TyInt ~name)
+      )); 
+      (if typ = `TyInt then (leading_existentials := new_sym :: !leading_existentials));
+      go body (Env.push new_sym env)
     | `Quantify (`Forall, _, typ, body) -> 
       assert (typ = `TyInt);
-      let (body) = replace (Env.push forall_symbol env) 0 body in 
-      let functional_correctness = (Hashtbl.fold (fun array_symbol m (acc) -> 
-          let ai = get_or_create_replacement srk m array_symbol (mk_const srk forall_symbol) false in 
-          Hashtbl.fold (fun index replacement acc -> 
-            (mk_if srk (mk_eq srk index (mk_const srk forall_symbol)) (mk_eq srk (mk_const srk replacement) ai)) :: acc) m acc
+      let body = replace (Env.push forall_symbol env) 0 body in 
+      let functional_consistency = (Hashtbl.fold (fun array_symbol m (acc) -> 
+          let ai = get_or_create_replacement array_symbol (mk_const srk forall_symbol) in 
+           BatEnum.fold (fun acc (index, replacement) -> 
+            (mk_if srk (mk_eq srk index (mk_const srk forall_symbol)) (mk_eq srk (mk_const srk replacement) ai)) :: acc
+            ) acc (Expr.HT.enum m)
         ) rep_map ([])) in 
-      ([], true, mk_and srk (body :: functional_correctness))
+      (true, mk_and srk (body :: functional_consistency))
     | `And ls -> 
-      let (syms, forall, parts) = List.fold_left (fun (syms, forall, parts) f -> 
-        let (f_syms, f_forall, f_part) = go f env in 
-        f_syms @ syms, f_forall || forall, f_part :: parts
-        ) ([], false, []) ls in 
-      (syms, forall, mk_and srk parts)
+      let (forall, parts) = List.fold_left (fun (forall, parts) f -> 
+        let (f_forall, f_part) = go f env in 
+        f_forall || forall, f_part :: parts
+        ) (false, []) ls in 
+      (forall, mk_and srk parts)
     | `Or ls ->
       let branch_var = mk_symbol srk ~name:"branch" `TyInt in 
-      let (syms, forall, parts) = List.fold_left (fun (syms, forall, parts) f -> 
-          let (f_syms, f_forall, f_part) = go f env in 
-          f_syms @ syms, f_forall || forall, f_part :: parts
-        ) ([], false, []) ls in 
+      (leading_existentials := branch_var :: !leading_existentials);
+      let (forall, parts) = List.fold_left (fun (forall, parts) f -> 
+          let ( f_forall, f_part) = go f env in 
+          f_forall || forall, f_part :: parts
+        ) (false, []) ls in 
       let parts = List.mapi (fun i part -> mk_and srk [part; mk_eq srk (mk_const srk branch_var) (mk_int srk i)]) parts in 
-      (branch_var :: syms, forall, mk_or srk parts)
+      (forall, mk_or srk parts)
     | `Atom _ | `Proposition _ -> 
       (* At this point, we want to run replace but cannot because we haven't yet seen a forall.
         We use the equivalence f <=> \forall d. f where f is d-free
@@ -138,20 +150,19 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
       *)
       let f' = substitute srk (fun (i, typ) -> mk_var srk (i + 1) typ) f in 
       go (mk_forall srk `TyInt f') env 
-    | `Tru | `Fls -> ([], false, f)
+    | `Tru | `Fls -> (false, f)
     | `Ite (f, l, r) -> 
       let f' = mk_or srk [mk_and srk [f ; l]; mk_and srk [mk_not srk f; r]] in 
       let f' = rewrite srk ~down:(pos_rewriter srk) f' in 
       go f' env
     | `Not _ -> failwith "Not is not supported in Skolem fragment"
   in
-  let syms, forall, retf = go form Syntax.Env.empty in 
+  let forall, retf = go form Syntax.Env.empty in 
   let retf = Hashtbl.fold (fun _ m f -> 
-    match Hashtbl.find_opt m (mk_const srk forall_symbol) with 
-      | None -> f
-      | Some s -> mk_exists_const srk s f
+    let forall_rep = Expr.HT.find m (mk_const srk forall_symbol) in 
+    mk_exists_const srk forall_rep f
     ) rep_map retf in 
-  (!created_symbols @ syms, (if forall then (Some forall_symbol) else None), retf)
+  (!leading_existentials, (if forall then (Some forall_symbol) else None), retf)
 
 
 
@@ -199,7 +210,7 @@ let array_exponentiate (srk : 'a context) (e : 'a exp_op) : ('a TransitionFormul
   e'
 
 
-  (* [map_elim ctx f] takes a formula in the array skolem fragment and returns an equisatisfiable formula over numerical variables. *)
+  (* [map_elim ctx f] takes a formula in the array skolem fragment and returns an equivalent formula over numerical variables. *)
   let map_elim (srk : 'a context) (f : 'a formula) : 'a formula = 
     let syms, forall, f = bubble_sym srk f in 
     let f = match forall with 

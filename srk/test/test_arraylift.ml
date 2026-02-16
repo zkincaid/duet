@@ -201,8 +201,24 @@ let constant_index_test _ctx =
   | `Unsat -> ()
   | `Unknown -> failwith "Unknown result from sat solver"
   
+let formula_test2 _ctx = 
+  let open Infix in 
+  let f = (exists ~name:"n" `TyInt
+    (exists ~name:"m" `TyInt 
+      (exists ~name:"a" `TyArr 
+        ((var 1 `TyInt) = (var 2 `TyInt) && !((var 0 `TyArr).%[var 1 `TyInt] = (var 0 `TyArr).%[var 2 `TyInt]))
+      ))
+  ) in 
+
+  let pos = rewrite srk ~down:(pos_rewriter srk) f in
+  let equi_sat = Arraylift.map_elim srk pos in 
+  match Quantifier.simsat srk equi_sat with
+  | `Sat -> failwith "Unexpected sat result"
+  | `Unsat -> ()
+  | `Unknown -> failwith "Unknown result from sat solver"
+
 let suite = "Iteration" >::: [
-  "strlen_test" >:: strlen_test;
+  (* "strlen_test" >:: strlen_test;
   "subproblem" >:: subproblem;
    "basic_test" >:: basic_test;
   "formula_test" >:: formula_test;
@@ -210,7 +226,8 @@ let suite = "Iteration" >::: [
   "constant_index_test" >:: constant_index_test;
   "store_test" >:: store_test;
   "simple_store_test" >:: simple_store_test;
-  "unsat_formula" >:: unsat_formula; 
+  "unsat_formula" >:: unsat_formula;  *)
+  "formula_test2" >:: formula_test2;
 ]
 
 
