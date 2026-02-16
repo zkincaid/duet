@@ -290,12 +290,16 @@ let mp solver =
       mk_and srk (TF.formula tf::sim_constraints)
       |> Syntax.eliminate_floor_mod_div srk
       |> Quantifier.mbp srk (fun s -> Symbol.Set.mem s gz_symbols_set)
-        (* [Quantifier.mbp] can introduce floor symbols even for LIA 
-          formulas, and eliminating floor symbols using new symbols here is 
-          unsound. 
-          TODO: Modify [Quantifier.mbp] to not introduce floor for LIA.
-        *)
       |> SrkSimplify.simplify_dda srk
+      |> SrkSimplify.eliminate_floor srk
+      (* 
+        TODO: Modify [Quantifier.mbp] to not introduce floor when doing QE for 
+        LIA formulas, so we don't have to worry about floor here.
+        [SrkSimplify.eliminate_floor] eliminates floor arising from integer 
+        division for divisors up to 10 without introducing new symbols, but
+        introduces new symbols when eliminating floor in general.
+        [mp] is unsound when new Skolem constants are introduced.
+      *)
     in
     logf "DTA guard: %a" (Formula.pp srk) guard;
     let tr_z_exp = BatOption.get (ExpPolynomial.exponentiate_rational tr_z) in
