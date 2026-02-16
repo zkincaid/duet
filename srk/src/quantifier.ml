@@ -974,11 +974,6 @@ let select_int_term srk interp x atoms =
 let specialize_floor_cube srk model cube =
   let div_constraints = ref [] in
   let add_div_constraint divisor linterm =
-    (*
-    let div =
-      mk_eq srk (mk_mod srk term (mk_real srk (QQ.of_zz divisor))) (mk_real srk QQ.zero)
-    in
-    *)
     div_constraints := (mk_divides srk divisor linterm) :: (!div_constraints)
   in
   let replace_floor expr = match destruct srk expr with
@@ -1022,9 +1017,7 @@ let specialize_floor_cube srk model cube =
   let cube' = List.map (rewrite srk ~up:replace_floor) cube in
   (!div_constraints)@cube'
 
-
-(* Deprecated because formulas for the theory of LIRA have LRA terms. *)
-let _select_implicant srk interp ?(env=Env.empty) phi =
+let select_implicant srk interp ?(env=Env.empty) phi =
   match Interpretation.select_implicant interp ~env phi with
   | Some atoms ->
     logf ~level:`trace "Implicant Atoms:";
@@ -1149,7 +1142,7 @@ module CSS = struct
           logf ~level:`trace "Path model: %a" Interpretation.pp path_model;
           logf ~level:`trace "not_phi: %a" (Formula.pp ctx.srk) ctx.not_formula;
           let phi_implicant =
-            match Interpretation.select_implicant path_model ctx.not_formula with
+            match select_implicant ctx.srk path_model ctx.not_formula with
             | Some x -> x
             | None -> assert false
           in
@@ -1181,7 +1174,7 @@ module CSS = struct
          Skeleton.substitute_implicant phi_model x move atoms)
       in
       let (sat_path, unsat_path, _) =
-        match Interpretation.select_implicant phi_model phi with
+        match select_implicant srk phi_model phi with
         | Some implicant -> List.fold_right f qf_pre ([], [], implicant)
         | None -> assert false
       in
@@ -1743,7 +1736,7 @@ let qe_mbp srk phi =
       match Solver.get_model solver with
       | `Sat m ->
         let implicant =
-          match Interpretation.select_implicant m phi with
+          match select_implicant srk m phi with
           | Some x -> x
           | None -> assert false
         in
@@ -1878,10 +1871,12 @@ let exists_elim solver ?(dnf=false) exists =
     | `Sat (`LIRR _) -> invalid_arg "Quantifier.exists_elim does not support LIRR"
     | `Sat (`LIRA interp) ->
        let implicant =
-         match Interpretation.select_implicant interp phi with
+         match select_implicant srk interp phi with
          | Some x -> specialize_floor_cube srk interp x
          | None -> assert false
        in
+       logf ~level:`debug "Implicant: @[%a@]@;" 
+         (Format.pp_print_list (Syntax.Formula.pp srk)) implicant;
        (* Find substitutions for symbols involved in equations, along
           with divisibility constarints *)
        let (subst, div_constraints) =
@@ -1919,6 +1914,10 @@ let exists_elim solver ?(dnf=false) exists =
        let implicant =
          List.map (substitute_map srk subst) (div_constraints@implicant)
        in
+       logf ~level:`debug "Implicant after substitution: @[%a@]@\n" 
+         (Format.pp_print_list ~pp_sep:Format.pp_print_space 
+          (Syntax.Formula.pp srk)) implicant;
+       
        (* Add substitituions for symbols *not* involved in equations
           to subst *)
        let subst =
@@ -1986,7 +1985,12 @@ let exists_elim solver ?(dnf=false) exists =
          |> SrkSimplify.simplify_terms srk
        in
        disjuncts := disjunct::(!disjuncts);
+       logf ~level:`debug "Disjuncts are: @[%a@]" 
+          (Format.pp_print_list (Syntax.Formula.pp srk)) !disjuncts;
        Abstract.Solver.block solver disjunct;
+       logf ~level:`debug "Blocking @[%a@]. Formula in solver is now: @[%a@]"
+        (Formula.pp srk) disjunct 
+        (Formula.pp srk) (Abstract.Solver.get_formula solver); 
        loop ()
     | `Unsat -> mk_or srk (!disjuncts)
     | `Unknown -> raise Unknown
@@ -2274,7 +2278,7 @@ let mbp_cover ?(dnf=true) srk exists phi =
     match Solver.get_model solver with
     | `Sat m ->
       let implicant =
-        match Interpretation.select_implicant m phi with
+        match select_implicant srk m phi with
         | Some x -> x
         | None -> assert false
       in
