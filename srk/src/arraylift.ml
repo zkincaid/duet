@@ -52,47 +52,17 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
             | _ -> failwith "Array index should be a variable, symbol, or constant"
         ) 
     | `App (_, _) -> failwith "Array applications not supported"
-    | `Ite (f, l, r) -> mk_ite srk (replace env qo f) (replace_access l index env qo) (replace_access r index env qo)
+    | `Ite (f, l, r) -> mk_ite srk f (replace_access l index env qo) (replace_access r index env qo)
     | `Store (a, store_index, value) ->
-      let store_index' = replace_at store_index env qo in 
-      let index' = replace_at index env qo in 
-      let ae = replace_access a index' env qo in 
-      mk_ite srk (mk_eq srk store_index' index') value ae 
-  (* replace_at recurses over arith_terms, performing substitution *)
-  and replace_at (t : 'a arith_term) (env : (symbol Env.t)) (qo : int) : 'a arith_term = 
-    match ArithTerm.destruct srk t with 
-    | `Real _ | `App _ -> t
-    | `Var (i, _) -> if i >= qo then (mk_const srk (Env.find env (i - qo))) else t
-    | `Add ls -> mk_add srk (List.map (fun t -> replace_at t env qo) ls)
-    | `Mul ls -> mk_mul srk (List.map (fun t -> replace_at t env qo) ls)
-    | `Binop (`Div, t1, t2) -> mk_div srk (replace_at t1 env qo) (replace_at t2 env qo)
-    | `Binop (`Mod, t1, t2) -> mk_mod srk (replace_at t1 env qo) (replace_at t2 env qo)
-    | `Unop (`Neg, t) -> mk_neg srk (replace_at t env qo)
-    | `Unop (`Floor, t) -> mk_floor srk (replace_at t env qo)
-    | `Ite (f, l, r) -> mk_ite srk (replace env qo f) (replace_at l env qo) (replace_at r env qo)
-    | `Select (arr, index) -> replace_access arr index env qo
-  (* replace recurses over formulas, performing substitution. *)
-  and replace (env : (symbol Env.t)) (qo : int) (f : 'a formula) : ('a formula) = 
-    match Formula.destruct srk f with 
-    | `Atom (`IsInt t) -> let t' = replace_at t env qo in 
-      mk_is_int srk t'
-    | `Atom (`Arith (op, t1, t2)) -> 
-      (let (t1') = replace_at t1 env qo in 
-      let (t2') = replace_at t2 env qo in 
-      match op with 
-        | `Eq -> (mk_eq srk t1' t2')
-        | `Leq -> (mk_leq srk t1' t2')
-        | `Lt  -> (mk_lt srk t1' t2'))
-    | `Tru | `Fls | `Proposition _ -> f
-    | `And ls -> mk_and srk (List.map (replace env qo) ls)
-    | `Or ls -> mk_or srk (List.map (replace env qo) ls)
-    | `Ite (f, l, r) -> 
-      mk_ite srk (replace env qo f) (replace env qo l) (replace env qo r)
-    | `Quantify (`Exists, name, typ, body) -> 
-        mk_exists srk ~name typ (replace env (qo + 1) body)
-    | `Quantify (`Forall, _, _, _) -> failwith "Nested foralls not supported in Skolem fragment"
-    | `Atom (`ArrEq _) -> failwith "Array equalities should not appear in Skolem fragment"
-    | `Not _ -> failwith "Not is not supported in Skolem fragment"
+      let ae = replace_access a index env qo in 
+      mk_ite srk (mk_eq srk store_index index) value ae 
+    in
+  let replace env f = 
+    fold_rewrite srk 
+    ~down:(fun e qo -> match destruct srk e with | `Var (i, t) -> if i >= qo && t != `TyArr then (mk_const srk (Env.find env (i - qo))) else e | _ -> e)
+    ~up:(fun e qo -> match destruct srk e with | `Select (arr, index) -> replace_access arr index env qo | _ -> e)
+    ~combine:(fun e qo -> match destruct srk e with | `Quantify _ -> qo + 1 | _ -> qo)
+    0 f
   in
 
   (* go contains the core "bubbling" logic of this algorithm: 
@@ -114,20 +84,24 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
         let name = Format.asprintf "rep_%a_univ"
           (pp_symbol srk) new_sym
         in
-        Expr.HT.add (Hashtbl.find rep_map new_sym) (mk_const srk forall_symbol) (mk_symbol srk `TyInt ~name)
-      )); 
-      (if typ = `TyInt then (leading_existentials := new_sym :: !leading_existentials));
-      go body (Env.push new_sym env)
+        Expr.HT.add (Hashtbl.find rep_map new_sym) (mk_const srk forall_symbol) (mk_symbol srk `TyInt ~name);
+        let forall, body' = go body (Env.push new_sym env) in 
+        let ai = get_or_create_replacement new_sym (mk_const srk forall_symbol) in 
+        let fc = BatEnum.fold (fun acc (index, replacement) ->
+            (mk_if srk (mk_eq srk index (mk_const srk forall_symbol)) (mk_eq srk (mk_const srk replacement) ai)) :: acc
+          ) [] (Expr.HT.enum (Hashtbl.find rep_map new_sym)) in 
+        let body'' = mk_exists_const srk (Expr.HT.find (Hashtbl.find rep_map new_sym) (mk_const srk forall_symbol)) 
+          (mk_and srk ((body') :: fc))
+      in 
+        forall, body''
+      ) else (
+        leading_existentials := new_sym :: !leading_existentials; 
+        go body (Env.push new_sym env) 
+        ))
     | `Quantify (`Forall, _, typ, body) -> 
       assert (typ = `TyInt);
-      let body = replace (Env.push forall_symbol env) 0 body in 
-      let functional_consistency = (Hashtbl.fold (fun array_symbol m (acc) -> 
-          let ai = get_or_create_replacement array_symbol (mk_const srk forall_symbol) in 
-           BatEnum.fold (fun acc (index, replacement) -> 
-            (mk_if srk (mk_eq srk index (mk_const srk forall_symbol)) (mk_eq srk (mk_const srk replacement) ai)) :: acc
-            ) acc (Expr.HT.enum m)
-        ) rep_map ([])) in 
-      (true, mk_and srk (body :: functional_consistency))
+      let body = replace (Env.push forall_symbol env) body in 
+      (true, body)
     | `And ls -> 
       let (forall, parts) = List.fold_left (fun (forall, parts) f -> 
         let (f_forall, f_part) = go f env in 
@@ -158,10 +132,6 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
     | `Not _ -> failwith "Not is not supported in Skolem fragment"
   in
   let forall, retf = go form Syntax.Env.empty in 
-  let retf = Hashtbl.fold (fun _ m f -> 
-    let forall_rep = Expr.HT.find m (mk_const srk forall_symbol) in 
-    mk_exists_const srk forall_rep f
-    ) rep_map retf in 
   (!leading_existentials, (if forall then (Some forall_symbol) else None), retf)
 
 
