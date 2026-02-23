@@ -1384,7 +1384,7 @@ let _ =
   CmdLine.register_config
     ("-dump-hulls",
      Arg.Set Srk.ConvexHull.dump_hull,
-     " Output convex hull goals in SMTLIB2 format");
+     " Output convex hull goals in SMTLIB2 format")
 
 let _ =
   CmdLine.register_pass
