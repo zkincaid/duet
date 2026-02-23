@@ -1385,25 +1385,6 @@ let _ =
     ("-dump-hulls",
      Arg.Set Srk.ConvexHull.dump_hull,
      " Output convex hull goals in SMTLIB2 format");
-  CmdLine.register_config
-    ("-algo-for-lira-convhull",
-     (let open PolyhedronLatticeTiling in
-      Arg.String
-        (fun algo ->
-          if String.equal algo "fmcad15" then
-            ConvexHull.abstraction_algorithm := LraCCH FullProject
-          else if String.equal algo "lw" then
-            ConvexHull.abstraction_algorithm := LraCCH LwMbp
-          else if String.equal algo "pc" then
-            ConvexHull.abstraction_algorithm := LiraCCH PolyReccone
-          else if String.equal algo "pc-lplh" then
-            ConvexHull.abstraction_algorithm := LiraCCH (PolyReccone_LPLH None)
-          else
-            failwith "Invalid algorithm"
-        )
-     ),
-     " Use algorithm (fmcad15, lw, pc, or pc-lplh) when computing convex hulls. Without this option, PC-LPLH is default."
-    )
 
 let _ =
   CmdLine.register_pass
