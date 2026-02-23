@@ -247,97 +247,6 @@ let mp solver =
   | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
   | `Sat ->
     let tf = IS.get_transition_formula solver in
-<<<<<<< HEAD
-     let qdlts_abs =
-       DLTSPeriodicRational.abstract_rational solver
-       |> DLTS.simplify srk ~scale:true
-     in
-     let module PLM = Lts.PartialLinearMap in
-     let omega_domain = snd (PLM.iteration_sequence qdlts_abs.dlts) in
-     let dim = BatArray.length qdlts_abs.simulation in
-     (* Columns of G form a basis for omega domain. *)
-     let g =
-       constraints_to_generators dim (Linear.QQMatrix.of_rows omega_domain)
-     in
-     let tr = PLM.map qdlts_abs.dlts in
-     let tr_omega = inv_subspace_restriction tr g in
-     (* Columns of Z form basis for integer domain of tr_omega. *)
-     let z = int_eigenspace (Linear.QQMatrix.nb_columns g) tr_omega in
-     let gz = Linear.QQMatrix.mul g z in
-     let tr_z = inv_subspace_restriction tr gz in
-     (* Introduce one symbol per dimension of the integer domain. *)
-     let gz_symbols =
-       Array.init
-         (Linear.QQMatrix.nb_columns gz)
-         (fun i -> mk_symbol srk ~name:(Format.asprintf "dta<%d>" i) `TyInt)
-     in
-     (* GZz = Sx *)
-     let sim_constraints =
-       BatList.init
-         (Array.length qdlts_abs.simulation)
-         (fun i ->
-           let gz_term =
-             Linear.QQMatrix.row i gz
-             |> Linear.term_of_vec srk (fun j -> (mk_const srk gz_symbols.(j)))
-           in
-           mk_eq srk qdlts_abs.simulation.(i) gz_term)
-     in
-     let gz_symbols_set = Symbol.Set.of_array gz_symbols in
-     (* exists x,x'. F(x,x') /\ GZz = Sx *)
-     let guard =
-       mk_and srk (TF.formula tf::sim_constraints)
-       |> Syntax.eliminate_floor_mod_div srk
-       |> Quantifier.mbp srk (fun s -> Symbol.Set.mem s gz_symbols_set)
-       |> SrkSimplify.simplify_dda srk
-       |> SrkSimplify.eliminate_floor srk
-     in
-     logf "DTA guard: %a" (Formula.pp srk) guard;
-     let tr_z_exp = BatOption.get (ExpPolynomial.exponentiate_rational tr_z) in
-     let term_of_dim i =
-       if i == Linear.const_dim then mk_one srk
-       else mk_const srk gz_symbols.(i)
-     in
-     let algebra = function 
-       | `Tru -> Periodic.make [mk_true srk]
-       | `Fls -> Periodic.make [mk_false srk]
-       | `And xs -> Periodic.mapn (mk_and srk) xs
-       | `Or xs -> Periodic.mapn (mk_or srk) xs
-       | `Not x -> Periodic.map (mk_not srk) x
-       | `Atom (`Arith (op, s, t)) -> 
-          begin
-            match SrkSimplify.simplify_integer_atom srk op s t with 
-            | `CompareZero (op, vec) ->
-               let cf = closed_form gz_symbols (Vec.negate vec) tr_z_exp in
-               let predicate = match op with
-                 | `Eq -> `Zero
-                 | `Leq -> `Nonneg
-                 | `Lt -> `Pos
-               in
-               XSeq.seq_of_compare_atom srk predicate cf term_of_dim
-            | `Divides (divisor, vec) ->
-               XSeq.seq_of_divides_atom srk divisor (closed_form gz_symbols vec tr_z_exp) term_of_dim
-            | `NotDivides (divisor, vec) ->
-               XSeq.seq_of_divides_atom srk divisor (closed_form gz_symbols vec tr_z_exp) term_of_dim
-               |> Periodic.map (mk_not srk)
-          end
-       | `Atom (`IsInt t) ->
-          let vec = Linear.linterm_of srk t in
-          let divisor = Vec.common_denominator vec in
-          let vec = Vec.scalar_mul (QQ.negate (QQ.of_zz divisor)) vec in
-          let cf = closed_form gz_symbols (Vec.negate vec) tr_z_exp in
-          XSeq.seq_of_divides_atom srk divisor cf term_of_dim
-       | `Quantify _ -> failwith "should not see quantifiers in the TF"
-       | `Atom (`ArrEq _) -> failwith "should not see ArrEq in the TF"
-       | `Proposition _ -> failwith "should not see proposition in the TF"
-       | `Ite _ -> failwith "should not see ite in the TF"
-     in
-     let xseq = Formula.eval srk algebra guard in
-     let f = mk_and srk (sim_constraints@(Periodic.period xseq)) in
-     logf "DTA mp: %a" (Formula.pp srk) f;
-     f
-     |> Quantifier.mbp srk (fun s -> not (Symbol.Set.mem s gz_symbols_set))
-     |> mk_not srk
-=======
     let qdlts_abs =
       DLTSPeriodicRational.abstract_rational solver
       |> DLTS.simplify srk ~scale:true
@@ -440,4 +349,3 @@ let mp solver =
     f
     |> Quantifier.mbp srk (fun s -> not (Symbol.Set.mem s gz_symbols_set))
     |> mk_not srk
->>>>>>> origin/flint/standardize-linearization
