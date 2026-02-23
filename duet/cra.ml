@@ -929,6 +929,9 @@ let preimage transition formula =
          mk_const srk sym
     | None -> fresh_skolem sym
   in
+  (* TODO: floor can be present in transition due to e.g., integer division.
+    Change to eliminate_floor_mod_div?
+  *)
   mk_and srk [SrkSimplify.eliminate_floor srk (K.guard transition);
               substitute_const srk subst formula]
 

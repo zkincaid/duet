@@ -53,8 +53,13 @@ val symbolic_constants : 'a t -> Symbol.Set.t
    formula *)
 val wedge_hull : 'a context -> 'a t -> 'a Wedge.t
 
-(** Overapproxmate a transition formula by a linear arithmetic
-   transition formula *)
+(** If the theory in [ctx] is the theory of linear integer-real arithmetic (LIRA), 
+    [linearize ctx phi] is a formula in LIRA that overapproximates [phi].
+    If [phi] is already a formula in LIRA, the result is [phi] itself.
+    Formulas in LIRA have terms constructed from rational constants, addition,
+    scalar multiplication, mod constants, and floor.
+    If the theory in [ctx] is LIRR, [linearize ctx phi] is just [phi].
+*)
 val linearize : 'a context -> 'a t -> 'a t
 
 (** Map pre-state symbols to their post-state counterparts *)

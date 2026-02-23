@@ -23,7 +23,6 @@
     ocamlgraph
     normalizffi
     flint
-    arb
     faugere
     faugere.zarith
     )

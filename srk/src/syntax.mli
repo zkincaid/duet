@@ -231,7 +231,8 @@ val rewrite : 'a context -> ?down:(('a, 'b) rewriter) -> ?up:(('a, 'b) rewriter)
 val nnf_rewriter : 'a context -> ('a, typ_fo) rewriter
 
 (** Convert to negation normal form ({i down} pass), and eliminate negated
-   arithmetic propositions. *)
+    equalities and inequalities.
+  *)
 val pos_rewriter : 'a context -> ('a, typ_fo) rewriter
 
 module Expr : sig

@@ -234,17 +234,14 @@ let is_presburger_atom srk atom =
     end
   with _ -> false
 
-let mk_divides srk divisor term =
+let mk_divides srk divisor linterm =
   assert (ZZ.lt ZZ.zero divisor);
-  if ZZ.equal divisor ZZ.one || V.is_zero term then
+  if ZZ.equal divisor ZZ.one || V.is_zero linterm then
     mk_true srk
   else
-    let gcd = ZZ.gcd (coefficient_gcd term) divisor in
-    let divisor = QQ.of_zz (ZZ.div divisor gcd) in
-    let term = V.scalar_mul (QQ.of_zzfrac ZZ.one gcd) term in
-    mk_eq srk
-      (mk_mod srk (of_linterm srk term) (mk_real srk divisor))
-      (mk_real srk QQ.zero)
+    V.scalar_mul (QQ.inverse (QQ.of_zz divisor)) linterm
+    |> Linear.of_linterm srk
+    |> mk_is_int srk
 
 let _mk_not_divides srk divisor term =
   assert(ZZ.lt ZZ.zero divisor);
@@ -826,57 +823,52 @@ let select_int_term srk interp x atoms =
 
 
 (* Given an interpretation M and a cube C with M |= C, find a cube C'
-   such that M |= C' |= C, and C does not contain any floor terms. *)
+   such that M |= C' |= C, and C' does not contain any floor terms. *)
 let specialize_floor_cube srk model cube =
   let div_constraints = ref [] in
-  let add_div_constraint divisor term =
-    let div =
-      mk_eq srk (mk_mod srk term (mk_real srk (QQ.of_zz divisor))) (mk_real srk QQ.zero)
-    in
-    div_constraints := div::(!div_constraints)
+  let add_div_constraint divisor linterm =
+    div_constraints := (mk_divides srk divisor linterm) :: (!div_constraints)
   in
   let replace_floor expr = match destruct srk expr with
     | `Unop (`Floor, t) ->
-       let v = linterm_of srk t in
-       let divisor = V.common_denominator v in
-       let qq_divisor = QQ.of_zz divisor in
-       let dividend = of_linterm srk (V.scalar_mul qq_divisor v) in
-       let remainder =
-         QQ.modulo (Interpretation.evaluate_term model dividend) qq_divisor
-       in
-       let dividend' = mk_sub srk dividend (mk_real srk remainder) in
-       let replacement =
-         V.add_term
-           (QQ.negate (QQ.div remainder qq_divisor))
-           Linear.const_dim
-           v
-         |> of_linterm srk
-       in
-       assert (QQ.equal
-                 (Interpretation.evaluate_term model replacement)
-                 (QQ.of_zz (QQ.floor (Interpretation.evaluate_term model t))));
-
-       add_div_constraint divisor dividend';
-       (replacement :> ('a,typ_fo) expr)
+      let v = linterm_of srk t in
+      let divisor = V.common_denominator v in
+      let qq_divisor = QQ.of_zz divisor in
+      let dividend = V.scalar_mul qq_divisor v in
+      let remainder =
+        QQ.modulo (Linear.evaluate_linterm (Interpretation.real model) dividend) 
+          qq_divisor 
+      in
+      let dividend' = V.sub dividend (Linear.const_linterm remainder) in
+      let replacement =
+        V.add_term
+          (QQ.negate (QQ.div remainder qq_divisor))
+          Linear.const_dim
+          v
+        |> of_linterm srk
+      in
+      assert (QQ.equal
+        (Interpretation.evaluate_term model replacement)
+          (QQ.of_zz (QQ.floor (Interpretation.evaluate_term model t))));
+      add_div_constraint divisor dividend';
+      (replacement :> ('a,typ_fo) expr)
     | `Binop (`Mod, t, m) ->
-       begin match destruct srk m with
-       | `Real m ->
-          let replacement =
-            mk_real srk (QQ.modulo (Interpretation.evaluate_term model t) m)
-          in
-          let m = match QQ.to_zz m with
-            | Some m -> m
-            | None -> assert false
-          in
-          add_div_constraint m (mk_sub srk t replacement);
-          (replacement :> ('a,typ_fo) expr)
-       | _ -> expr
-       end
+      begin match destruct srk m with
+      | `Real m ->
+        let remainder = QQ.modulo (Interpretation.evaluate_term model t) m in
+        let replacement = mk_real srk remainder in
+        let m = match QQ.to_zz m with
+          | Some m -> m
+          | None -> assert false
+        in
+        add_div_constraint m (V.sub (linterm_of srk t) (const_linterm remainder));
+        (replacement :> ('a,typ_fo) expr)
+      | _ -> expr
+      end
     | _ -> expr
   in
   let cube' = List.map (rewrite srk ~up:replace_floor) cube in
   (!div_constraints)@cube'
-
 
 let select_implicant srk interp ?(env=Env.empty) phi =
   match Interpretation.select_implicant interp ~env phi with

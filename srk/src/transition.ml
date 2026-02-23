@@ -7,7 +7,7 @@ module type Var = sig
   type t
   val pp : Format.formatter -> t -> unit
   val show : t -> string
-  val typ : t -> [ `TyInt | `TyReal ]
+  val typ : t -> typ_term
   val compare : t -> t -> int
   val symbol_of : t -> symbol
   val of_symbol : symbol -> t option
@@ -22,12 +22,11 @@ module Make
 struct
   module M = BatMap.Make(Var)
 
-  module Term = ArithTerm
 
   type var = Var.t
 
   type t =
-    { transform : (C.t arith_term) M.t;
+    { transform : (C.t term) M.t;
       guard : C.t formula }
 
   let compare x y =
@@ -263,7 +262,10 @@ struct
               else
                 mk_const srk (Var.symbol_of var)
             in
-            (mk_eq srk term term')::eqs)
+            match Term.refine srk term' with 
+            | `ArithTerm at -> (mk_eq srk term at)::eqs
+            | `ArrTerm _ -> eqs (* ignore array equalities for wedge domain*)
+            )
           transform
           []
       in
