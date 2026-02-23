@@ -18,9 +18,14 @@ module Solver = struct
     ; stack : ('a Formula.t list) A.t
     ; constants : Symbol.Set.t }
 
-  let preprocess srk = function
-    | `LIRR -> Syntax.eliminate_floor_mod_div srk
-    | `LIRA -> rewrite srk ~down:(pos_rewriter srk) % (Nonlinear.linearize srk)
+  let preprocess srk theory phi = match theory with
+    | `LIRR -> Syntax.eliminate_floor_mod_div srk phi
+    | `LIRA -> 
+      phi 
+      |> Nonlinear.linearize srk
+      |> Syntax.eliminate_floor_mod_div srk
+      |> Syntax.eliminate_ite srk
+      |> rewrite srk ~down:(pos_rewriter srk)
 
   let make srk ?(theory=get_theory srk) tf =
     let phi = preprocess srk theory (TF.formula tf) in
