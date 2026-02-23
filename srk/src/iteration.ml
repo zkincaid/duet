@@ -19,13 +19,8 @@ module Solver = struct
     ; constants : Symbol.Set.t }
 
   let preprocess srk theory phi = match theory with
-    | `LIRR -> Syntax.eliminate_floor_mod_div srk phi
-    | `LIRA -> 
-      phi 
-      |> Nonlinear.linearize srk
-      |> Syntax.eliminate_floor_mod_div srk
-      |> Syntax.eliminate_ite srk
-      |> rewrite srk ~down:(pos_rewriter srk)
+    | `LIRR -> phi
+    | `LIRA -> Nonlinear.linearize srk phi
 
   let make srk ?(theory=get_theory srk) tf =
     let phi = preprocess srk theory (TF.formula tf) in
@@ -71,9 +66,9 @@ module Solver = struct
   let add s formulas =
     let pp_formulas =
       List.map (preprocess (get_context s) (get_theory s)) formulas
-    in
-    Abstract.Solver.add s.solver pp_formulas;
-    A.upd s.stack (A.length s.stack - 1) (fun xs -> formulas@xs)
+  in
+  Abstract.Solver.add s.solver pp_formulas;
+  A.upd s.stack (A.length s.stack - 1) (fun xs -> formulas@xs)
 
   let check s = Abstract.Solver.check s.solver
 

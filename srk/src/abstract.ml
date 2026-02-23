@@ -95,19 +95,28 @@ module Solver = struct
     ; context : 'a context
     ; stack : ('a level) A.t }
 
+  let preprocess srk theory phi = match theory with
+    | `LIRR -> Syntax.eliminate_floor_mod_div srk phi
+    | `LIRA ->
+      phi
+      |> Syntax.eliminate_floor_mod_div srk
+      |> Syntax.eliminate_ite srk
+      |> rewrite srk ~down:(pos_rewriter srk)
+
   let make srk ?(theory=get_theory srk) formula =
+    let phi = preprocess srk theory formula in
     let solver =
       match theory with
       | `LIRR ->
         let s = Lirr.Solver.make srk in
-        Lirr.Solver.add s [formula];
+        Lirr.Solver.add s [phi];
         `LIRR s
       | `LIRA ->
         let s = Smt.StdSolver.make srk in
-        Smt.StdSolver.add s [formula];
+        Smt.StdSolver.add s [phi];
         `LIRA s
     in
-    let stack = A.singleton { models = A.create (); formula = formula } in
+    let stack = A.singleton { models = A.create (); formula = phi } in
     { solver = solver
     ; stack = stack
     ; context = srk }
