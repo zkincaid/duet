@@ -285,7 +285,6 @@ let mp solver =
     (* exists x,x'. F(x,x') /\ GZz = Sx *)
     let guard =
       mk_and srk (TF.formula tf::sim_constraints)
-      |> Syntax.eliminate_floor_mod_div srk
       |> Quantifier.mbp srk gz_symbols_set
       |> SrkSimplify.simplify_dda srk
       |> SrkSimplify.eliminate_floor srk
