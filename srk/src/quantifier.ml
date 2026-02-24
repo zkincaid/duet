@@ -5,7 +5,7 @@ open BatPervasives
 include Log.Make(struct let name = "srk.quantifier" end)
 
 exception Equal_term of Linear.QQVector.t
- 
+
 type quantifier_prefix = ([`Forall | `Exists] * symbol) list
 
 module V = Linear.QQVector
@@ -89,7 +89,7 @@ let pp_int_virtual_term srk formatter vt =
    - psi is negation- and quantifier-free formula, and contains no free
      variables
    - every atom of in psi is either a propositial variable or an arithmetic
-     atom of the form t < 0, t <= 0, or t = 0 or array equality 
+     atom of the form t < 0, t <= 0, or t = 0 or array equality
    - phi is equivalent to Q0 a0.Q1 a1. ... Qn. an. psi
 *)
 let normalize srk phi =
@@ -150,7 +150,7 @@ let simplify_atom srk op s t =
      integral *)
   let zz_linterm term =
     let qq_linterm = linterm_of srk term in
-    let multiplier = 
+    let multiplier =
       BatEnum.fold (fun multiplier (qq, _) ->
           ZZ.lcm (QQ.denominator qq) multiplier)
         ZZ.one
@@ -836,8 +836,8 @@ let specialize_floor_cube srk model cube =
       let qq_divisor = QQ.of_zz divisor in
       let dividend = V.scalar_mul qq_divisor v in
       let remainder =
-        QQ.modulo (Linear.evaluate_linterm (Interpretation.real model) dividend) 
-          qq_divisor 
+        QQ.modulo (Linear.evaluate_linterm (Interpretation.real model) dividend)
+          qq_divisor
       in
       let dividend' = V.sub dividend (Linear.const_linterm remainder) in
       let replacement =
@@ -1189,7 +1189,7 @@ let simsat_forward_core srk qf_pre phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x atoms)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x atoms)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
-    | `TyFun (_, _) 
+    | `TyFun (_, _)
     | `TyArr -> assert false
   in
 
@@ -1401,7 +1401,7 @@ let simsat_core srk qf_pre phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x phi)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x phi)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
-    | `TyFun (_, _) 
+    | `TyFun (_, _)
     | `TyArr -> assert false
   in
   match CSS.initialize_pair select_term srk qf_pre phi with
@@ -1465,7 +1465,7 @@ let maximize_feasible srk phi t =
       | `TyInt -> Skeleton.MInt (select_int_term srk m x phi)
       | `TyReal -> Skeleton.MReal (select_real_term srk m x phi)
       | `TyBool -> Skeleton.MBool (Interpretation.bool m x)
-      | `TyFun (_, _) 
+      | `TyFun (_, _)
       | `TyArr -> assert false
   in
   CSS.max_improve_rounds := 1;
@@ -1699,9 +1699,7 @@ let exists_elim solver ?(dnf=false) exists =
          ~down:(pos_rewriter srk)
          ~up:(SrkSimplify.simplify_terms_rewriter srk)
   in
-  let project =
-    Symbol.Set.filter (not % exists) (symbols phi)
-  in
+  let project = Symbol.Set.diff (symbols phi) exists in
   let disjuncts = ref [] in
   let rec loop () =
     match Abstract.Solver.get_model solver with
@@ -1751,7 +1749,7 @@ let easy_sat srk phi =
     | `TyInt -> Skeleton.MInt (select_int_term srk model x phi)
     | `TyReal -> Skeleton.MReal (select_real_term srk model x phi)
     | `TyBool -> Skeleton.MBool (Interpretation.bool model x)
-    | `TyFun (_, _) 
+    | `TyFun (_, _)
     | `TyArr -> assert false
   in
   match CSS.initialize_pair select_term srk qf_pre phi with

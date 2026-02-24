@@ -1143,10 +1143,17 @@ let prove_termination_main file =
             let simplified =
               omega_paths_sum
               |> Nonlinear.linearize srk
-              |> Quantifier.mbp srk (fun sym ->
-                      match V.of_symbol sym with
-                      | Some x -> V.is_global x
-                      | _ -> false)
+              |> (
+                fun phi ->
+                  let syms = Syntax.symbols phi in
+                  let onto = Syntax.Symbol.Set.filter (fun sym ->
+                    match V.of_symbol sym with
+                    | Some x -> V.is_global x
+                    | _ -> false
+                    ) syms
+                  in
+                  Quantifier.mbp srk onto phi
+              )
               |> Syntax.mk_not srk
             in
             Format.printf "Sufficient terminating conditions:\n%a\n"

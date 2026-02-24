@@ -19,14 +19,16 @@ val qe_mbp : 'a context -> 'a formula -> 'a formula
 
 
 (** Compute a quantifer-free formula equivalent to [exists X.F], where X is
-   the set of symbols that do *not* satisfy the given predicate and [F] is the
+   the set of symbols *not* in the given set and [F] is the
    underyling formula of the given solver.  If the [dnf] option is set, the
    result is in disjunctive normal form. *)
-val exists_elim : 'a Abstract.Solver.t -> ?dnf:bool -> (symbol -> bool) -> 'a formula
+val exists_elim : 'a Abstract.Solver.t -> ?dnf:bool -> Symbol.Set.t -> 'a formula
 
 (** Model-based projection.  If [dnf] option is set, convert to
-   disjunctive normal form. *)
-val mbp : ?dnf:bool -> 'a context -> (symbol -> bool) -> 'a formula -> 'a formula
+   disjunctive normal form. The given set of symbols is the set of symbols to
+   keep.
+*)
+val mbp : ?dnf:bool -> 'a context -> Symbol.Set.t -> 'a formula -> 'a formula
 
 (** Alternating quantifier satisfiability *)
 val easy_sat : 'a context -> 'a formula -> [ `Sat | `Unsat | `Unknown ]

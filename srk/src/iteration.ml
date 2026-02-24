@@ -285,12 +285,12 @@ module LinearGuard = struct
     let pre =
       Quantifier.exists_elim
         abs_solver
-        (fun x -> Symbol.Set.mem x constants || Symbol.Set.mem x pre_symbols)
+        (Symbol.Set.union constants pre_symbols)
     in
     let post =
       Quantifier.exists_elim
         abs_solver
-        (fun x -> Symbol.Set.mem x constants || Symbol.Set.mem x post_symbols)
+        (Symbol.Set.union constants post_symbols)
     in
     Cartesian.{ pre; post }
 
@@ -379,7 +379,7 @@ module GuardedTranslation = struct
       let result =
         Quantifier.exists_elim
           abs_solver
-          (fun x -> Symbol.Map.mem x sym_to_var)
+          (Symbol.Set.of_enum (Symbol.Map.keys sym_to_var))
         |> substitute_map srk sym_to_var
       in
       Abstract.Solver.pop abs_solver;
@@ -427,7 +427,13 @@ module GuardedTranslation = struct
                      mk_lt srk subcounter_term loop_counter])
         (substitute srk (fun (i,_) -> cf.(i)) gt.guard)
       |> mk_not srk
-      |> Quantifier.mbp srk (fun x -> x != subcounter)
+      |> (
+        fun phi ->
+          let other_symbols =
+            Symbol.Set.filter (fun x -> x != subcounter) (symbols phi)
+          in
+          Quantifier.mbp srk other_symbols phi
+      )
       |> mk_not srk
     in
     let delta i =

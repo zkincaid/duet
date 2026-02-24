@@ -895,8 +895,8 @@ let extract_constant_symbols srk tr_symbols wedge =
 let term_of_ratep srk loop_counter pre_term_of_id ep =
   let module CX = Rational.ConstRingX in
   let open Rational.RatEP in
-  let translate_const_ring c = 
-    let translate_mon m = 
+  let translate_const_ring c =
+    let translate_mon m =
       BatEnum.fold (
         fun mul (dim, pow) ->
           (mk_pow srk (pre_term_of_id dim) pow) :: mul
@@ -905,11 +905,11 @@ let term_of_ratep srk loop_counter pre_term_of_id ep =
     let add_l = QQXs.fold (
       fun m c acc ->
         (mk_mul srk ((mk_real srk c) :: (translate_mon m))) :: acc
-    ) c [] 
+    ) c []
     in
     mk_add srk add_l
   in
-  let translate_poly p = 
+  let translate_poly p =
     let add_l = CX.fold (
       fun pow c acc ->
         let term = mk_mul srk [(translate_const_ring c); (mk_pow srk loop_counter pow)] in
@@ -917,10 +917,10 @@ let term_of_ratep srk loop_counter pre_term_of_id ep =
     ) p [] in
     mk_add srk add_l
   in
-  let translate_ep (p, b) = 
+  let translate_ep (p, b) =
     mk_mul srk [translate_poly p; Nonlinear.mk_pow srk (mk_real srk b) loop_counter]
   in
-  let translate_iif ((den, shift), c) = 
+  let translate_iif ((den, shift), c) =
     let func = QQX.show den in (*Converting the iif to a string*)
     let arg = if shift = 0 then loop_counter else mk_add srk [loop_counter; mk_int srk shift] in
     let sym =
@@ -931,10 +931,10 @@ let term_of_ratep srk loop_counter pre_term_of_id ep =
     let iif = mk_app srk sym [arg] in
     mk_mul srk [iif; translate_const_ring c]
   in
-  let translate_heavy (offset, c) = 
+  let translate_heavy (offset, c) =
     mk_ite srk (mk_lt srk loop_counter (mk_real srk (QQ.of_int offset))) (mk_real srk QQ.zero) (translate_const_ring c)
   in
-  let eps_list = 
+  let eps_list =
     BatEnum.fold (
       fun add_l e ->
         (translate_ep e) :: add_l
@@ -946,7 +946,7 @@ let term_of_ratep srk loop_counter pre_term_of_id ep =
         (translate_iif iif) :: add_l
     ) eps_list (enum_iif ep)
   in
-  let eps_iifs_heavies_list = 
+  let eps_iifs_heavies_list =
     BatEnum.fold (
       fun add_l heavy ->
         (translate_heavy heavy) :: add_l
@@ -955,7 +955,7 @@ let term_of_ratep srk loop_counter pre_term_of_id ep =
   mk_add srk eps_iifs_heavies_list
 
 (** Produce a formatted string representing the matrix recurrence *)
-let pp_mat_rec f (matrix, offset, add) = 
+let pp_mat_rec f (matrix, offset, add) =
   let primed_str = Array.init (Array.length matrix) (fun i -> "x_" ^ (string_of_int (i+offset)) ^ "'") in
   let unprimed_str = Array.init (Array.length matrix) (fun i -> "x_" ^ (string_of_int (i+offset))) in
   let add_str = Array.map (SrkUtil.mk_show (QQXs.pp (fun fo d -> Format.fprintf fo "x_%d" d))) add in
@@ -963,7 +963,7 @@ let pp_mat_rec f (matrix, offset, add) =
   let length_of_biggest_primed = Array.fold_left (fun a b -> max a (String.length b)) 0 primed_str in
   let length_of_biggest_unprimed = Array.fold_left (fun a b -> max a (String.length b)) 0 unprimed_str in
   let length_of_biggest_add = Array.fold_left (fun a b -> max a (String.length b)) 0 add_str in
-  let lens_with_format_list = 
+  let lens_with_format_list =
     List.init (Array.length matrix) (
       fun i ->
         let len = Array.fold_left (
@@ -975,7 +975,7 @@ let pp_mat_rec f (matrix, offset, add) =
   let primed_form = Scanf.format_from_string ("| %" ^ string_of_int length_of_biggest_primed ^ "s |") "%s" in
   let unprimed_form = Scanf.format_from_string ("| %" ^ string_of_int length_of_biggest_unprimed ^ "s |") "%s" in
   let add_form = Scanf.format_from_string ("| %" ^ string_of_int length_of_biggest_add ^ "s |") "%s" in
-  let pp_row f i = 
+  let pp_row f i =
     Format.pp_open_box f 0;
     Format.fprintf f primed_form primed_str.(i);
     if i = ((Array.length matrix_str)/2) then
@@ -1004,14 +1004,14 @@ let pp_mat_rec f (matrix, offset, add) =
   Format.pp_print_newline f ();
   Format.pp_close_box f ()
 
-let pp_sp f sp = 
+let pp_sp f sp =
   let _ = List.fold_left (
     fun (i, offset) (blk : block) ->
       Format.fprintf f "@[Block %d : %a@]" i pp_mat_rec (blk.blk_transform, offset, blk.blk_add);
-      (i+1, offset + (Array.length blk.blk_transform))      
+      (i+1, offset + (Array.length blk.blk_transform))
       ) (1, 0) sp in
   ()
-  
+
 
 let exp_rat srk tr_symbols iter loop_counter =
   Nonlinear.ensure_symbols srk;
@@ -1423,14 +1423,19 @@ module PresburgerGuard = struct
             (Symbol.Set.add prev_counter_sym pre_symbols)
             sp.term_of_id
         in
-        Quantifier.mbp srk (fun x -> Symbol.Set.mem x allowed_symbols) prev_guard
+        Quantifier.mbp srk allowed_symbols prev_guard
       in
       mk_if srk
         (mk_and srk [mk_leq srk (mk_real srk QQ.zero) prev_counter;
                      mk_lt srk prev_counter loop_counter])
         (abstract_presburger srk exists_prev_guard)
       |> mk_not srk
-      |> Quantifier.mbp srk (fun x -> x != prev_counter_sym)
+      |> (
+        fun phi ->
+          let onto = symbols phi
+            |> Symbol.Set.filter (fun x -> x != prev_counter_sym) in
+          Quantifier.mbp srk onto phi
+      )
       |> mk_not srk
       |> rewrite srk ~down:(pos_rewriter srk) ~up:(SrkSimplify.simplify_terms_rewriter srk)
     in
@@ -1788,7 +1793,7 @@ module Id = Polynomial.Ideal
 
 module SolvablePolynomialLIRR = struct
 
-  type pre_t = 
+  type pre_t =
     {
       ideal : TransitionIdeal.t
     ; witness : TransitionIdeal.solvable_polynomial
@@ -1797,29 +1802,29 @@ module SolvablePolynomialLIRR = struct
 
   type 'a t =
     { ti : pre_t
-    ; simulation : 'a arith_term array 
+    ; simulation : 'a arith_term array
     ; constants : (symbol * symbol) list}
 
   let pp _ = assert false
 
   let make_sp ti witness = {ideal = ti; witness = witness}
 
-  let pp_dim offset formatter i = 
-    if i = 2 * offset then 
+  let pp_dim offset formatter i =
+    if i = 2 * offset then
       Format.fprintf formatter "K"
-    else if i < offset then 
+    else if i < offset then
       Format.fprintf formatter "x_%d" i
     else
       Format.fprintf formatter "x_%d'" (i - offset)
 
 
-  let exp_ti it = 
+  let exp_ti it =
     let it_offset = TransitionIdeal.get_dim it.ideal in
     let ideal = TransitionIdeal.get_ideal it.ideal in
     logf "Exponentiating : %a" (TransitionIdeal.pp (pp_dim it_offset)) it.ideal;
     if I.generators ideal = [] then
       TransitionIdeal.make it_offset ideal
-    else 
+    else
       let k_equal_i i = QQXs.sub (QQXs.of_dim (2 * it_offset)) (QQXs.scalar (QQ.of_int i)) in
       let zeroth = Id.make ((k_equal_i 0) :: (List.init it_offset (fun d -> QQXs.sub (QQXs.of_dim (d+it_offset)) (QQXs.of_dim d)))) in
       if QQXs.is_zero (I.reduce ideal QQXs.one) then
@@ -1830,9 +1835,9 @@ module SolvablePolynomialLIRR = struct
         let inv_seq_id = List.mapi (fun i (id : TransitionIdeal.t) -> Id.make ((k_equal_i (i+1)) :: (I.generators (TransitionIdeal.get_ideal id)))) inv_seq in
         let transient_closure = List.fold_left Id.intersect zeroth inv_seq_id in
         logf "Invariant Dom : %a" (I.pp (pp_dim it_offset)) inv_dom;
-        if QQXs.is_zero (I.reduce inv_dom QQXs.one) then 
+        if QQXs.is_zero (I.reduce inv_dom QQXs.one) then
           TransitionIdeal.make it_offset (Id.mk_rewrite transient_closure)
-        else      
+        else
           (log_pp  pp_sp it.witness;
           let cf = Log.time "Rat Exp" (Rational.RatEP.solve_rec) it.witness in
           let pp_cl f = Array.iteri (fun i cl -> Format.fprintf f "cl.(%d) = %a@." i Rational.RatEP.pp cl) in
@@ -1841,12 +1846,12 @@ module SolvablePolynomialLIRR = struct
           let module EP = (val Log.time "Splitting Field" Rational.RatEP.to_nf cf) in
           let zero_eig_transient, zero_eigen_stab, rels = Log.time "Algebraic Relations" EP.long_run_algebraic_relations () in
           logf "Alg Relations: %a" (Id.pp (pp_dim it_offset)) (Id.make rels);
-          let cl = 
+          let cl =
             if (List.length inv_seq_id) + 1 >= zero_eigen_stab then
               Id.intersect transient_closure (Id.sum inv_dom_id (Id.make rels))
             else
-              let rec get_rels_after_inv_transient i l = 
-                if i >= (List.length inv_seq_id) + 1 then 
+              let rec get_rels_after_inv_transient i l =
+                if i >= (List.length inv_seq_id) + 1 then
                   List.fold_left (
                     fun ideal state ->
                       let gens, _ = Array.fold_left (
@@ -1860,7 +1865,7 @@ module SolvablePolynomialLIRR = struct
               Id.intersect transient_closure (get_rels_after_inv_transient 0 zero_eig_transient)
           in
           TransitionIdeal.make it_offset (Id.mk_rewrite cl))
-      
+
   let exp_t solver it loop_count =
     let srk = IS.get_context solver in
     let tr_symbols = IS.get_symbols solver in
@@ -1898,7 +1903,7 @@ module SolvablePolynomialLIRR = struct
           mk_eq srk p_t (mk_real srk (QQ.zero))
       ) gens in
       mk_and srk gens_t
-    
+
 
   let abstract_sp abstraction solver =
     let srk = IS.get_context solver in
@@ -1964,7 +1969,7 @@ module SolvablePolynomialLIRR = struct
     in
     abstract_cone ideal
 
-  let abstract solver = 
+  let abstract solver =
     abstract_sp TransitionIdeal.solvable_reflection solver
 
   let exp solver loop_counter = exp_t solver (abstract solver) loop_counter

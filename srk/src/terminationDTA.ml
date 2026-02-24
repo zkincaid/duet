@@ -286,7 +286,7 @@ let mp solver =
     let guard =
       mk_and srk (TF.formula tf::sim_constraints)
       |> Syntax.eliminate_floor_mod_div srk
-      |> Quantifier.mbp srk (fun s -> Symbol.Set.mem s gz_symbols_set)
+      |> Quantifier.mbp srk gz_symbols_set
       |> SrkSimplify.simplify_dda srk
       |> SrkSimplify.eliminate_floor srk
       (* 
@@ -347,5 +347,5 @@ let mp solver =
     let f = mk_and srk (sim_constraints@(Periodic.period xseq)) in
     logf "DTA mp: %a" (Formula.pp srk) f;
     f
-    |> Quantifier.mbp srk (fun s -> not (Symbol.Set.mem s gz_symbols_set))
+    |> Quantifier.mbp srk (Symbol.Set.diff (symbols f) gz_symbols_set)
     |> mk_not srk
