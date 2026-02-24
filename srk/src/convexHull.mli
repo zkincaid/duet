@@ -40,15 +40,6 @@ val abstract : 'a Abstract.Solver.t ->
                'a arith_term array ->
                t
 
-(** Same as [abstract], with [lira_retype_as_real] and [purify_formula] having the
-    same effects.
- *)
-val conv_hull : ?man:(DD.closed Apron.Manager.t) ->
-                'a context ->
-                'a formula ->
-                ('a arith_term) array ->
-                DD.closed DD.t
-
 (** Given a solver containing formula [F],
     terms [t_0, ..., t_n], and a model [m],
     compute a subset of the closed convex hull of

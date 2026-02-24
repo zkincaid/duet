@@ -405,7 +405,8 @@ let suite = "Abstract" >::: [
                         ; ([0; -1], -3)]
           |> Polyhedron.dd_of 2
         in
-        assert_equal_dd p (ConvexHull.conv_hull srk phi [| x; int 3 |]))
+        let solver = Abstract.Solver.make srk phi in 
+        assert_equal_dd p (ConvexHull.abstract solver [| x; int 3 |]))
 
     ; "conv_hull2" >:: (fun () ->
         let open Infix in
@@ -420,6 +421,7 @@ let suite = "Abstract" >::: [
                         ; ([-1; 1], 0)]
           |> Polyhedron.dd_of 2
         in
-        assert_equal_dd p (ConvexHull.conv_hull srk phi [| x; x |]))
+        let solver = Abstract.Solver.make srk phi in
+        assert_equal_dd p (ConvexHull.abstract solver [| x; x |]))
 
   ]
