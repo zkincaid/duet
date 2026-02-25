@@ -103,8 +103,12 @@ module Solver = struct
       |> Syntax.eliminate_ite srk
       |> rewrite srk ~down:(pos_rewriter srk)
 
+  let preprocessor = ref preprocess
+
+  let set_preprocessor f = (preprocessor := f)
+
   let make srk ?(theory=get_theory srk) formula =
-    let phi = preprocess srk theory formula in
+    let phi = !preprocessor srk theory formula in
     let solver =
       match theory with
       | `LIRR ->
@@ -219,11 +223,16 @@ module Solver = struct
   let add s phis =
     let srk = get_context s in
     let top = A.last s.stack in
-    top.formula <- mk_and srk (top.formula::phis);
-    A.keep (fun m -> List.for_all (sat srk m) phis) top.models;
+    let theory = match s.solver with
+      | `LIRR _ -> `LIRR
+      | `LIRA _ -> `LIRA
+    in
+    let phis' = List.map (!preprocessor srk theory) phis in
+    top.formula <- mk_and srk (top.formula::phis');
+    A.keep (fun m -> List.for_all (sat srk m) phis') top.models;
     match s.solver with
-    | `LIRA s -> Smt.StdSolver.add s phis
-    | `LIRR s -> Lirr.Solver.add s phis
+    | `LIRA s -> Smt.StdSolver.add s phis'
+    | `LIRR s -> Lirr.Solver.add s phis'
 
 end
 

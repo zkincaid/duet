@@ -1,4 +1,4 @@
-(** Symbolic abstraction routines. *)
+(** Symbolic abstraction and local abstraction routines. *)
 open Syntax
 
 (** [affine_hull srk phi symbols] computes a basis for the affine hull of phi,
@@ -29,7 +29,7 @@ type ('a, 'b) domain =
   ; formula_of : 'b -> 'a formula
   ; top : 'b
   ; bottom : 'b }
-  
+
 module Model : sig
   type 'a t = 'a smt_model
   val sat : 'a context -> 'a t -> 'a formula -> bool
@@ -42,6 +42,13 @@ end
     of the formula *)
 module Solver : sig
   type 'a t
+
+  (** Override default preprocessing of a formula before it is inserted into
+    the solver.
+  *)
+  val set_preprocessor: ('a context -> ?theory:[`LIRR | `LIRA] ->
+      'a formula -> 'a formula
+    ) ref -> unit
 
   (** Allocate a new solver. *)
   val make : 'a context -> ?theory:[`LIRR | `LIRA ] -> 'a formula -> 'a t
