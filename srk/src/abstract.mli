@@ -45,6 +45,13 @@ module Solver : sig
 
   (** Override default preprocessing of a formula before it is inserted into
     the solver.
+
+    By default, for LIRA, formulas are at minimum preprocessed to have
+    no floor and mod, so that terms are in LRA. Predicates are however in LIRA,
+    and [is_int] atoms may be present in the solver.
+
+    For LIRR, default preprocessing also eliminates floor and mod, interpreting
+    them as floor and mod functions in usual arithmetic.
   *)
   val set_preprocessor: ('a context -> ?theory:[`LIRR | `LIRA] ->
       'a formula -> 'a formula
