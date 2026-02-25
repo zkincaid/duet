@@ -17,7 +17,6 @@ let dump_hull = ref false
 let dump_hull_prefix = ref ""
 
 let abstraction_algorithm = ref (Plt.LiraCCH (Plt.PolyReccone_LPLH None))
-let purify_formula = ref true
 
 let retype_as_real = function
   | Plt.LraCCH _ -> true
@@ -84,19 +83,14 @@ let conv_hull ?(man=Polka.manager_alloc_loose ()) srk phi terms =
   dump_hull_obligations srk phi terms;
   begin match retype_as_real !abstraction_algorithm with
   | false ->
-     let phi' =
-       if !purify_formula then Syntax.eliminate_floor_mod_div srk phi else phi
-     in
      begin match !abstraction_algorithm with
      | LiraCCH alg ->
-        Plt.convex_hull (LiraCCH alg) ~man srk phi' terms
+        Plt.convex_hull (LiraCCH alg) ~man srk phi terms
      | _ -> invalid_arg "Lia not supported"
      end
   | true ->
-     let phi' =
-       if !purify_formula then Syntax.eliminate_floor_mod_div_int srk phi else phi
-     in
-     let (relaxed_phi, realified_terms, _) = Plt.realify_formula_and_terms srk phi' terms in
+     let (relaxed_phi, realified_terms, _) =
+      Plt.realify_formula_and_terms srk phi terms in
      begin match !abstraction_algorithm with
      | LraCCH alg ->
         Plt.convex_hull (LraCCH alg) ~man srk relaxed_phi realified_terms
@@ -140,14 +134,14 @@ let abstract solver ?(man=Polka.manager_alloc_loose ()) ?(bottom=None) terms =
      in
      Solver.abstract solver domain
   | `LIRA ->
-     begin match (retype_as_real !abstraction_algorithm, !purify_formula) with
-     | (false, false) ->
+     begin match (retype_as_real !abstraction_algorithm) with
+     | false ->
         begin match !abstraction_algorithm with
         | LiraCCH alg ->
            Plt.abstract (LiraCCH alg) ~man ~bottom solver terms
         | _ -> invalid_arg "Lia not supported"
         end
-     | (_, _) ->
+     | true ->
         conv_hull ~man (Solver.get_context solver) phi terms
      end
 
