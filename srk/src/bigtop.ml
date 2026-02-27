@@ -116,13 +116,6 @@ module ConvHull : sig
 
   val dd_subset: DD.closed DD.t -> DD.closed DD.t -> bool
 
-  (* Both [`JustLraFormula] and [`Realified] purify the formula to get an
-     LRA formula, but the latter also replaces integer symbols with real ones.
-   *)
-  type real_relaxation = NoRelax | JustLraFormula | Realified
-
-  val relax_to_real: real_relaxation ref
-
   val convex_hull: 'a context ->
                    abstraction_algorithm -> 'a formula -> DD.closed DD.t
 
@@ -190,10 +183,6 @@ end = struct
       end
 
   module S = Syntax.Symbol.Set
-
-  type real_relaxation = NoRelax | JustLraFormula | Realified
-
-  let relax_to_real = ref NoRelax
 
   let retype_quantifier_free srk how phi =
     let retype fml =
@@ -298,32 +287,18 @@ end = struct
     if List.exists (fun (q, _) -> q = `Forall) qf then
       failwith "universal quantification not supported";
     let quantified_symbols = List.map (fun (_, sym) -> sym) qf in
-    let original_symbols_to_keep = S.diff (symbols phi) (S.of_list quantified_symbols) in
-    let (processed_phi, introduced_symbols, remap) =
-      match !relax_to_real with
-      | Realified ->
-         let (phi', introduced_symbols', map, _) = retype_quantifier_free srk `LiraToLra phi in
-         (phi', introduced_symbols', map)
-      | JustLraFormula ->
-         let phi' = Syntax.eliminate_floor_mod_div_int srk phi in
-         let introduced_symbols = S.diff (Syntax.symbols phi') (Syntax.symbols phi) in
-         (phi', introduced_symbols, (fun s -> s))
-      | NoRelax -> (phi, Syntax.Symbol.Set.empty, (fun s -> s))
-    in
-    let symbols_to_eliminate =
-      S.union introduced_symbols (S.of_list (List.map remap quantified_symbols)) in
+    let original_symbols_to_keep =
+      S.diff (symbols phi) (S.of_list quantified_symbols) in
+    let symbols_to_eliminate = S.of_list quantified_symbols in
     Format.printf "Quantified symbols: %a\n"
       (Format.pp_print_list ~pp_sep:Format.pp_print_space
          (fun fmt (_, sym) -> (Syntax.pp_symbol srk) fmt sym)) qf;
-    Format.printf "Introduced symbols: %a\n"
-      (Format.pp_print_list ~pp_sep:Format.pp_print_space (Syntax.pp_symbol srk))
-      (S.to_list introduced_symbols);
 
-    let symbols = Syntax.symbols processed_phi in
+    let symbols = Syntax.symbols phi in
     let symbols_to_keep = S.diff symbols symbols_to_eliminate in
     assert (S.cardinal symbols_to_keep = S.cardinal original_symbols_to_keep);
     let terms =
-      List.map (fun sym -> Syntax.mk_const srk (remap sym)) (S.to_list original_symbols_to_keep)
+      List.map (Syntax.mk_const srk) (S.to_list original_symbols_to_keep)
       (* Order matters, and we map using the order of original symbols to allow
          comparison between methods *)
       |> Array.of_list
@@ -345,7 +320,7 @@ end = struct
       (* Format.printf "Formula before processing: @[%a@]@;"
          (Syntax.Formula.pp srk) phi; *)
       Format.printf "Taking convex hull of formula: @[%a@]@;"
-        (Syntax.Formula.pp srk) processed_phi;
+        (Syntax.Formula.pp srk) phi;
       Format.printf "Symbols to keep: @[%a@]@;" pp_symbols symbols_to_keep;
       Format.printf "Symbols to eliminate: @[%a@]@;" pp_symbols symbols_to_eliminate;
       Format.printf "Integer symbols: @[%a@]@;"
@@ -354,7 +329,7 @@ end = struct
         (Symbol.Set.to_list int_symbols)
     in
     print_input ();
-    let result = _convex_hull how srk processed_phi terms in
+    let result = _convex_hull how srk phi terms in
     Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
       (Syntax.Formula.pp srk)
       (formula_of_dd srk (fun dim -> terms.(dim)) result);
@@ -393,7 +368,6 @@ let spec_list = [
   ("-lira-convex-hull-pc"
   , Arg.String
       (fun file ->
-        ConvHull.relax_to_real := NoRelax;
         ignore
           (ConvHull.convex_hull srk (ConvHull.LiraCCH PolyReccone)
              (load_formula file));
@@ -407,7 +381,6 @@ let spec_list = [
   ("-lira-convex-hull-lplh"
   , Arg.String
       (fun file ->
-        ConvHull.relax_to_real := NoRelax;
         ignore
           (ConvHull.convex_hull srk (ConvHull.LiraCCH (LiraLPLH None)) (load_formula file));
         Format.printf "Result: success"
@@ -420,7 +393,6 @@ let spec_list = [
   ("-lira-convex-hull-pc-lplh"
   , Arg.String
       (fun file ->
-        ConvHull.relax_to_real := NoRelax;
         ignore (ConvHull.convex_hull srk (ConvHull.LiraCCH (PolyReccone_LPLH None)) (load_formula file));
         Format.printf "Result: success"
       )
@@ -432,7 +404,6 @@ let spec_list = [
   ("-lia-convex-hull-lia-lplh"
   , Arg.String
       (fun file ->
-        ConvHull.relax_to_real := NoRelax;
         ignore
           (ConvHull.convex_hull srk (LiaCCH LiaLPLH) (load_formula file));
         Format.printf "Result: success"
@@ -440,35 +411,9 @@ let spec_list = [
   , "Compute the convex hull of an existential formula in LIA by local projection followed by taking local hull."
   );
 
-  ("-lia-convex-hull-hull-then-project-gc"
-  , Arg.String
-      (fun file ->
-        ConvHull.relax_to_real := JustLraFormula;
-        ignore
-          (ConvHull.convex_hull srk (LiaCCH (HullThenProject `GomoryChvatal)) (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in LIA by computing the integer hull
-     using iterated Gomory-Chvatal closure and then projecting it. All variables must be of
-     integer type for this to be sound."
-  );
-
-  ("-lia-convex-hull-hull-then-project-normaliz"
-  , Arg.String
-      (fun file ->
-        ConvHull.relax_to_real := JustLraFormula;
-        ignore
-          (ConvHull.convex_hull srk (LiaCCH (HullThenProject `Normaliz)) (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in LIA by computing the integer hull
-     using Normaliz and then projecting it. All variables should be of integer type for this to be sound."
-  );
-
   ("-lra-convex-hull-lw"
   , Arg.String
       (fun file ->
-        ConvHull.relax_to_real := NoRelax;
         ignore (ConvHull.convex_hull srk (LraCCH LwMbp) (load_formula file));
         Format.printf "Result: success"
       )
@@ -478,7 +423,6 @@ let spec_list = [
   ("-lra-convex-hull-fmcad15"
   , Arg.String
       (fun file ->
-        ConvHull.relax_to_real := NoRelax;
         ignore (ConvHull.convex_hull srk (LraCCH FullProject) (load_formula file));
         Format.printf "Result: success")
   , "Compute the convex hull of an existential formula in linear real arithmetic
