@@ -382,37 +382,107 @@ let spec_list = [
    Arg.Set generator_rep,
    " Print generator representation of convex hull");
 
-  ("-lira-convex-hull"
+  ("-lira-convex-hull-pc"
+  , Arg.String
+      (fun file ->
+        ConvHull.relax_to_real := NoRelax;
+        ignore
+          (ConvHull.convex_hull srk (Plt.LiraCCH PolyReccone)
+             (load_formula file));
+        Format.printf "Result: success"
+      )
+  ,
+    "Compute the convex hull of an existential formula in LIRA
+     using the polyhedral-level-set-and-recession-cone abstraction"
+  );
+
+  ("-lira-convex-hull-lplh"
+  , Arg.String
+      (fun file ->
+        ConvHull.relax_to_real := NoRelax;
+        ignore
+          (ConvHull.convex_hull srk (Plt.LiraCCH (LiraLPLH None)) (load_formula file));
+        Format.printf "Result: success"
+      )
+  , "Compute the convex hull of an existential formula in LIRA using local projection
+     followed by taking local hull, the latter of which is based on
+     'An efficient quantifier elimination procedure for Presburger arithmetic' (ICALP 2024))."
+  );
+
+  ("-lira-convex-hull-pc-lplh"
   , Arg.String
       (fun file ->
         ConvHull.relax_to_real := NoRelax;
         ignore (ConvHull.convex_hull srk (Plt.LiraCCH (PolyReccone_LPLH None)) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in LIRA"
+  , "Compute the convex hull of an existential formula in LIRA using the join of
+     -lira-convex-hull-pc and -lira-convex-hull-lplh"
   );
 
-  ("-lira-convex-hull-partial-real-relaxation"
-  , Arg.String
-      (fun file ->
-        ConvHull.relax_to_real := JustLraFormula;
-        ignore (ConvHull.convex_hull srk (LraCCH LwMbp) (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in LIRA by translating it into the language of LRA and doing local projection."
-  );
-
-  ("-lira-convex-hull-real-relaxation"
+  ("-lira-convex-hull-real-relaxation-lw"
   , Arg.String
       (fun file ->
         ConvHull.relax_to_real := Realified;
         ignore (ConvHull.convex_hull srk (LraCCH LwMbp) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in LIRA by translating it into the language of LRA, dropping all integrality constriants, and doing local projection."
+  , "Compute the convex hull of an existential formula in LIRA by first expressing it as an equivalent formula in the signature of LRA using more variables, casting all variables to real, and then doing local projection."
   );
 
-  ("-lia-convex-hull"
+  ("-lira-convex-hull-real-relaxation-fmcad15"
+  , Arg.String
+      (fun file ->
+        ConvHull.relax_to_real := Realified;
+        ignore (ConvHull.convex_hull srk (LraCCH FullProject) (load_formula file));
+        Format.printf "Result: success"
+      )
+  , "Compute the convex hull of an existential formula in LIRA by by first expressing it as an equivalent formula in the signature of LRA using more variables, casting all variables to real, and then doing a full projection (FMCAD'15)."
+  );
+
+  ("-compare-lira-convex-hull-pc-lplh-vs-pc"
+  , Arg.String (fun file ->
+        ConvHull.compare srk
+          DD.equal (LiraCCH (PolyReccone_LPLH None), NoRelax) (LiraCCH PolyReccone, NoRelax)
+          (load_formula file))
+  , "Test convex hulls for correctness"
+  );
+
+  ("-compare-lira-convex-hull-pc-lplh-vs-lira-lplh"
+  , Arg.String (fun file ->
+        ConvHull.compare srk
+          DD.equal (LiraCCH (PolyReccone_LPLH None), NoRelax) (LiraCCH (LiraLPLH None), NoRelax)
+          (load_formula file))
+  , "Test convex hulls computed by -lira-convex-hull-pc-lplh with that of -lira-convex-hull-lplh"
+  );
+
+  ("-compare-lira-convex-hull-pc-lplh-vs-real-relaxation-lw"
+  , Arg.String (fun file ->
+        ConvHull.compare srk
+          DD.equal (LiraCCH (PolyReccone_LPLH None), NoRelax) (LraCCH LwMbp, Realified)
+          (load_formula file))
+  , "Compare convex hull of a LIRA formula against that of its real relaxation"
+  );
+
+  ("-compare-lira-convex-hull-pc-lplh-vs-lw"
+  , Arg.String (fun file ->
+        ConvHull.compare srk
+          DD.equal
+          (LiraCCH (PolyReccone_LPLH None), NoRelax)
+          (LraCCH LwMbp, JustLraFormula)
+          (load_formula file))
+  , "Compare convex hull of a LIRA formula against that of -lra-convex-hull-lw (integer symbols preserved if any, but explicit is_int constraints are ignored)"
+  );
+
+  ("-compare-lira-convex-hull-partial-relaxation-vs-full-relaxation"
+  , Arg.String (fun file ->
+        ConvHull.compare srk DD.equal
+          (LraCCH LwMbp, JustLraFormula) (LraCCH LwMbp, Realified)
+          (load_formula file))
+  , "Compare convex hull of partially relaxed formula using LW against that of its real relaxation"
+  );
+
+  ("-lia-convex-hull-lia-lplh"
   , Arg.String
       (fun file ->
         ConvHull.relax_to_real := NoRelax;
@@ -420,7 +490,84 @@ let spec_list = [
           (ConvHull.convex_hull srk (LiaCCH LiaLPLH) (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in LIA (i.e., all variables are integer-typed or integer-valued)"
+  , "Compute the convex hull of an existential formula in LIA by local projection followed by taking local hull."
+  );
+
+  ("-lia-convex-hull-hull-then-project-gc"
+  , Arg.String
+      (fun file ->
+        ConvHull.relax_to_real := JustLraFormula;
+        ignore
+          (ConvHull.convex_hull srk (LiaCCH (HullThenProject `GomoryChvatal)) (load_formula file));
+        Format.printf "Result: success"
+      )
+  , "Compute the convex hull of an existential formula in LIA by computing the integer hull
+     using iterated Gomory-Chvatal closure and then projecting it. All variables must be of
+     integer type for this to be sound."
+  );
+
+  ("-lia-convex-hull-hull-then-project-normaliz"
+  , Arg.String
+      (fun file ->
+        ConvHull.relax_to_real := JustLraFormula;
+        ignore
+          (ConvHull.convex_hull srk (LiaCCH (HullThenProject `Normaliz)) (load_formula file));
+        Format.printf "Result: success"
+      )
+  , "Compute the convex hull of an existential formula in LIA by computing the integer hull
+     using Normaliz and then projecting it. All variables should be of integer type for this to be sound."
+  );
+
+  ("-compare-lia-convex-hull-lia-lplh-vs-pc-lplh"
+  , Arg.String
+      (fun file ->
+        ConvHull.compare srk DD.equal
+          (LiaCCH LiaLPLH, NoRelax)
+          (LiraCCH (PolyReccone_LPLH None), NoRelax)
+          (load_formula file)
+      )
+  , "Test convex hulls for correctness"
+  );
+
+  ("-compare-lia-convex-hull-lia-lplh-vs-hull-then-proj-gc"
+  , Arg.String
+      (fun file ->
+        ConvHull.compare srk DD.equal
+          (LiaCCH LiaLPLH, NoRelax)
+          (LiaCCH (HullThenProject `GomoryChvatal), JustLraFormula)
+          (load_formula file)
+      )
+  , "Test convex hulls for correctness"
+  );
+
+  ("-lra-convex-hull-lw"
+  , Arg.String
+      (fun file ->
+        ConvHull.relax_to_real := NoRelax;
+        ignore (ConvHull.convex_hull srk (LraCCH LwMbp) (load_formula file));
+        Format.printf "Result: success"
+      )
+  , "Compute the convex hull of an existential formula in LRA using Loos-Weispfenning. This retains integrality (type) of variables; use -lira-convex-hull-real-relxation-lw if variables should be cast to real."
+  );
+
+  ("-lra-convex-hull-fmcad15"
+  , Arg.String
+      (fun file ->
+        ConvHull.relax_to_real := NoRelax;
+        ignore (ConvHull.convex_hull srk (LraCCH FullProject) (load_formula file));
+        Format.printf "Result: success")
+  , "Compute the convex hull of an existential formula in linear real arithmetic
+     using full projection (FMCAD'15)."
+  );
+
+  ("-compare-lra-convex-hull-lw-vs-fmcad15"
+  , Arg.String
+      (fun file ->
+        ConvHull.compare srk DD.equal
+          (LraCCH LwMbp, NoRelax) (LraCCH FullProject, NoRelax)
+          (load_formula file)
+      )
+  , "Test convex hulls for correctness"
   );
 
   ("-integralize-smt-file"
