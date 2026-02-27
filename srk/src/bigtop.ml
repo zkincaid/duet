@@ -101,10 +101,6 @@ module ConvHull : sig
 
   (** LRA abstraction ignores all [is_int] constraints in the implicant and
       integrality of variables.
-      (But the solver finds models that respect integrality of variables.
-      An LRA overapproximation should in principle be the LRA abstraction of
-      the real relaxation of the formula, where we replace all integer-typed
-      variables with real-typed ones, via [realify_formula_and_terms] below.)
    *)
   type lra_abstraction =
     | FullProject
@@ -125,8 +121,6 @@ module ConvHull : sig
   type real_relaxation = NoRelax | JustLraFormula | Realified
 
   val relax_to_real: real_relaxation ref
-
-  val keep_floor_mod_div: bool ref
 
   val convex_hull: 'a context ->
                    abstraction_algorithm -> 'a formula -> DD.closed DD.t
@@ -205,8 +199,9 @@ end = struct
 
   type real_relaxation = NoRelax | JustLraFormula | Realified
 
-  (* Purify using floor_mod_div by default *)
+  (* Purify flood, mod, div by default *)
   let keep_floor_mod_div = ref false
+
   let relax_to_real = ref NoRelax
 
   let pp_alg fmt alg =

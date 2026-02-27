@@ -1208,24 +1208,6 @@ end
 
 let _formula_of_plt = Plt.formula_of_plt
 
-let realify_formula_and_terms srk phi terms =
-  let (phi', map) = Syntax.retype srk `IntToReal Symbol.Map.empty phi in
-  let accumulated_map =
-    Array.fold_left
-      (fun acc_map term ->
-        let (_, map') = Syntax.retype srk `IntToReal acc_map term in map'
-      )
-      map
-      terms
-  in
-  let lookup s = match Syntax.Symbol.Map.find_opt s accumulated_map with
-    | Some s' -> Syntax.mk_const srk s'
-    | None -> Syntax.mk_const srk s
-  in
-  let terms' = Array.map (fun term -> Syntax.substitute_const srk lookup term) terms
-  in
-  (phi', terms', accumulated_map)
-
 let select_vt = LwCooper.select_vt (fun _m v -> v)
 let virtual_subst
       srk

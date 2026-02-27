@@ -141,15 +141,6 @@ module ConvexHull : sig
 
 end
 
-(** Retype a formula F and terms T to a formula F' and terms T' in real-typed symbols only,
-    and output the map that sends all original integer-typed symbols in F and T to real-typed
-    symbols in F' and T'.
-    The structures of F and F' are the same.
- *)
-val realify_formula_and_terms:
-  'a Syntax.context -> 'a Syntax.formula -> 'a Syntax.arith_term array ->
-  'a Syntax.formula * 'a Syntax.arith_term array * Syntax.symbol Syntax.Symbol.Map.t
-
 type plt_constraints
 type virtual_term
 
