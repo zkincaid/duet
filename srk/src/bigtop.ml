@@ -420,15 +420,6 @@ let spec_list = [
   , "Compute the convex hull of an existential formula in LRA using Loos-Weispfenning. This retains integrality (type) of variables; use -lira-convex-hull-real-relxation-lw if variables should be cast to real."
   );
 
-  ("-lra-convex-hull-fmcad15"
-  , Arg.String
-      (fun file ->
-        ignore (ConvHull.convex_hull srk (LraCCH FullProject) (load_formula file));
-        Format.printf "Result: success")
-  , "Compute the convex hull of an existential formula in linear real arithmetic
-     using full projection (FMCAD'15)."
-  );
-
   ("-integralize-smt-file"
   , Arg.String (fun file ->
         let () =
