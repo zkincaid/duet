@@ -7,71 +7,20 @@ module V = Linear.QQVector
 include Log.Make (struct let name = "srk.polyhedronLatticeTiling" end)
 
 let () = my_verbosity_level := `info
-let test_convex_hull = ref false
+(* let test_convex_hull = ref false *)
 let test_level = ref `debug
 
 let eager_hermite = ref false
 
-module LocalAbstraction : sig
+type ('concept1, 'model1, 'concept2, 'model2) local_abstraction =
+  ('concept1 * 'model1) -> ('concept2 * 'model2)
 
-  (** A concept space consists of a representation of points
-      and a representation of concepts (sets of points).
-
-      For concept spaces C_i = ('concept_i, 'point_i), i = 1, 2,
-      a function [f: 'concept_1 -> 'concept_2] is called a universe translation.
-      A local abstraction respecting [f] is a function [abstract]
-      such that for all [pt] in [concept],
-      [f(pt)] \in [abstract pt concept] \subseteq [f(concept)].
-
-      There are three concept spaces of interest:
-      - Formulas and interpretations
-      - PLTs (polyhedron-lattice-tiling) and points ([int -> QQ.t])
-      - DDs (double-description polyhedra) and points ([int -> QQ.t])
-   *)
-
-  type ('concept1, 'point1, 'concept2, 'point2) t =
-    {
-      abstract: 'point1 -> 'concept1 -> 'concept2
-    ; translate: 'point1 -> 'point2
-    }
-
-  val compose:
-    ('concept2, 'point2, 'concept3, 'point3) t ->
-    ('concept1, 'point1, 'concept2, 'point2) t ->
-    ('concept1, 'point1, 'concept3, 'point3) t
-
-  (* Requires that the underlying universe translations are the same *)
-  val join:
-    ('concept2 -> 'concept2 -> 'concept2) ->
-    ('concept1, 'point1, 'concept2, 'point2) t ->
-    ('concept1, 'point1, 'concept2, 'point2) t ->
-    ('concept1, 'point1, 'concept2, 'point2) t
-
-end = struct
-
-  type ('concept1, 'point1, 'concept2, 'point2) t =
-    {
-      abstract: 'point1 -> 'concept1 -> 'concept2
-    ; translate: 'point1 -> 'point2
-    }
-
-  let compose
-        (t2: ('concept2, 'point2, 'concept3, 'point3) t)
-        (t1: ('concept1, 'point1, 'concept2, 'point2) t) =
-    let translate p = t2.translate (t1.translate p) in
-    let abstract x c = t2.abstract (t1.translate x) (t1.abstract x c) in
-    { abstract
-    ; translate
-    }
-
-  let join concept_join t1 t2 =
-    let abstract x c = concept_join (t1.abstract x c) (t2.abstract x c) in
-    {
-      abstract
-    ; translate = t1.translate
-    }
-
-end
+let join join_operator local_abs1 local_abs2 (concept, model) =
+  let hull1 = local_abs1 (concept, model) in
+  let hull2 = local_abs2 (concept, model) in
+  ( join_operator (fst hull1) (fst hull2)
+  , snd hull1
+  )
 
 module IntSet = SrkUtil.Int.Set
 module IntMap = SrkUtil.Int.Map
@@ -97,6 +46,7 @@ let formula_t srk term_of_dim v =
   let t = term_of_vec srk term_of_dim v in
   mk_not srk (mk_is_int srk t)
 
+(*
 let formula_of_dd srk term_of_dim dd =
   DD.enum_constraints dd
   |> BatEnum.fold
@@ -104,6 +54,7 @@ let formula_of_dd srk term_of_dim dd =
          P.formula_of_constraint srk term_of_dim (kind, v) :: atoms) []
   |> List.rev
   |> mk_and srk
+*)
 
 let collect_dimensions vector_of add_dim constraints =
   let dims = ref IntSet.empty in
@@ -193,6 +144,7 @@ let test_point_in_lattice ?(level = !test_level) is_int str m l =
       l
   else ()
 
+(*
 let test_implication ?(level = !test_level) str solver consequence =
   if Log.level_leq !my_verbosity_level level then
     begin
@@ -224,6 +176,7 @@ let _test_hull ?(level = !test_level) solver terms dd =
       solver consequence
   else
     ()
+*)
 
 type plt_constraints = (P.constraint_kind * V.t) list * V.t list * V.t list
 
@@ -253,7 +206,8 @@ module Plt: sig
    *)
   val cubify:
     'a context -> 'a arith_term array -> Symbol.Set.t ->
-    ('a formula, 'a Interpretation.interpretation, t, int -> QQ.t) LocalAbstraction.t
+    ('a formula, 'a Interpretation.interpretation, t, int -> QQ.t)
+      local_abstraction
     * (int -> 'a arith_term)
 
   val poly_part: t -> P.t
@@ -264,15 +218,12 @@ module Plt: sig
     poly_part:P.t ->
     lattice_part: L.unreduced L.t -> tiling_part: L.unreduced L.t -> t
 
-  val plt_constraints_of_cube : 'a context ->
-                                (symbol -> V.t) ->
-                                'a formula list ->
-                                plt_constraints
+  val plt_constraints_of_cube : 'a context
+    -> (symbol -> V.t) -> 'a formula list -> plt_constraints
 
-  val formula_of_plt_constraints: 'a Syntax.context ->
-                                  ?term_of_dim:('a context -> int -> 'a arith_term) ->
-                                  plt_constraints ->
-                                  'a formula
+  val formula_of_plt_constraints: 'a Syntax.context
+    -> ?term_of_dim:('a context -> int -> 'a arith_term)
+    -> plt_constraints -> 'a formula
 
 end = struct
   type t =
@@ -455,7 +406,7 @@ end = struct
       else
         terms.(dim)
     in
-    let abstract interp phi =
+    let abstract phi interp =
       let implicant = Option.get (Interpretation.select_implicant interp phi) in
       logf ~level:`debug "cubify: abstracting @[%a@]"
         (Format.pp_print_list
@@ -488,40 +439,41 @@ end = struct
         (translate interp) (L.generators plt.tiling_part);
       plt
     in
-    ( LocalAbstraction.{
-        abstract
-      ; translate
-      }
-    , interp_dim
-    )
-
+    ( (fun (phi, m) -> (abstract phi m, translate m))
+    , interp_dim)
 end
 
 module CloseStrictIneq : sig
 
-  (** Strict inequalities make projection more complex, so it helps to remove them first.
-   *)
+  (** Strict inequalities make projection more complex, so it helps to remove
+      them first.
+  *)
 
-  (** For LRA (no lattice and tiling constraints), we can close strict inequalities trivially
-      because projection and taking closure commutes.
+  (** For LRA (no lattice and tiling constraints), we can close strict
+      inequalities trivially because projection and taking closure commutes.
       The lattice and tiling components of the plt are ignored and dropped.
    *)
-  val round_assuming_no_ints: (Plt.t, int -> QQ.t, P.t, int -> QQ.t) LocalAbstraction.t
+  val round_assuming_no_ints: (Plt.t, int -> QQ.t, P.t, int -> QQ.t)
+    local_abstraction
 
   (** For LIA: t > 0 <=> t >= 1.
       The lattice and tiling components of the plt are ignored.
    *)
-  val round_assuming_all_ints: (Plt.t, int -> QQ.t, Plt.t, int -> QQ.t) LocalAbstraction.t
+  val round_assuming_all_ints: (Plt.t, int -> QQ.t, Plt.t, int -> QQ.t)
+    local_abstraction
 
   (** Round by shifting t downwards by at most epsilon;
       t > 0 ==> t >= epsilon if t(m) >= epsilon.
    *)
-  val round_epsilon: QQ.t -> (Plt.t, int -> QQ.t, Plt.t, int -> QQ.t) LocalAbstraction.t
+  val round_epsilon: QQ.t -> (Plt.t, int -> QQ.t, Plt.t, int -> QQ.t)
+    local_abstraction
 
-  (** Use the intersection of the level set of the model with the polyhedron, ignoring
-      tiling constraints; this is safe because we are computing the closed convex hull.
+  (** Use the intersection of the level set of the model with the polyhedron,
+      ignoring tiling constraints; this is safe because we are computing the
+      closed convex hull.
    *)
-  val polyhedral_level_set: (Plt.t, int -> QQ.t, P.t, int -> QQ.t) LocalAbstraction.t
+  val polyhedral_level_set: (Plt.t, int -> QQ.t, P.t, int -> QQ.t)
+    local_abstraction
 
 end = struct
 
@@ -536,15 +488,14 @@ end = struct
       ineqs
 
   let round_assuming_no_ints =
-    LocalAbstraction.{
-        abstract = (fun _m plt ->
-          close_ineqs (P.enum_constraints (Plt.poly_part plt))
-          |> P.of_constraints)
-      ; translate = (fun m -> m)
-    }
+    fun (plt, m) ->
+      ( close_ineqs (P.enum_constraints (Plt.poly_part plt))
+        |> P.of_constraints
+      , m
+      )
 
   let rounding_closure ~round_pos =
-    let abstract m plt =
+    let abstract plt m =
       let p = Plt.poly_part plt in
       let p' = BatEnum.map
                  (fun (kind, cnstrnt) ->
@@ -560,10 +511,7 @@ end = struct
         ~lattice_part:(Plt.lattice_part plt)
         ~tiling_part:(Plt.tiling_part plt)
     in
-    LocalAbstraction.{
-      abstract
-    ; translate = (fun m -> m)
-    }
+    (fun (plt, m) -> (abstract plt m, m))
 
   let round_assuming_all_ints =
     let round_pos _m v =
@@ -584,24 +532,22 @@ end = struct
     rounding_closure ~round_pos
 
   let polyhedral_level_set =
-    let abstract m plt =
+    let abstract plt m =
       let ineqs = close_ineqs (P.enum_constraints (Plt.poly_part plt)) in
       let level_set =
         let equalities = BatEnum.empty () in
         BatList.iter
           (fun v ->
             let const = Linear.evaluate_affine m v in
-            BatEnum.push equalities (`Zero, V.add_term (QQ.negate const) Linear.const_dim v)
+            BatEnum.push equalities (`Zero, V.add_term (QQ.negate const)
+              Linear.const_dim v)
           )
           (L.generators (Plt.lattice_part plt));
         equalities
       in
       P.of_constraints (BatEnum.append ineqs level_set)
     in
-    LocalAbstraction.{
-        abstract
-      ; translate = (fun m -> m)
-    }
+    (fun (plt, m) -> (abstract plt m, m))
 
 end
 
@@ -635,8 +581,8 @@ module LwCooper: sig
   (** [local_project] is a simultaneous generalization of
       Cooper-based model-based projection for linear integer arithmetic and
       Loos-Weispfenning-based model-based projection for linear real arithmetic.
-      For linear integer-real arithmetic, [local_project] is sound (i.e., a local abstraction)
-      but may not have finite image.
+      For linear integer-real arithmetic, [local_project] is sound
+      (i.e., a local abstraction) but may not have finite image.
 
       Let PLT(x, Y) be a PLT in dimensions RR^{x \cup Y}.
       [round_up: QQ^{x \cup Y} -> Term(Y) -> Term(Y)] is a function such that
@@ -649,11 +595,11 @@ module LwCooper: sig
   val local_project:
     elim: (int -> bool) ->
     round_up: ((int -> QQ.t) -> V.t -> V.t) ->
-    (Plt.t, int -> QQ.t, Plt.t, int -> QQ.t) LocalAbstraction.t
+    (Plt.t, int -> QQ.t, Plt.t, int -> QQ.t) local_abstraction
 
   val real_local_project:
     elim: (int -> bool) ->
-    (P.t, int -> QQ.t, P.t, int -> QQ.t) LocalAbstraction.t
+    (P.t, int -> QQ.t, P.t, int -> QQ.t) local_abstraction
 
   val local_project_plt:
     elim: (int -> bool) ->
@@ -843,9 +789,15 @@ end = struct
       List.fold_left (fun x (dim, vt) -> f vt dim x) x sigma
     in
     let subst_atom = function
-      | (`Pos, t) -> P.formula_of_constraint srk term_of_dim (subst_all virtual_sub_p (`Pos, t))
-      | (`Zero, t) -> P.formula_of_constraint srk term_of_dim (subst_all virtual_sub_p (`Zero, t))
-      | (`Nonneg, t) -> P.formula_of_constraint srk term_of_dim (subst_all virtual_sub_p (`Nonneg, t))
+      | (`Pos, t) ->
+          P.formula_of_constraint srk term_of_dim
+            (subst_all virtual_sub_p (`Pos, t))
+      | (`Zero, t) ->
+          P.formula_of_constraint srk term_of_dim
+            (subst_all virtual_sub_p (`Zero, t))
+      | (`Nonneg, t) ->
+          P.formula_of_constraint srk term_of_dim
+            (subst_all virtual_sub_p (`Nonneg, t))
       | (`IsInt, t) -> formula_l srk term_of_dim (subst_all virtual_sub_l t)
       | (`NotInt, t) -> formula_t srk term_of_dim (subst_all virtual_sub_t t)
     in
@@ -883,7 +835,8 @@ end = struct
   let project_one round_up elim_dim m (p, l, t) =
     logf ~level:`debug "lwcooper_project_one: eliminating %d" elim_dim;
     let vt = select_vt round_up elim_dim m (p, l, t) in
-    let (polyhedron, lattice, tiling) = virtual_sub [(elim_dim, vt)] (p, l, t) in
+    let (polyhedron, lattice, tiling) = virtual_sub [(elim_dim, vt)] (p, l, t)
+    in
     test_point_in_polyhedron "LwCooper.project_one" m polyhedron;
     test_point_in_lattice `IsInt "LwCooper.project_one" m lattice;
     test_point_in_lattice `NotInt "LwCooper.project_one" m tiling;
@@ -900,7 +853,7 @@ end = struct
       elim_dimensions
       (p, l, t)
 
-  let local_project_ ~elim ~round_up m plt =
+  let local_project_ ~elim ~round_up plt m =
     let open Plt in
     let p = P.enum_constraints (Plt.poly_part plt) |> BatList.of_enum in
     let l = L.generators (Plt.lattice_part plt) in
@@ -933,43 +886,34 @@ end = struct
              "abstract_lw: Dimension %d has been eliminated" dim)
       else m dim
     in
-    LocalAbstraction.
-    {
-      abstract = local_project_ ~elim ~round_up
-    ; translate = restricted
-    }
+    (fun (plt, m) -> local_project_ ~elim ~round_up plt m, restricted m)
 
   let real_local_project ~elim =
     let local_project = local_project ~elim ~round_up:(fun _m v -> v) in
-    let abstract m p =
-      let plt = Plt.mk_plt
-                  ~poly_part:p ~lattice_part:L.bottom ~tiling_part:L.bottom
-      in
-      local_project.abstract m plt |> Plt.poly_part
+    let lift p = Plt.mk_plt
+      ~poly_part:p ~lattice_part:L.bottom ~tiling_part:L.bottom
     in
-    LocalAbstraction.{
-      abstract
-    ; translate = local_project.translate
-    }
+    (fun (p, m) ->
+      let projected = local_project (lift p, m) in
+      (fst projected |> Plt.poly_part, snd projected))
 
 end
 
 module LocalHull: sig
 
-  (** Compute a (closed) polyhedron that is a subset of the closed convex hull of
-      the input [plt].
-      The polyhedral part of [plt] MUST be closed.
+  (** Compute a (closed) polyhedron that is a subset of the closed convex hull
+      of the input [plt]. The polyhedral part of [plt] MUST be closed.
    *)
   val local_hull: man:DD.closed Apron.Manager.t ->
                   ambient_dim:int ->
-                  (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) LocalAbstraction.t
+                  (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) local_abstraction
 
 end = struct
 
   (* This function requires that the polyhedron in plt to be closed. *)
   let local_hull ~man ~(ambient_dim:int) :
-        (Plt.t, int -> QQ.t, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t =
-    let abstract m plt =
+        (Plt.t, int -> QQ.t, DD.closed DD.t, int -> QQ.t) local_abstraction =
+    let abstract plt m =
       let p = Plt.poly_part plt in
       let m_vec =
         let open BatPervasives in
@@ -1005,10 +949,7 @@ end = struct
       BatEnum.push generators (`Vertex, m_vec); (* to ensure the abstraction property *)
       (DD.of_generators ~man ambient_dim generators)
     in
-    LocalAbstraction.{
-        abstract
-      ; translate = (fun m -> m)
-    }
+    fun (plt, m) -> (abstract plt m, m)
 
 end
 
@@ -1018,40 +959,42 @@ module PltConvexHull : sig
     man:DD.closed Apron.Manager.t ->
     max_dim_in_target:int ->
     epsilon:Q.t ->
-    (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) LocalAbstraction.t
+    (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) local_abstraction
 
   (** This is a compact local abstraction. *)
   val local_project_polyreccone :
     man:DD.closed Apron.Manager.t ->
     max_dim_in_target:int ->
-    (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) LocalAbstraction.t
+    (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) local_abstraction
 
   val by_polyreccone_and_lplh:
     man:DD.closed Apron.Manager.t ->
     max_dim_in_target:int ->
     epsilon:QQ.t ->
-    (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) LocalAbstraction.t
+    (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) local_abstraction
 
 end = struct
 
-  let local_project_local_hull ~man ~max_dim_in_target ~epsilon =
+  let local_project_local_hull ~man ~max_dim_in_target ~epsilon (plt, m) =
     let elim dim = dim > max_dim_in_target in
-    CloseStrictIneq.round_epsilon epsilon
-    |> LocalAbstraction.compose (LwCooper.local_project ~elim ~round_up:(fun _m v -> v))
-    |> LocalAbstraction.compose (LocalHull.local_hull ~man ~ambient_dim:(max_dim_in_target + 1))
+    CloseStrictIneq.round_epsilon epsilon (plt, m)
+    |> LwCooper.local_project ~elim ~round_up:(fun _m v -> v)
+    |> LocalHull.local_hull ~man ~ambient_dim:(max_dim_in_target + 1)
 
   let local_project_polyreccone ~man ~max_dim_in_target =
     let elim dim = dim > max_dim_in_target in
-    let abstract m plt =
+    let abstract plt m =
       let projected_polyhedron_generators =
-        CloseStrictIneq.polyhedral_level_set.abstract m plt
-        |> (LwCooper.real_local_project ~elim).abstract m
+        CloseStrictIneq.polyhedral_level_set (plt, m)
+        |> LwCooper.real_local_project ~elim
+        |> fst
         |> P.dd_of ~man (max_dim_in_target + 1)
         |> DD.enum_generators
       in
       let reccone_generators =
-        CloseStrictIneq.round_assuming_no_ints.abstract m plt
-        |> (LwCooper.real_local_project ~elim).abstract m
+        CloseStrictIneq.round_assuming_no_ints (plt, m)
+        |> LwCooper.real_local_project ~elim
+        |> fst
         |> P.dd_of ~man (max_dim_in_target + 1)
         |> DD.enum_generators
         |> BatEnum.filter (fun (kind, _) -> kind = `Ray || kind = `Line)
@@ -1059,19 +1002,20 @@ end = struct
       BatEnum.append projected_polyhedron_generators reccone_generators
       |> DD.of_generators ~man (max_dim_in_target + 1)
     in
-    LocalAbstraction.{
-      abstract
-    ; translate =
-        (fun m dim ->
+    fun (plt, m) ->
+      ( abstract plt m
+      , fun dim ->
           if dim > max_dim_in_target then
             failwith
               (Format.asprintf
-                 "local_project_polyreccone: Dimension %d has been eliminated" dim)
-         else m dim)
-    }
+                "local_project_polyreccone: Dimension %d has been eliminated"
+                dim
+              )
+        else m dim
+      )
 
   let by_polyreccone_and_lplh ~man ~max_dim_in_target ~epsilon =
-    LocalAbstraction.join DD.join
+    join DD.join
       (local_project_polyreccone ~man ~max_dim_in_target)
       (local_project_local_hull ~man ~max_dim_in_target ~epsilon)
 
@@ -1079,9 +1023,13 @@ end
 
 module ConvexHull : sig
 
-  (** Local abstraction algorithms for computing the closed convex hull of the image of
-      the set of models of an LRA, LIA, or LIRA formula under a linear map
-      defined by a set of terms.
+  type 'a lira_to_polyhedron_abs =
+    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, (int -> QQ.t))
+    local_abstraction
+
+  (** Local abstraction algorithms for computing the closed convex hull of the
+      image of the set of models of an LRA, LIA, or LIRA formula under a
+      linear map defined by a set of terms.
 
       More precisely,
       if [alpha = convex_hull srk terms symbols],
@@ -1093,91 +1041,108 @@ module ConvexHull : sig
       i.e., no floor, mod, non-trivial multiplication and division, etc.
    *)
 
-  (** All symbols should be of real type,
-      and all atoms are equalities or inequalities, i.e., no [is_int]'s.
-      Otherwise, it is an over-approximation of the result.
-   *)
-  val by_lp_assuming_real:
-    ?man: DD.closed Apron.Manager.t ->
-    'a context -> 'a arith_term array -> Symbol.Set.t ->
-    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t
+  val cch_lira:
+    man:DD.closed Apron.Manager.t -> ?epsilon: QQ.t ->
+    'a context -> Symbol.Set.t -> 'a arith_term array ->
+    'a lira_to_polyhedron_abs
 
-  val by_full_project_assuming_real:
-    ?man:Polka.loose Polka.t Apron.Manager.t ->
-    'a context ->
-    'a arith_term array ->
-    Symbol.Set.t ->
-    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> Q.t) LocalAbstraction.t
+  val cch_lira_lp_pcone:
+    man:DD.closed Apron.Manager.t ->
+    'a context -> Symbol.Set.t -> 'a arith_term array ->
+    'a lira_to_polyhedron_abs
 
-  (** All symbols must be of integer type, and all terms must have integer coefficients.
+  val cch_lira_lplh:
+    man:DD.closed Apron.Manager.t -> ?epsilon: QQ.t ->
+    'a context -> Symbol.Set.t -> 'a arith_term array ->
+    'a lira_to_polyhedron_abs
+
+  val cch_lra:
+    man:DD.closed Apron.Manager.t ->
+    'a context ->  Symbol.Set.t -> 'a arith_term array ->
+    'a lira_to_polyhedron_abs
+
+  val cch_lra_hull_then_project:
+    man:DD.closed Apron.Manager.t -> 'a context
+    -> 'a arith_term array -> Symbol.Set.t -> 'a lira_to_polyhedron_abs
+
+  (** All symbols must be of integer type, and all terms must have integer
+      coefficients.
       Local-project-local-hull is (sound and) compact when these conditions hold.
 
-      For the latter condition, rounding assuming integer-valued variables is in general
-      unsound.
+      For the latter condition, rounding assuming integer-valued variables is
+      in general unsound.
       E.g.: t = 1/2 x + y, is_int(x), is_int(y), 1/2 x + y > 0,
       i.e., 1/2 x + y >= 1/2.
       Eliminating y gives t > 0 /\ is_int(t - 1/2 x).
       Then rounding gives t >= 1 /\ is_int(t - 1/2 x), i.e.,
       1/2 x + y >= 1.
-      This is not equivalent to the original formula, and is not a local abstraction:
-      consider (x, y) = (1, 0).
+      This is not equivalent to the original formula, and is not a local
+      abstraction: consider (x, y) = (1, 0).
    *)
-  val by_lplh_assuming_integer:
-    ?man: DD.closed Apron.Manager.t ->
-    'a context -> 'a arith_term array -> Symbol.Set.t ->
-    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t
+  val cch_lia:
+    man:DD.closed Apron.Manager.t ->
+    'a context -> Symbol.Set.t -> 'a arith_term array ->
+    'a lira_to_polyhedron_abs
 
-  val by_hull_then_project_assuming_integer:
+  val cch_lia_hull_then_project:
     [`GomoryChvatal | `Normaliz ] ->
-    ?man:DD.closed Apron.Manager.t ->
+    man:DD.closed Apron.Manager.t ->
     'a context ->
     'a arith_term array ->
     Symbol.Set.t ->
-    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> Q.t) LocalAbstraction.t
-
-  val by_polyreccone:
-    ?man: DD.closed Apron.Manager.t ->
-    'a context -> 'a arith_term array -> Symbol.Set.t ->
-    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t
-
-  val by_lplh:
-    ?man: DD.closed Apron.Manager.t -> epsilon: QQ.t ->
-    'a context -> 'a arith_term array -> Symbol.Set.t ->
-    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t
-
-  val by_polyreccone_and_lplh:
-    ?man: DD.closed Apron.Manager.t -> epsilon: QQ.t ->
-    'a context -> 'a arith_term array -> Symbol.Set.t ->
-    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t
+    'a lira_to_polyhedron_abs
 
 end = struct
 
-  let ddify ~man ambient_dim =
-    let abstract _m p =
-      P.dd_of ~man ambient_dim p
-    in
-    LocalAbstraction.{
-      abstract
-    ; translate = (fun m -> m)
-    }
-
-  let by_lp_assuming_real ?(man=Polka.manager_alloc_loose()) srk terms symbols =
-    let (cubify, _) = Plt.cubify srk terms symbols in
-    let elim dim = dim >= Array.length terms in
-    cubify
-    |> LocalAbstraction.compose CloseStrictIneq.round_assuming_no_ints
-    |> LocalAbstraction.compose (LwCooper.real_local_project ~elim)
-    |> LocalAbstraction.compose (ddify ~man (Array.length terms))
+  let default_epsilon = QQ.of_frac 1 10
 
   let restrict target_dim m dim =
     if dim < 0 || dim >= target_dim then
       invalid_arg (Format.asprintf "dimension %d cannot be interpreted" dim)
     else m dim
 
-  let by_full_project_assuming_real
-        ?(man=Polka.manager_alloc_loose()) srk terms symbols =
+  type 'a lira_to_polyhedron_abs =
+    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, (int -> QQ.t))
+    local_abstraction
+
+  let cch_lira ~man ?(epsilon=default_epsilon)
+      srk symbols terms =
+    let (cubify, _) = Plt.cubify srk terms symbols in
+    let max_dim_in_target = Array.length terms - 1 in
+    fun (plt, m) ->
+      cubify (plt, m)
+      |> PltConvexHull.by_polyreccone_and_lplh ~man ~epsilon ~max_dim_in_target
+
+  let cch_lira_lplh ~man ?(epsilon=default_epsilon)
+    srk symbols terms =
+    let (cubify, _) = Plt.cubify srk terms symbols in
+    let max_dim_in_target = Array.length terms - 1 in
+    fun (plt, m) ->
+      cubify (plt, m)
+      |> PltConvexHull.local_project_local_hull ~man ~epsilon ~max_dim_in_target
+
+  let cch_lira_lp_pcone ~man srk symbols terms =
+    let (cubify, _) = Plt.cubify srk terms symbols in
+    let max_dim_in_target = Array.length terms - 1 in
+    fun (plt, m) ->
+      cubify (plt, m)
+      |> PltConvexHull.local_project_polyreccone ~man ~max_dim_in_target
+
+  let ddify ~man ambient_dim =
+    (fun (p, m) -> P.dd_of ~man ambient_dim p, m)
+
+  let cch_lra ~man srk symbols terms =
+    let (cubify, _) = Plt.cubify srk terms symbols in
+    let elim dim = dim >= Array.length terms in
+    fun (plt, m) ->
+      cubify (plt, m)
+      |> CloseStrictIneq.round_assuming_no_ints
+      |> LwCooper.real_local_project ~elim
+      |> ddify ~man (Array.length terms)
+
+  let cch_lra_hull_then_project ~man srk terms symbols =
     let project =
-      let abstract _m p =
+      let abstract p =
         let max_dim_in_p = P.max_constrained_dim p in
         let dimensions_to_eliminate =
           BatEnum.(Array.length terms -- max_dim_in_p) |> BatList.of_enum
@@ -1185,28 +1150,31 @@ end = struct
         P.project_dd dimensions_to_eliminate p
         |> P.dd_of ~man (Array.length terms)
       in
-      LocalAbstraction.{ abstract; translate = restrict (Array.length terms) }
+      fun (p, m) ->
+        ( abstract p
+        , restrict (Array.length terms) m
+        )
     in
     let (cubify, _) = Plt.cubify srk terms symbols in
-    cubify
-    |> LocalAbstraction.compose CloseStrictIneq.round_assuming_no_ints
-    |> LocalAbstraction.compose project
+    fun (plt, m) ->
+      cubify (plt, m)
+      |> CloseStrictIneq.round_assuming_no_ints
+      |> project
 
-  let by_lplh_assuming_integer ?(man=Polka.manager_alloc_loose()) srk terms symbols =
+  let cch_lia ~man srk symbols terms =
     let (cubify, _) = Plt.cubify srk terms symbols in
     let target_dim = Array.length terms in
     let elim dim = dim >= Array.length terms in
-    cubify
-    |> LocalAbstraction.compose CloseStrictIneq.round_assuming_all_ints
-    |> LocalAbstraction.compose (LwCooper.local_project ~elim ~round_up:(fun _m v -> v))
-    |> LocalAbstraction.compose (LocalHull.local_hull ~man ~ambient_dim:target_dim)
+    fun (plt, m) ->
+      cubify (plt, m)
+      |> CloseStrictIneq.round_assuming_all_ints
+      |> LwCooper.local_project ~elim ~round_up:(fun _m v -> v)
+      |> LocalHull.local_hull ~man ~ambient_dim:target_dim
 
-  let by_hull_then_project_assuming_integer
-        hull_alg
-        ?(man=Polka.manager_alloc_loose()) srk terms symbols =
+  let cch_lia_hull_then_project hull_alg ~man srk terms symbols =
     let target_dim = Array.length terms in
     let project =
-      let abstract _m plt =
+      let abstract plt _m =
         let p = Plt.poly_part plt in
         let max_dim_in_p = P.max_constrained_dim p in
         let dimensions_to_eliminate =
@@ -1226,174 +1194,17 @@ end = struct
            |> P.dd_of ~man (max_dim_in_p + 1)
            |> project_and_rebuild
       in
-      LocalAbstraction.{ abstract; translate = restrict target_dim }
+      fun (plt, m) ->
+        ( abstract plt m
+        , restrict target_dim m
+        )
     in
     let (cubify, _) = Plt.cubify srk terms symbols in
-    cubify
-    |> LocalAbstraction.compose CloseStrictIneq.round_assuming_all_ints
-    |> LocalAbstraction.compose project
-
-  let by_polyreccone_and_lplh ?(man=Polka.manager_alloc_loose()) ~epsilon srk terms symbols =
-    let (cubify, _) = Plt.cubify srk terms symbols in
-    let max_dim_in_target = Array.length terms - 1 in
-    let compose = LocalAbstraction.compose in
-    cubify
-    |> compose (PltConvexHull.by_polyreccone_and_lplh ~man ~epsilon ~max_dim_in_target)
-
-  let by_lplh ?(man=Polka.manager_alloc_loose()) ~epsilon srk terms symbols =
-    let (cubify, _) = Plt.cubify srk terms symbols in
-    let max_dim_in_target = Array.length terms - 1 in
-    let compose = LocalAbstraction.compose in
-    cubify
-    |> compose (PltConvexHull.local_project_local_hull ~man ~epsilon ~max_dim_in_target)
-
-  let by_polyreccone ?(man=Polka.manager_alloc_loose()) srk terms symbols =
-    let (cubify, _) = Plt.cubify srk terms symbols in
-    let max_dim_in_target = Array.length terms - 1 in
-    let compose = LocalAbstraction.compose in
-    cubify
-    |> compose (PltConvexHull.local_project_polyreccone ~man ~max_dim_in_target)
-
+    fun (plt, m) ->
+      cubify (plt, m)
+      |> CloseStrictIneq.round_assuming_all_ints
+      |> project
 end
-
-module LocalGlobal: sig
-
-  val lift:
-    man:DD.closed Apron.Manager.t ->
-    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, int -> QQ.t) LocalAbstraction.t ->
-    'a Abstract.Solver.t -> ?bottom: DD.closed DD.t -> ('a arith_term) Array.t -> DD.closed DD.t
-
-end = struct
-
-  let print_model srk terms interp =
-    let result =
-      Array.init (Array.length terms)
-        (fun i ->
-          (terms.(i), Interpretation.evaluate_term interp terms.(i)))
-    in
-    logf ~level:`debug "model: @[%a@]@;"
-      (Format.pp_print_list
-         ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
-         (fun fmt (t, value) ->
-           Format.fprintf fmt "(%a, %a)"
-             (Syntax.ArithTerm.pp srk) t
-             QQ.pp value))
-      (Array.to_list result)
-
-  let lift ~man local_abs solver ?bottom terms =
-    let target_dim = Array.length terms in
-    let bottom =
-      match bottom with
-      | None -> P.dd_of ~man target_dim P.bottom
-      | Some bot -> bot
-    in
-    let top = P.dd_of ~man target_dim P.top in
-    let srk = Abstract.Solver.get_context solver in
-    let phi = Abstract.Solver.get_formula solver in
-    let counter = ref 0 in
-    let show m =
-      let symbols =
-        Syntax.Symbol.Set.elements (Syntax.symbols phi)
-        |> List.map (Syntax.mk_const srk) |> Array.of_list
-      in
-      print_model srk symbols m
-    in
-    let of_model m =
-      match m with
-      | `LIRR _ -> invalid_arg "LIRR not supported"
-      | `LIRA m ->
-         let () = show m in
-         counter := !counter + 1;
-
-         logf ~level:`debug "Abstraction loop iteration: %d" !counter;
-         let result = local_abs.LocalAbstraction.abstract m phi in
-         logf ~level:`debug "Abstraction loop iteration %d done" !counter;
-         result
-    in
-    let domain =
-      Abstract.
-      { join = DD.join
-      ; of_model
-      ; formula_of = formula_of_dd srk (fun i -> terms.(i))
-      ; top
-      ; bottom
-      }
-    in
-    Abstract.Solver.abstract solver domain
-
-end
-
-type lira_abstraction =
-  | PolyReccone
-  | LiraLPLH of QQ.t option
-  | PolyReccone_LPLH of QQ.t option
-
-type lia_abstraction =
-  | HullThenProject of [`GomoryChvatal | `Normaliz]
-  | LiaLPLH
-
-type lra_abstraction =
-  | FullProject
-  | LwMbp
-
-type abstraction_algorithm =
-  | LiraCCH of lira_abstraction
-  | LiaCCH of lia_abstraction
-  | LraCCH of lra_abstraction
-
-let default_epsilon = ref (QQ.of_frac 1 10)
-
-let local_abstraction ~man srk terms symbols how =
-  match how with
-  | LiraCCH PolyReccone ->
-     ConvexHull.by_polyreccone ~man srk terms symbols
-  | LiraCCH (LiraLPLH eps) ->
-     let epsilon = match eps with | None -> !default_epsilon | Some epsilon -> epsilon
-     in
-     ConvexHull.by_lplh ~man ~epsilon srk terms symbols
-  | LiraCCH (PolyReccone_LPLH eps) ->
-     let epsilon = match eps with | None -> !default_epsilon | Some epsilon -> epsilon
-     in
-     ConvexHull.by_polyreccone_and_lplh ~man ~epsilon srk terms symbols
-  | LiaCCH (HullThenProject `GomoryChvatal) ->
-     ConvexHull.by_hull_then_project_assuming_integer `GomoryChvatal ~man srk terms symbols
-  | LiaCCH (HullThenProject `Normaliz) ->
-     ConvexHull.by_hull_then_project_assuming_integer `Normaliz ~man srk terms symbols
-  | LiaCCH LiaLPLH ->
-     ConvexHull.by_lplh_assuming_integer ~man srk terms symbols
-  | LraCCH FullProject ->
-     ConvexHull.by_full_project_assuming_real ~man srk terms symbols
-  | LraCCH LwMbp ->
-     ConvexHull.by_lp_assuming_real ~man srk terms symbols
-
-let convex_hull_from_lira_model
-      how ?(man=Polka.manager_alloc_loose ()) solver terms model =
-  let srk = Abstract.Solver.get_context solver in
-  let phi = Abstract.Solver.get_formula solver in
-  let symbols = Syntax.symbols phi in
-  let m = match model with
-    | `LIRA m -> m
-    | `LIRR _ -> invalid_arg "Unsupported"
-  in
-  let abstraction = local_abstraction ~man srk terms symbols how in
-  abstraction.abstract m phi
-
-let abstract
-      how ?(man=Polka.manager_alloc_loose ()) ?(bottom=None)
-      solver terms =
-  let srk = Abstract.Solver.get_context solver in
-  let phi = Abstract.Solver.get_formula solver in
-  let symbols = Syntax.symbols phi in
-  let bottom =
-    match bottom with
-    | None -> P.dd_of (Array.length terms) P.bottom
-    | Some bot -> bot
-  in
-  LocalGlobal.lift ~man (local_abstraction ~man srk terms symbols how) solver ~bottom terms
-
-let convex_hull how ?(man=Polka.manager_alloc_loose ()) srk phi terms =
-  let solver = Abstract.Solver.make srk ~theory:`LIRA phi in
-  abstract how ~man solver terms
 
 let _formula_of_plt = Plt.formula_of_plt
 

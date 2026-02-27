@@ -249,14 +249,14 @@ module PolyhedronGuard = struct
     in
     let abs_solver = Solver.get_abstract_solver solver in
     let pre =
-      ConvexHull.abstract abs_solver pre_simulation
+      Abstract.ClosedConvexHull.abstract abs_solver pre_simulation
       |> DD.enum_constraints
       |> BatEnum.map (Polyhedron.formula_of_constraint srk (Array.get pre_simulation))
       |> BatList.of_enum
       |> mk_and srk
     in
     let post =
-      ConvexHull.abstract abs_solver post_simulation
+      Abstract.ClosedConvexHull.abstract abs_solver post_simulation
       |> DD.enum_constraints
       |> BatEnum.map (Polyhedron.formula_of_constraint srk (Array.get post_simulation))
       |> BatList.of_enum
@@ -470,7 +470,7 @@ module LossyTranslation = struct
       |> Array.of_list
     in
     let abs_solver = Solver.get_abstract_solver solver in
-    DD.enum_constraints (ConvexHull.abstract abs_solver delta)
+    DD.enum_constraints (Abstract.ClosedConvexHull.abstract abs_solver delta)
     /@ (fun (kind, vec) ->
         let (k, vec) = V.pivot Linear.const_dim vec in
         let t = Linear.term_of_vec srk (Array.get delta) vec in

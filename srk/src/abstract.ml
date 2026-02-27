@@ -95,7 +95,7 @@ module Solver = struct
     ; context : 'a context
     ; stack : ('a level) A.t }
 
-  let preprocess srk theory phi = match theory with
+  let to_core_lira srk ~theory phi = match theory with
     | `LIRR -> Syntax.eliminate_floor_mod_div srk phi
     | `LIRA ->
       phi
@@ -103,12 +103,12 @@ module Solver = struct
       |> Syntax.eliminate_ite srk
       |> rewrite srk ~down:(pos_rewriter srk)
 
-  let preprocessor = ref preprocess
-
-  let set_preprocessor f = (preprocessor := f)
-
-  let make srk ?(theory=get_theory srk) formula =
-    let phi = !preprocessor srk theory formula in
+  let make srk ?(theory=get_theory srk) ?preprocess formula =
+    let process = match preprocess with
+      | None -> to_core_lira srk ~theory
+      | Some f -> f
+    in
+    let phi = process formula in
     let solver =
       match theory with
       | `LIRR ->
@@ -220,14 +220,18 @@ module Solver = struct
     | `LIRA m -> Interpretation.evaluate_formula m phi
     | `LIRR m -> Lirr.Model.evaluate_formula srk m phi
 
-  let add s phis =
+  let add s ?preprocess phis =
     let srk = get_context s in
     let top = A.last s.stack in
     let theory = match s.solver with
       | `LIRR _ -> `LIRR
       | `LIRA _ -> `LIRA
     in
-    let phis' = List.map (!preprocessor srk theory) phis in
+    let process = match preprocess with
+      | None -> to_core_lira srk ~theory
+      | Some f -> f
+    in
+    let phis' = List.map process phis in
     top.formula <- mk_and srk (top.formula::phis');
     A.keep (fun m -> List.for_all (sat srk m) phis') top.models;
     match s.solver with
@@ -609,3 +613,154 @@ let affine_hull srk phi constants =
   in
   vanishing_space srk phi basis
   |> List.map (Linear.term_of_vec srk (fun i -> basis.(i)))
+
+
+(** Domain of linear inequalities over a fixed set of terms *)
+module ClosedConvexHull = struct
+
+  module Plt = PolyhedronLatticeTiling
+  module P = Polyhedron
+
+  type t = DD.closed DD.t
+
+  let nb_hulls = ref 0
+  let dump_hull = ref false
+  let dump_hull_prefix = ref ""
+
+  let dump_hull_obligations srk phi terms =
+    if !dump_hull then begin
+        let query =
+          List.fold_left (fun definitions term ->
+              let s = mk_symbol srk ?name:(Some "term_to_project_onto") `TyReal
+              in
+              (Syntax.mk_eq srk (Syntax.mk_const srk s) term :: definitions)
+            )
+            []
+            (Array.to_list terms)
+          |> Syntax.mk_and srk
+          |> (fun phi' -> Syntax.mk_and srk [phi ; phi'])
+        in
+        let term_symbols =
+          Array.fold_left (fun acc_symbols term -> Symbol.Set.union acc_symbols (symbols term))
+            Symbol.Set.empty terms
+        in
+        let query =
+          Symbol.Set.fold (fun s psi -> Syntax.mk_exists_const srk s psi)
+            (Symbol.Set.union term_symbols (symbols phi))
+            query
+        in
+        let filename =
+          Format.sprintf "%s---hull-%d.smt2" (!dump_hull_prefix) (!nb_hulls)
+        in
+        let chan = Stdlib.open_out filename in
+        let formatter = Format.formatter_of_out_channel chan in
+        logf ~level:`always "Writing convex hull query to %s" filename;
+        Syntax.pp_smtlib2 srk formatter query;
+        Format.pp_print_newline formatter ();
+        Stdlib.close_out chan;
+        incr nb_hulls
+      end;
+    ()
+
+  type 'a lirr_local_abstraction = 'a smt_model -> DD.closed DD.t
+
+  let abstract_lirr man srk terms =
+    let poly_terms = Array.map (QQXs.of_term srk) terms in
+    let dim = Array.length terms in
+    function
+    | `LIRA _ -> assert false
+    | `LIRR m ->
+      let cone = Lirr.Model.nonnegative_cone m in
+      let map_cone = PolynomialCone.inverse_image cone poly_terms in
+      let constraints = BatEnum.empty () in
+      I.generators (PolynomialCone.get_ideal map_cone)
+      |> List.iter (fun p ->
+          match QQXs.vec_of p with
+          | Some vec -> BatEnum.push constraints (`Zero, vec)
+          | None -> ());
+      PolynomialCone.get_cone_generators map_cone
+      |> List.iter (fun p ->
+          match QQXs.vec_of p with
+          | Some vec -> BatEnum.push constraints (`Nonneg, vec)
+          | None -> ());
+      DD.of_constraints_closed ~man dim constraints
+
+  let print_model srk terms interp =
+    let result =
+      Array.init (Array.length terms)
+        (fun i ->
+          (terms.(i), Interpretation.evaluate_term interp terms.(i)))
+    in
+    logf ~level:`debug "model: @[%a@]@;"
+      (Format.pp_print_list
+         ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
+         (fun fmt (t, value) ->
+           Format.fprintf fmt "(%a, %a)"
+             (Syntax.ArithTerm.pp srk) t
+             QQ.pp value))
+      (Array.to_list result)
+
+  let abstract_by ~man solver ?(bottom=None) local_abs terms =
+    let srk = Solver.get_context solver in
+    let phi = Solver.get_formula solver in
+    dump_hull_obligations srk phi terms;
+
+    let join = DD.join in
+    let target_dim = Array.length terms in
+    let top = P.dd_of ~man target_dim P.top in
+    let bottom = match bottom with
+      | None -> P.dd_of ~man target_dim P.bottom
+      | Some bot -> bot
+    in
+    let term_of_dim i =
+      if i == Linear.const_dim then mk_one srk else terms.(i)
+    in
+    let formula_of prop =
+      DD.enum_constraints_closed prop
+      /@ (fun (kind, v) ->
+        let t = Linear.term_of_vec srk term_of_dim v in
+        match kind with
+        | `Zero -> mk_eq srk (mk_zero srk) t
+        | `Nonneg -> mk_leq srk (mk_zero srk) t)
+      |> BatList.of_enum
+      |> mk_and srk
+    in
+    let counter = ref 0 in
+    let show m =
+      let symbols =
+        Syntax.Symbol.Set.elements (Syntax.symbols phi)
+        |> List.map (Syntax.mk_const srk) |> Array.of_list
+      in
+      print_model srk symbols m
+    in
+    let of_model = match (Solver.get_theory solver, local_abs) with
+      | (`LIRA, `LIRA abs) ->
+          fun m ->
+            begin match m with
+            | `LIRA m0 ->
+              let () = show m0 in
+              counter := !counter + 1;
+              logf ~level:`debug "Abstraction loop iteration: %d" !counter;
+              let result = fst (abs (phi, m0)) in
+              logf ~level:`debug "Abstraction loop iteration %d done" !counter;
+              result
+            | `LIRR _ -> assert false
+            end
+      | (`LIRR, `LIRR abs) -> abs
+      | (_, _) -> assert false
+    in
+    let domain = { join; top; of_model; bottom; formula_of } in
+    Solver.abstract solver domain
+
+  let abstract
+    ?(man=Polka.manager_alloc_loose()) solver ?(bottom=None) terms =
+    let srk = Solver.get_context solver in
+    let phi = Solver.get_formula solver in
+    match Solver.get_theory solver with
+    | `LIRR ->
+      abstract_by ~man solver ~bottom (`LIRR (abstract_lirr man srk terms)) terms
+    | `LIRA ->
+      let abs = Plt.ConvexHull.cch_lira ~man srk (symbols phi) terms in
+      abstract_by ~man solver ~bottom (`LIRA abs) terms
+
+end

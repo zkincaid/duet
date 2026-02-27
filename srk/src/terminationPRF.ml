@@ -56,7 +56,7 @@ let lin_conseq_over_diff_polys solver pre_vars_arr post_vars_arr positive_polys 
         mk_sub srk pre_poly_term post_poly_term)
       positive_polys
   in
-  let lin_conseq = ConvexHull.abstract solver diffs_arr in
+  let lin_conseq = Abstract.ClosedConvexHull.abstract solver diffs_arr in
   logf "lin conseq over positives: %a" (DD.pp (pp_dim srk diffs_arr)) lin_conseq;
   (lin_conseq, diffs_arr)
 

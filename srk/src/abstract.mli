@@ -1,4 +1,4 @@
-(** Symbolic abstraction and local abstraction routines. *)
+(** Symbolic abstraction routines. *)
 open Syntax
 
 (** [affine_hull srk phi symbols] computes a basis for the affine hull of phi,
@@ -43,22 +43,10 @@ end
 module Solver : sig
   type 'a t
 
-  (** Override default preprocessing of a formula before it is inserted into
-    the solver.
-
-    By default, for LIRA, formulas are at minimum preprocessed to have
-    no floor and mod, so that terms are in LRA. Predicates are however in LIRA,
-    and [is_int] atoms may be present in the solver.
-
-    For LIRR, default preprocessing also eliminates floor and mod, interpreting
-    them as floor and mod functions in usual arithmetic.
-  *)
-  val set_preprocessor: ('a context -> ?theory:[`LIRR | `LIRA] ->
-      'a formula -> 'a formula
-    ) ref -> unit
-
   (** Allocate a new solver. *)
-  val make : 'a context -> ?theory:[`LIRR | `LIRA ] -> 'a formula -> 'a t
+  val make : 'a context -> ?theory:[`LIRR | `LIRA ]
+    -> ?preprocess:('a formula -> 'a formula)
+    -> 'a formula -> 'a t
 
   (** Symbolic abstraction as described in Reps, Sagiv, Yorsh---"Symbolic
      implementation of the best transformer", VMCAI 2004. *)
@@ -90,7 +78,8 @@ module Solver : sig
 
   (** [add s phis] conjoins each formula in [phis] to the formula associated
      with the solver. *)
-  val add : 'a t -> ('a formula) list -> unit
+  val add : 'a t -> ?preprocess: ('a formula -> 'a formula)
+    -> ('a formula) list -> unit
 
   (** Push a fresh entry onto the solver's stack.  Assertions added to the
      formula with [add] are reverted after the entry is [pop]ed off the
@@ -138,4 +127,47 @@ module LinearSpan : sig
      with [solver].  The affine equations are represented w.r.t. the basis
      defined by [Syntax.symbol_of_int / Syntax.int_of_symbol].  *)
   val affine_hull : 'a Solver.t -> ?bottom:t -> symbol list -> t
+end
+
+(** Domain of linear inequalities over a fixed set of terms *)
+module ClosedConvexHull : sig
+
+  type t = DD.closed DD.t
+
+  (** Dump convex hull goal to file when [abstract] is invoked *)
+  val dump_hull: bool ref
+  val dump_hull_prefix : string ref
+
+  type 'a lirr_local_abstraction = 'a smt_model -> DD.closed DD.t
+
+  (** Local abstraction for LIRR that abstracts formulas over symbols in
+    context to polyhedra in dimensions corresponding to terms in the array.
+  *)
+  val abstract_lirr: DD.closed Apron.Manager.t
+    -> 'a Syntax.context -> ('a arith_term) array
+    -> 'a lirr_local_abstraction
+
+  (**
+    A local abstraction [abs] for convex hulls is associated with a set of
+    formulas it can abstract, an array of terms
+    (the linear inequalities / polyhedra over which it abstracts to,
+    and a [man]ager for DD polyhedra.
+    Given [abs] that abstract to linear inequalities in (exactly) [terms],
+    a [solver] whose formula [F] can be abstracted by [abs],
+    and the [man]ager for the [abs],
+    [abstract_by man solver abs terms] is a polyhedron whose inequalities
+    when considered as inequalities in [terms] are implied by [F].
+  *)
+  val abstract_by: man:DD.closed Apron.Manager.t -> 'a Solver.t
+    -> ?bottom:(t option)
+    -> [
+    | `LIRR of 'a lirr_local_abstraction
+    | `LIRA of 'a PolyhedronLatticeTiling.ConvexHull.lira_to_polyhedron_abs
+    ]
+    -> ('a arith_term) array -> t
+
+  val abstract: ?man:(DD.closed Apron.Manager.t)
+    -> 'a Solver.t
+    -> ?bottom:(t option)
+    -> ('a arith_term) array -> t
 end

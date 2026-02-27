@@ -852,7 +852,7 @@ let mk_query ts entry =
 
 let analyze file =
   populate_offset_table file;
-  ConvexHull.dump_hull_prefix := file.filename;
+  Abstract.ClosedConvexHull.dump_hull_prefix := file.filename;
   match file.entry_points with
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
@@ -1097,7 +1097,7 @@ let lift_universals srk phi =
   quantify_universals (Formula.eval srk alg phi)
 
 let prove_termination_main file =
-  ConvexHull.dump_hull_prefix := file.filename;
+  Abstract.ClosedConvexHull.dump_hull_prefix := file.filename;
   populate_offset_table file;
   match file.entry_points with
   | [main] -> begin
@@ -1390,7 +1390,7 @@ let _ =
      " Set background theory (LIRA, LIRR)");
   CmdLine.register_config
     ("-dump-hulls",
-     Arg.Set Srk.ConvexHull.dump_hull,
+     Arg.Set Abstract.ClosedConvexHull.dump_hull,
      " Output convex hull goals in SMTLIB2 format")
 
 let _ =

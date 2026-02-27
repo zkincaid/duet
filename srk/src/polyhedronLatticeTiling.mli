@@ -36,84 +36,111 @@
     [is_int] literals, e.g., removed using
     [Syntax.eliminate_floor_mod_div_int], which introduces fresh integer-valued
     variables.
- *)
+*)
 
-type lira_abstraction =
-  | PolyReccone
-    (** Local projection of the subpolyhedron contained in the
-        integer class of model (roughly) + (i.e., Minkowski sum)
-        recession cone of the local projection of the
-        Loos-Weispfenning MBP subpolyhedron.
-     *)
-  | LiraLPLH of QQ.t option
-    (** Local projection of the PLT followed by taking local hull (via HKMMZ) *)
-  | PolyReccone_LPLH of QQ.t option
-    (** The same as PolyReccone, but joined with the local hull
-        (LH; via HKMMZ) of the local projection (LP) of the PLT.
-        Strict inequalities are rounded to loose ones by shifting
-        using the option; if unspecified, some internal choice is made.
-     *)
+open Syntax
 
-(** LIA abstraction requires that every variable is integer-valued
-    and that the target terms have integer coefficients.
- *)
-type lia_abstraction =
-  | HullThenProject of [`GomoryChvatal | `Normaliz]
-  (** Baseline. Formula should not have [is_int] literals. *)
-  | LiaLPLH
-  (** Local projection of PLT followed by taking local hull. *)
+(** A local abstraction abstracts (maps) a concept and a model satisfying the
+  concept to a target concept and an interpretation of the model
+  (its "translation") that satisfies the target concept.
+*)
+type ('concept1, 'model1, 'concept2, 'model2) local_abstraction =
+  ('concept1 * 'model1) -> ('concept2 * 'model2)
 
-(** LRA abstraction ignores all [is_int] constraints in the implicant and
-    integrality of variables.
-    (But the solver finds models that respect integrality of variables.
-    An LRA overapproximation should in principle be the LRA abstraction of
-    the real relaxation of the formula, where we replace all integer-typed
-    variables with real-typed ones, via [realify_formula_and_terms] below.)
- *)
-type lra_abstraction =
-  | FullProject
-  (** Baseline  *)
-  | LwMbp
-  (** Local projection of Loos-Weispfenning MBP subpolyhedron *)
+(** Local abstractions for computing convex hulls *)
+module ConvexHull : sig
 
-type abstraction_algorithm =
-  | LiraCCH of lira_abstraction
-  | LiaCCH of lia_abstraction
-  | LraCCH of lra_abstraction
+  type 'a lira_to_polyhedron_abs =
+    ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, (int -> QQ.t))
+    local_abstraction
 
-(** [convex_hull_from_lira_model how ~man solver terms model] is a subpolyhedron
-    of conv.hull({(terms[0](m), ..., terms[len(terms)](m): m |= F)}) that
-    contains [model], where [F] is the formula in [solver].
-    This polyhedron is computed using [how].
- *)
-val convex_hull_from_lira_model:
-  abstraction_algorithm ->
-  ?man:(DD.closed Apron.Manager.t) ->
-  'a Abstract.Solver.t ->
-  ('a Syntax.arith_term) array -> 'a Abstract.smt_model ->
-  DD.closed DD.t
+  (** Local abstraction for core LIRA formulas, i.e., formulas whose terms
+      are LRA terms, and whose atoms are inequalities and [is_int].
+      [cch man srk symbols terms] is a local abstraction that abstracts any
+      core LIRA formula in [symbols] to a conjunction of linear inequalities over
+      [terms], i.e., a DD polyhedron, managed by [man].
+  *)
+  val cch_lira: man:DD.closed Apron.Manager.t
+    -> ?epsilon: QQ.t
+    -> 'a Syntax.context
+    -> Symbol.Set.t (* abstract formulas over this set of symbols *)
+    -> 'a Syntax.arith_term array (* to linear inequalities in these terms *)
+    -> 'a lira_to_polyhedron_abs
 
-(** [abstract how ~man ~bottom solver terms]
-    = conv.hull({(terms[0](m), ..., terms[len(terms)](m): m |= F)}),
-    where [F] is the formula in [solver].
-    This is computed using [how].
-    [bottom] has to define a subset of the convex hull.
- *)
-val abstract: abstraction_algorithm ->
-              ?man:(DD.closed Apron.Manager.t) ->
-              ?bottom:(DD.closed DD.t option) ->
-              'a Abstract.Solver.t ->
-              'a Syntax.arith_term array ->
-              DD.closed DD.t
+  (** Local abstraction for LIRA formulas using only LP-PCone,
+    i.e., the interleaving of the subspace/polyhedron-plus-recession-cone
+    abstraction and local real projection.
+    *)
+  val cch_lira_lp_pcone: man:DD.closed Apron.Manager.t
+    -> 'a Syntax.context
+    -> Symbol.Set.t
+    -> 'a Syntax.arith_term array
+    -> 'a lira_to_polyhedron_abs
 
-(** [convex_hull how ~man srk F terms]
-    = conv.hull({(terms[0](m), ..., terms[len(terms)](m): m |= F)}).
-    This is computed using [how].
- *)
-val convex_hull: abstraction_algorithm ->
-                 ?man:(DD.closed Apron.Manager.t) ->
-                 'a Syntax.context -> 'a Syntax.formula ->
-                 ('a Syntax.arith_term) Array.t -> DD.closed DD.t
+  (** Local abstraction for LIRA formulas using only
+    local LIRA projection followed by an under-approximate convex hull of
+    integer points within the projection.
+    *)
+  val cch_lira_lplh: man:DD.closed Apron.Manager.t
+    -> ?epsilon: QQ.t
+    -> 'a Syntax.context
+    -> Symbol.Set.t
+    -> 'a Syntax.arith_term array
+    -> 'a lira_to_polyhedron_abs
+
+  (** Local abstraction for LRA formulas.
+    Input formula must be in core LIRA with LRA terms, and the abstraction
+    ignores all [is_int] atoms and ignores integrality of symbols.
+    The result is a sound over-approximation if no [is_int] atoms are present.
+  *)
+  val cch_lra: man:DD.closed Apron.Manager.t
+    -> 'a Syntax.context
+    -> Symbol.Set.t
+    -> 'a Syntax.arith_term array
+    -> 'a lira_to_polyhedron_abs
+
+  val cch_lra_hull_then_project: man:DD.closed Apron.Manager.t
+    -> 'a context 
+    -> 'a arith_term array 
+    -> Symbol.Set.t -> 'a lira_to_polyhedron_abs
+
+  (** Local abstraction for LIA formulas.
+    Input formula must be in core LIRA with LRA terms, and the abstraction
+    assumes that all symbols are integer-typed.
+    TODO: Must target terms have integer coefficients?
+  *)
+  val cch_lia: man:DD.closed Apron.Manager.t
+    -> 'a Syntax.context
+    -> Symbol.Set.t
+    -> 'a Syntax.arith_term array
+    -> 'a lira_to_polyhedron_abs
+
+  (** Local abstraction for LIRA formulas by taking the path
+    cube implicant
+    --> convex hull of points (i.e., a polyhedron)
+        satisfying implicant with all [is_int] dropped
+    --> apply [hull] to this convex hull
+    --> projection of this hull.
+    If the formula is an LRA formula with no integer-typed symbols, or if a
+    sound over-approximation suffices, [hull] need not be given.
+  *)
+  (*
+  val cch_hull_then_project: DD.closed Apron.Manager.t
+    -> ?hull: (DD.closed DD.t -> DD.closed DD.t)
+    -> 'a Syntax.context
+    -> Symbol.Set.t
+    -> 'a Syntax.arith_term array
+    -> 'a lira_to_polyhedron_abs
+  *)
+
+  val cch_lia_hull_then_project: [`GomoryChvatal | `Normaliz ] ->
+    man:DD.closed Apron.Manager.t ->
+    'a context ->
+    'a arith_term array ->
+    Symbol.Set.t ->
+    'a lira_to_polyhedron_abs
+
+end
 
 (** Retype a formula F and terms T to a formula F' and terms T' in real-typed symbols only,
     and output the map that sends all original integer-typed symbols in F and T to real-typed
