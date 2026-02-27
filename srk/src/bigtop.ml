@@ -70,6 +70,7 @@ let print_result = function
   | `Unsat -> Format.printf "unsat@\n"
   | `Unknown -> Format.printf "unknown@\n"
 
+
 module Plt = PolyhedronLatticeTiling
 
 module ConvHull : sig
@@ -115,8 +116,8 @@ module ConvHull : sig
 
   val dd_subset: DD.closed DD.t -> DD.closed DD.t -> bool
 
-  (* Both [`JustLraFormula] and [`Realified] purify the formula to get an LRA formula,
-     but the latter also replace integer symbols with real ones.
+  (* Both [`JustLraFormula] and [`Realified] purify the formula to get an
+     LRA formula, but the latter also replaces integer symbols with real ones.
    *)
   type real_relaxation = NoRelax | JustLraFormula | Realified
 
@@ -124,13 +125,6 @@ module ConvHull : sig
 
   val convex_hull: 'a context ->
                    abstraction_algorithm -> 'a formula -> DD.closed DD.t
-
-  val compare:
-    'a context ->
-    (DD.closed DD.t -> DD.closed DD.t -> bool) ->
-    abstraction_algorithm * real_relaxation ->
-    abstraction_algorithm * real_relaxation ->
-    'a formula -> unit
 
   (* `LiraToLra
      - Remove floor, mod, div, is_int, and replace all real variables with integer ones
@@ -199,38 +193,7 @@ end = struct
 
   type real_relaxation = NoRelax | JustLraFormula | Realified
 
-  (* Purify flood, mod, div by default *)
-  let keep_floor_mod_div = ref false
-
   let relax_to_real = ref NoRelax
-
-  let pp_alg fmt alg =
-    let alg_name =
-      match alg with
-      | LiraCCH PolyReccone -> "PolyReccone"
-      | LiraCCH (LiraLPLH _) -> "Lira-LPLH"
-      | LiraCCH (PolyReccone_LPLH _) -> "PolyReccone & LPLH"
-      | LiaCCH (HullThenProject `GomoryChvatal) -> "Gomory-Chvatal"
-      | LiaCCH (HullThenProject `Normaliz) -> "Normaliz"
-      | LiaCCH LiaLPLH -> "Integer-LPLH"
-      | LraCCH FullProject -> "Real-projection"
-      | LraCCH LwMbp -> "Real-LP"
-    in
-    let preprocessing =
-      match (!relax_to_real, !keep_floor_mod_div) with
-      | (Realified, true) -> " of real relaxation (of non-preprocessed formula)"
-      | (JustLraFormula, true) -> " of partial real relaxation (of non-preprocessed formula)"
-      | (NoRelax, true) -> " (of non-preprocessed formula)"
-      | (Realified, false) -> " of real relaxation (of formula)"
-      | (JustLraFormula, false) -> " of partial real relaxation (of formula)"
-      | (NoRelax, false) -> ""
-    in
-    Format.fprintf fmt "%s%s" alg_name preprocessing
-
-  let pp_relaxation fmt = function
-    | NoRelax -> Format.fprintf fmt "no relax"
-    | JustLraFormula -> Format.fprintf fmt "relaxed to LRA formula with types preserved"
-    | Realified -> Format.fprintf fmt "real relaxation"
 
   let retype_quantifier_free srk how phi =
     let retype fml =
@@ -284,8 +247,6 @@ end = struct
       in
       ( requantify new_quantified_symbols phi', equivalent )
 
-  let pp_dim fmt dim = Format.fprintf fmt "(dim %d)" dim
-
   let dd_subset dd1 dd2 =
     BatEnum.for_all
       (fun cnstrnt ->
@@ -326,10 +287,10 @@ end = struct
     |> List.rev
     |> mk_and srk
 
-  let _convex_hull how srk processed_phi terms =
+  let _convex_hull how srk phi terms =
     let man = Polka.manager_alloc_loose () in
-    let solver = Abstract.Solver.make srk ~theory:`LIRA processed_phi in
-    let local_abs = alg_of srk how ~man (symbols processed_phi) terms in
+    let solver = Abstract.Solver.make srk ~theory:`LIRA phi in
+    let local_abs = alg_of srk how ~man (symbols phi) terms in
     Abstract.ClosedConvexHull.abstract_by ~man solver (`LIRA local_abs) terms
 
   let convex_hull srk how phi =
@@ -347,13 +308,7 @@ end = struct
          let phi' = Syntax.eliminate_floor_mod_div_int srk phi in
          let introduced_symbols = S.diff (Syntax.symbols phi') (Syntax.symbols phi) in
          (phi', introduced_symbols, (fun s -> s))
-      | NoRelax ->
-         if !keep_floor_mod_div then
-           (phi, Syntax.Symbol.Set.empty, (fun s -> s))
-         else
-           let phi' = Syntax.eliminate_floor_mod_div srk phi in
-           let introduced_symbols = S.diff (Syntax.symbols phi') (Syntax.symbols phi) in
-           (phi', introduced_symbols, (fun s -> s))
+      | NoRelax -> (phi, Syntax.Symbol.Set.empty, (fun s -> s))
     in
     let symbols_to_eliminate =
       S.union introduced_symbols (S.of_list (List.map remap quantified_symbols)) in
@@ -404,41 +359,6 @@ end = struct
       (Syntax.Formula.pp srk)
       (formula_of_dd srk (fun dim -> terms.(dim)) result);
     result
-
-  let compare srk test (alg1, relax1) (alg2, relax2) phi =
-    Format.printf "Comparing convex hulls computed by %a (%a) and by %a (%a)@\n"
-      pp_alg alg1 pp_relaxation relax1 pp_alg alg2 pp_relaxation relax2;
-
-    relax_to_real := relax1;
-    let hull1 = convex_hull srk alg1 phi in
-    Format.printf "%a hull: @[%a (%a)@]@\n@\n" pp_alg alg1 pp_relaxation relax1
-      (DD.pp pp_dim) hull1;
-
-    relax_to_real := relax2;
-    let hull2 = convex_hull srk alg2 phi in
-    Format.printf "%a hull: @[%a (%a)@]@\n@\n" pp_alg alg2 pp_relaxation relax2 (DD.pp pp_dim) hull2;
-
-    if test hull1 hull2 then
-      Format.printf "Result: success"
-    else
-      if dd_subset hull1 hull2 then
-        begin
-          relax_to_real := relax1;
-          Format.printf "Result: failure (%a (%a) is more precise)"
-            pp_alg alg1 pp_relaxation relax1
-        end
-      else if dd_subset hull2 hull1 then
-        begin
-          relax_to_real := relax2;
-          Format.printf "Result: failure (%a (%a) is more precise)"
-            pp_alg alg2 pp_relaxation relax2
-        end
-      else
-        let () = (relax_to_real := relax1) in
-        let s1 = Format.asprintf "%a (%a)" pp_alg alg1 pp_relaxation relax1 in
-        let () = (relax_to_real := relax2) in
-        let s2 = Format.asprintf "%a (%a)" pp_alg alg2 pp_relaxation relax2 in
-        Format.printf "Result: failure (%s and %s incomparable)" s1 s2
 
 end
 
@@ -508,67 +428,6 @@ let spec_list = [
      -lira-convex-hull-pc and -lira-convex-hull-lplh"
   );
 
-  ("-lira-convex-hull-real-relaxation-lw"
-  , Arg.String
-      (fun file ->
-        ConvHull.relax_to_real := Realified;
-        ignore (ConvHull.convex_hull srk (LraCCH LwMbp) (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in LIRA by first expressing it as an equivalent formula in the signature of LRA using more variables, casting all variables to real, and then doing local projection."
-  );
-
-  ("-lira-convex-hull-real-relaxation-fmcad15"
-  , Arg.String
-      (fun file ->
-        ConvHull.relax_to_real := Realified;
-        ignore (ConvHull.convex_hull srk (LraCCH FullProject) (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in LIRA by by first expressing it as an equivalent formula in the signature of LRA using more variables, casting all variables to real, and then doing a full projection (FMCAD'15)."
-  );
-
-  ("-compare-lira-convex-hull-pc-lplh-vs-pc"
-  , Arg.String (fun file ->
-        ConvHull.compare srk
-          DD.equal (LiraCCH (PolyReccone_LPLH None), NoRelax) (LiraCCH PolyReccone, NoRelax)
-          (load_formula file))
-  , "Test convex hulls for correctness"
-  );
-
-  ("-compare-lira-convex-hull-pc-lplh-vs-lira-lplh"
-  , Arg.String (fun file ->
-        ConvHull.compare srk
-          DD.equal (LiraCCH (PolyReccone_LPLH None), NoRelax) (LiraCCH (LiraLPLH None), NoRelax)
-          (load_formula file))
-  , "Test convex hulls computed by -lira-convex-hull-pc-lplh with that of -lira-convex-hull-lplh"
-  );
-
-  ("-compare-lira-convex-hull-pc-lplh-vs-real-relaxation-lw"
-  , Arg.String (fun file ->
-        ConvHull.compare srk
-          DD.equal (LiraCCH (PolyReccone_LPLH None), NoRelax) (LraCCH LwMbp, Realified)
-          (load_formula file))
-  , "Compare convex hull of a LIRA formula against that of its real relaxation"
-  );
-
-  ("-compare-lira-convex-hull-pc-lplh-vs-lw"
-  , Arg.String (fun file ->
-        ConvHull.compare srk
-          DD.equal
-          (LiraCCH (PolyReccone_LPLH None), NoRelax)
-          (LraCCH LwMbp, JustLraFormula)
-          (load_formula file))
-  , "Compare convex hull of a LIRA formula against that of -lra-convex-hull-lw (integer symbols preserved if any, but explicit is_int constraints are ignored)"
-  );
-
-  ("-compare-lira-convex-hull-partial-relaxation-vs-full-relaxation"
-  , Arg.String (fun file ->
-        ConvHull.compare srk DD.equal
-          (LraCCH LwMbp, JustLraFormula) (LraCCH LwMbp, Realified)
-          (load_formula file))
-  , "Compare convex hull of partially relaxed formula using LW against that of its real relaxation"
-  );
 
   ("-lia-convex-hull-lia-lplh"
   , Arg.String
@@ -606,28 +465,6 @@ let spec_list = [
      using Normaliz and then projecting it. All variables should be of integer type for this to be sound."
   );
 
-  ("-compare-lia-convex-hull-lia-lplh-vs-pc-lplh"
-  , Arg.String
-      (fun file ->
-        ConvHull.compare srk DD.equal
-          (LiaCCH LiaLPLH, NoRelax)
-          (LiraCCH (PolyReccone_LPLH None), NoRelax)
-          (load_formula file)
-      )
-  , "Test convex hulls for correctness"
-  );
-
-  ("-compare-lia-convex-hull-lia-lplh-vs-hull-then-proj-gc"
-  , Arg.String
-      (fun file ->
-        ConvHull.compare srk DD.equal
-          (LiaCCH LiaLPLH, NoRelax)
-          (LiaCCH (HullThenProject `GomoryChvatal), JustLraFormula)
-          (load_formula file)
-      )
-  , "Test convex hulls for correctness"
-  );
-
   ("-lra-convex-hull-lw"
   , Arg.String
       (fun file ->
@@ -646,16 +483,6 @@ let spec_list = [
         Format.printf "Result: success")
   , "Compute the convex hull of an existential formula in linear real arithmetic
      using full projection (FMCAD'15)."
-  );
-
-  ("-compare-lra-convex-hull-lw-vs-fmcad15"
-  , Arg.String
-      (fun file ->
-        ConvHull.compare srk DD.equal
-          (LraCCH LwMbp, NoRelax) (LraCCH FullProject, NoRelax)
-          (load_formula file)
-      )
-  , "Test convex hulls for correctness"
   );
 
   ("-integralize-smt-file"
