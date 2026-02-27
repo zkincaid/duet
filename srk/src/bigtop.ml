@@ -74,6 +74,49 @@ module Plt = PolyhedronLatticeTiling
 
 module ConvHull : sig
 
+  type lira_abstraction =
+  | PolyReccone
+    (** Local projection of the subpolyhedron contained in the
+        integer class of model (roughly) + (i.e., Minkowski sum)
+        recession cone of the local projection of the
+        Loos-Weispfenning MBP subpolyhedron.
+     *)
+  | LiraLPLH of QQ.t option
+    (** Local projection of the PLT followed by taking local hull (via HKMMZ) *)
+  | PolyReccone_LPLH of QQ.t option
+    (** The same as PolyReccone, but joined with the local hull
+        (LH; via HKMMZ) of the local projection (LP) of the PLT.
+        Strict inequalities are rounded to loose ones by shifting
+        using the option; if unspecified, some internal choice is made.
+     *)
+
+  (** LIA abstraction requires that every variable is integer-valued
+      and that the target terms have integer coefficients.
+   *)
+  type lia_abstraction =
+    | HullThenProject of [`GomoryChvatal | `Normaliz]
+    (** Baseline. Formula should not have [is_int] literals. *)
+    | LiaLPLH
+    (** Local projection of PLT followed by taking local hull. *)
+
+  (** LRA abstraction ignores all [is_int] constraints in the implicant and
+      integrality of variables.
+      (But the solver finds models that respect integrality of variables.
+      An LRA overapproximation should in principle be the LRA abstraction of
+      the real relaxation of the formula, where we replace all integer-typed
+      variables with real-typed ones, via [realify_formula_and_terms] below.)
+   *)
+  type lra_abstraction =
+    | FullProject
+    (** Baseline  *)
+    | LwMbp
+    (** Local projection of Loos-Weispfenning MBP subpolyhedron *)
+
+  type abstraction_algorithm =
+    | LiraCCH of lira_abstraction
+    | LiaCCH of lia_abstraction
+    | LraCCH of lra_abstraction
+
   val dd_subset: DD.closed DD.t -> DD.closed DD.t -> bool
 
   (* Both [`JustLraFormula] and [`Realified] purify the formula to get an LRA formula,
@@ -86,13 +129,13 @@ module ConvHull : sig
   val keep_floor_mod_div: bool ref
 
   val convex_hull: 'a context ->
-                   Plt.abstraction_algorithm -> 'a formula -> DD.closed DD.t
+                   abstraction_algorithm -> 'a formula -> DD.closed DD.t
 
   val compare:
     'a context ->
     (DD.closed DD.t -> DD.closed DD.t -> bool) ->
-    Plt.abstraction_algorithm * real_relaxation ->
-    Plt.abstraction_algorithm * real_relaxation ->
+    abstraction_algorithm * real_relaxation ->
+    abstraction_algorithm * real_relaxation ->
     'a formula -> unit
 
   (* `LiraToLra
@@ -113,6 +156,51 @@ module ConvHull : sig
 
 end = struct
 
+  type lira_abstraction =
+  | PolyReccone
+  | LiraLPLH of QQ.t option
+  | PolyReccone_LPLH of QQ.t option
+
+  type lia_abstraction =
+    | HullThenProject of [`GomoryChvatal | `Normaliz]
+    | LiaLPLH
+
+  type lra_abstraction =
+    | FullProject
+    | LwMbp
+
+  type abstraction_algorithm =
+    | LiraCCH of lira_abstraction
+    | LiaCCH of lia_abstraction
+    | LraCCH of lra_abstraction
+
+  let alg_of srk = function
+    | LiraCCH abs ->
+      begin match abs with
+      | PolyReccone -> Plt.ConvexHull.cch_lira_lp_pcone srk
+      | LiraLPLH eps ->
+        begin match eps with
+        | None -> Plt.ConvexHull.cch_lira_lplh srk
+        | Some epsilon -> Plt.ConvexHull.cch_lira_lplh ~epsilon srk
+        end
+      | PolyReccone_LPLH eps ->
+        begin match eps with
+        | None -> Plt.ConvexHull.cch_lira srk
+        | Some epsilon -> Plt.ConvexHull.cch_lira ~epsilon srk
+        end
+      end
+    | LiaCCH abs ->
+      begin match abs with
+        | HullThenProject hull ->
+            Plt.ConvexHull.cch_lia_hull_then_project hull srk
+        | LiaLPLH -> Plt.ConvexHull.cch_lia srk
+      end
+    | LraCCH abs ->
+      begin match abs with
+      | LwMbp -> Plt.ConvexHull.cch_lra srk
+      | FullProject -> Plt.ConvexHull.cch_lra_hull_then_project srk
+      end
+
   module S = Syntax.Symbol.Set
 
   type real_relaxation = NoRelax | JustLraFormula | Realified
@@ -122,7 +210,6 @@ end = struct
   let relax_to_real = ref NoRelax
 
   let pp_alg fmt alg =
-    let open Plt in
     let alg_name =
       match alg with
       | LiraCCH PolyReccone -> "PolyReccone"
@@ -244,6 +331,12 @@ end = struct
     |> List.rev
     |> mk_and srk
 
+  let _convex_hull how srk processed_phi terms =
+    let man = Polka.manager_alloc_loose () in
+    let solver = Abstract.Solver.make srk ~theory:`LIRA processed_phi in
+    let local_abs = alg_of srk how ~man (symbols processed_phi) terms in
+    Abstract.ClosedConvexHull.abstract_by ~man solver (`LIRA local_abs) terms
+
   let convex_hull srk how phi =
     let (qf, phi) = Quantifier.normalize srk phi in
     if List.exists (fun (q, _) -> q = `Forall) qf then
@@ -311,7 +404,7 @@ end = struct
         (Symbol.Set.to_list int_symbols)
     in
     print_input ();
-    let result = Plt.convex_hull how srk processed_phi terms in
+    let result = _convex_hull how srk processed_phi terms in
     Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
       (Syntax.Formula.pp srk)
       (formula_of_dd srk (fun dim -> terms.(dim)) result);
@@ -387,7 +480,7 @@ let spec_list = [
       (fun file ->
         ConvHull.relax_to_real := NoRelax;
         ignore
-          (ConvHull.convex_hull srk (Plt.LiraCCH PolyReccone)
+          (ConvHull.convex_hull srk (ConvHull.LiraCCH PolyReccone)
              (load_formula file));
         Format.printf "Result: success"
       )
@@ -401,7 +494,7 @@ let spec_list = [
       (fun file ->
         ConvHull.relax_to_real := NoRelax;
         ignore
-          (ConvHull.convex_hull srk (Plt.LiraCCH (LiraLPLH None)) (load_formula file));
+          (ConvHull.convex_hull srk (ConvHull.LiraCCH (LiraLPLH None)) (load_formula file));
         Format.printf "Result: success"
       )
   , "Compute the convex hull of an existential formula in LIRA using local projection
@@ -413,7 +506,7 @@ let spec_list = [
   , Arg.String
       (fun file ->
         ConvHull.relax_to_real := NoRelax;
-        ignore (ConvHull.convex_hull srk (Plt.LiraCCH (PolyReccone_LPLH None)) (load_formula file));
+        ignore (ConvHull.convex_hull srk (ConvHull.LiraCCH (PolyReccone_LPLH None)) (load_formula file));
         Format.printf "Result: success"
       )
   , "Compute the convex hull of an existential formula in LIRA using the join of
