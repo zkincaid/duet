@@ -101,8 +101,7 @@ module ConvexHull : sig
 
   val cch_lra_hull_then_project: man:DD.closed Apron.Manager.t
     -> 'a context 
-    -> 'a arith_term array 
-    -> Symbol.Set.t -> 'a lira_to_polyhedron_abs
+    -> Symbol.Set.t -> 'a arith_term array -> 'a lira_to_polyhedron_abs
 
   (** Local abstraction for LIA formulas.
     Input formula must be in core LIRA with LRA terms, and the abstraction
@@ -136,8 +135,8 @@ module ConvexHull : sig
   val cch_lia_hull_then_project: [`GomoryChvatal | `Normaliz ] ->
     man:DD.closed Apron.Manager.t ->
     'a context ->
-    'a arith_term array ->
     Symbol.Set.t ->
+    'a arith_term array ->
     'a lira_to_polyhedron_abs
 
 end

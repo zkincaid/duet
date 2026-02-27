@@ -1063,7 +1063,7 @@ module ConvexHull : sig
 
   val cch_lra_hull_then_project:
     man:DD.closed Apron.Manager.t -> 'a context
-    -> 'a arith_term array -> Symbol.Set.t -> 'a lira_to_polyhedron_abs
+    -> Symbol.Set.t -> 'a arith_term array -> 'a lira_to_polyhedron_abs
 
   (** All symbols must be of integer type, and all terms must have integer
       coefficients.
@@ -1088,8 +1088,8 @@ module ConvexHull : sig
     [`GomoryChvatal | `Normaliz ] ->
     man:DD.closed Apron.Manager.t ->
     'a context ->
-    'a arith_term array ->
     Symbol.Set.t ->
+    'a arith_term array ->
     'a lira_to_polyhedron_abs
 
 end = struct
@@ -1140,7 +1140,7 @@ end = struct
       |> LwCooper.real_local_project ~elim
       |> ddify ~man (Array.length terms)
 
-  let cch_lra_hull_then_project ~man srk terms symbols =
+  let cch_lra_hull_then_project ~man srk symbols terms =
     let project =
       let abstract p =
         let max_dim_in_p = P.max_constrained_dim p in
@@ -1171,7 +1171,7 @@ end = struct
       |> LwCooper.local_project ~elim ~round_up:(fun _m v -> v)
       |> LocalHull.local_hull ~man ~ambient_dim:target_dim
 
-  let cch_lia_hull_then_project hull_alg ~man srk terms symbols =
+  let cch_lia_hull_then_project hull_alg ~man srk symbols terms =
     let target_dim = Array.length terms in
     let project =
       let abstract plt _m =
