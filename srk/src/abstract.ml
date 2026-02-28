@@ -101,6 +101,7 @@ module Solver = struct
       phi
       |> Syntax.eliminate_floor_mod_div srk
       |> Syntax.eliminate_ite srk
+      |> rewrite srk ~down:(nnf_rewriter srk)
       |> rewrite srk ~down:(pos_rewriter srk)
 
   let make srk ?(theory=get_theory srk) ?preprocess formula =
