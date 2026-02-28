@@ -394,13 +394,13 @@ let spec_list = [
   , "Compute the convex hull of an existential formula in LIA by local projection followed by taking local hull."
   );
 
-  ("-lra-convex-hull-lw"
+  ("-lra-convex-hull"
   , Arg.String
       (fun file ->
         ignore (ConvHull.convex_hull srk LraCCH (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in LRA using Loos-Weispfenning. This retains integrality (type) of variables; use -lira-convex-hull-real-relxation-lw if variables should be cast to real."
+  , "Compute the convex hull of an existential formula in linear rational arithmetic."
   );
 
   ("-integralize-smt-file"
