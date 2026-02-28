@@ -100,19 +100,10 @@ module ConvHull : sig
     | LiaLPLH
     (** Local projection of PLT followed by taking local hull. *)
 
-  (** LRA abstraction ignores all [is_int] constraints in the implicant and
-      integrality of variables.
-   *)
-  type lra_abstraction =
-    | FullProject
-    (** Baseline  *)
-    | LwMbp
-    (** Local projection of Loos-Weispfenning MBP subpolyhedron *)
-
   type abstraction_algorithm =
     | LiraCCH of lira_abstraction
     | LiaCCH of lia_abstraction
-    | LraCCH of lra_abstraction
+    | LraCCH
 
   val dd_subset: DD.closed DD.t -> DD.closed DD.t -> bool
 
@@ -143,17 +134,13 @@ end = struct
   | PolyReccone_LPLH of QQ.t option
 
   type lia_abstraction =
-    | HullThenProject of [`GomoryChvatal | `Normaliz]
-    | LiaLPLH
-
-  type lra_abstraction =
-    | FullProject
-    | LwMbp
+  | HullThenProject of [`GomoryChvatal | `Normaliz]
+  | LiaLPLH
 
   type abstraction_algorithm =
-    | LiraCCH of lira_abstraction
-    | LiaCCH of lia_abstraction
-    | LraCCH of lra_abstraction
+  | LiraCCH of lira_abstraction
+  | LiaCCH of lia_abstraction
+  | LraCCH
 
   let alg_of srk = function
     | LiraCCH abs ->
@@ -176,12 +163,8 @@ end = struct
             Plt.ConvexHull.cch_lia_hull_then_project hull srk
         | LiaLPLH -> Plt.ConvexHull.cch_lia srk
       end
-    | LraCCH abs ->
-      begin match abs with
-      | LwMbp -> Plt.ConvexHull.cch_lra srk
-      | FullProject -> Plt.ConvexHull.cch_lra_hull_then_project srk
-      end
-
+    | LraCCH -> Plt.ConvexHull.cch_lra srk
+    
   module S = Syntax.Symbol.Set
 
   let retype_quantifier_free srk how phi =
@@ -414,7 +397,7 @@ let spec_list = [
   ("-lra-convex-hull-lw"
   , Arg.String
       (fun file ->
-        ignore (ConvHull.convex_hull srk (LraCCH LwMbp) (load_formula file));
+        ignore (ConvHull.convex_hull srk LraCCH (load_formula file));
         Format.printf "Result: success"
       )
   , "Compute the convex hull of an existential formula in LRA using Loos-Weispfenning. This retains integrality (type) of variables; use -lira-convex-hull-real-relxation-lw if variables should be cast to real."
