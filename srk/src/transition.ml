@@ -506,6 +506,7 @@ struct
     |> Nonlinear.linearize srk
     |> Syntax.eliminate_floor_mod_div srk
     |> Syntax.eliminate_ite srk
+    |> rewrite srk ~down:(nnf_rewriter srk)
     |> rewrite srk ~down:(pos_rewriter srk)
     |> SrkApron.abstract ~exists srk man
 
