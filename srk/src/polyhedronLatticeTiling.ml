@@ -1084,14 +1084,6 @@ module ConvexHull : sig
     'a context -> Symbol.Set.t -> 'a arith_term array ->
     'a lira_to_polyhedron_abs
 
-  val cch_lia_hull_then_project:
-    [`GomoryChvatal | `Normaliz ] ->
-    man:DD.closed Apron.Manager.t ->
-    'a context ->
-    Symbol.Set.t ->
-    'a arith_term array ->
-    'a lira_to_polyhedron_abs
-
 end = struct
 
   let default_epsilon = QQ.of_frac 1 10
@@ -1171,7 +1163,12 @@ end = struct
       |> LwCooper.local_project ~elim ~round_up:(fun _m v -> v)
       |> LocalHull.local_hull ~man ~ambient_dim:target_dim
 
-  let cch_lia_hull_then_project hull_alg ~man srk symbols terms =
+  (*  This isn't exposed right now because input formulas are in core LIRA where
+      [is_int] atoms can be present. "Global" integer hull algorithms assume
+      formulas are in the language of LRA, so we need to purify [is_int] atoms.
+      [cch_lia] should be better most of the time, and handles [is_int] directly.
+  *)
+  let _cch_lia_hull_then_project hull_alg ~man srk symbols terms =
     let target_dim = Array.length terms in
     let project =
       let abstract plt _m =

@@ -91,18 +91,9 @@ module ConvHull : sig
         using the option; if unspecified, some internal choice is made.
      *)
 
-  (** LIA abstraction requires that every variable is integer-valued
-      and that the target terms have integer coefficients.
-   *)
-  type lia_abstraction =
-    | HullThenProject of [`GomoryChvatal | `Normaliz]
-    (** Baseline. Formula should not have [is_int] literals. *)
-    | LiaLPLH
-    (** Local projection of PLT followed by taking local hull. *)
-
   type abstraction_algorithm =
     | LiraCCH of lira_abstraction
-    | LiaCCH of lia_abstraction
+    | LiaCCH
     | LraCCH
 
   val dd_subset: DD.closed DD.t -> DD.closed DD.t -> bool
@@ -133,13 +124,9 @@ end = struct
   | LiraLPLH of QQ.t option
   | PolyReccone_LPLH of QQ.t option
 
-  type lia_abstraction =
-  | HullThenProject of [`GomoryChvatal | `Normaliz]
-  | LiaLPLH
-
   type abstraction_algorithm =
   | LiraCCH of lira_abstraction
-  | LiaCCH of lia_abstraction
+  | LiaCCH
   | LraCCH
 
   let alg_of srk = function
@@ -157,12 +144,7 @@ end = struct
         | Some epsilon -> Plt.ConvexHull.cch_lira ~epsilon srk
         end
       end
-    | LiaCCH abs ->
-      begin match abs with
-        | HullThenProject hull ->
-            Plt.ConvexHull.cch_lia_hull_then_project hull srk
-        | LiaLPLH -> Plt.ConvexHull.cch_lia srk
-      end
+    | LiaCCH -> Plt.ConvexHull.cch_lia srk
     | LraCCH -> Plt.ConvexHull.cch_lra srk
     
   module S = Syntax.Symbol.Set
@@ -384,11 +366,11 @@ let spec_list = [
   );
 
 
-  ("-lia-convex-hull-lia-lplh"
+  ("-lia-convex-hull"
   , Arg.String
       (fun file ->
         ignore
-          (ConvHull.convex_hull srk (LiaCCH LiaLPLH) (load_formula file));
+          (ConvHull.convex_hull srk LiaCCH (load_formula file));
         Format.printf "Result: success"
       )
   , "Compute the convex hull of an existential formula in LIA by local projection followed by taking local hull."

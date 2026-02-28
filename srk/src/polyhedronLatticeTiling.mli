@@ -114,31 +114,6 @@ module ConvexHull : sig
     -> 'a Syntax.arith_term array
     -> 'a lira_to_polyhedron_abs
 
-  (** Local abstraction for LIRA formulas by taking the path
-    cube implicant
-    --> convex hull of points (i.e., a polyhedron)
-        satisfying implicant with all [is_int] dropped
-    --> apply [hull] to this convex hull
-    --> projection of this hull.
-    If the formula is an LRA formula with no integer-typed symbols, or if a
-    sound over-approximation suffices, [hull] need not be given.
-  *)
-  (*
-  val cch_hull_then_project: DD.closed Apron.Manager.t
-    -> ?hull: (DD.closed DD.t -> DD.closed DD.t)
-    -> 'a Syntax.context
-    -> Symbol.Set.t
-    -> 'a Syntax.arith_term array
-    -> 'a lira_to_polyhedron_abs
-  *)
-
-  val cch_lia_hull_then_project: [`GomoryChvatal | `Normaliz ] ->
-    man:DD.closed Apron.Manager.t ->
-    'a context ->
-    Symbol.Set.t ->
-    'a arith_term array ->
-    'a lira_to_polyhedron_abs
-
 end
 
 type plt_constraints
