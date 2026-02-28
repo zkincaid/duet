@@ -365,7 +365,6 @@ let spec_list = [
      -lira-convex-hull-pc and -lira-convex-hull-lplh"
   );
 
-
   ("-lia-convex-hull"
   , Arg.String
       (fun file ->
@@ -373,7 +372,7 @@ let spec_list = [
           (ConvHull.convex_hull srk LiaCCH (load_formula file));
         Format.printf "Result: success"
       )
-  , "Compute the convex hull of an existential formula in LIA by local projection followed by taking local hull."
+  , "Compute the convex hull of an existential formula in linear integer arithmetic."
   );
 
   ("-lra-convex-hull"
