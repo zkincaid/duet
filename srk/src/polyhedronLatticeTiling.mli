@@ -58,27 +58,6 @@ module ConvexHull : sig
     -> 'a Syntax.arith_term array (* to linear inequalities in these terms *)
     -> 'a lira_to_polyhedron_abs
 
-  (** Local abstraction for LIRA formulas using only LP-PCone,
-    i.e., the interleaving of the subspace/polyhedron-plus-recession-cone
-    abstraction and local real projection.
-    *)
-  val cch_lira_lp_pcone: man:DD.closed Apron.Manager.t
-    -> 'a Syntax.context
-    -> Symbol.Set.t
-    -> 'a Syntax.arith_term array
-    -> 'a lira_to_polyhedron_abs
-
-  (** Local abstraction for LIRA formulas using only
-    local LIRA projection followed by an under-approximate convex hull of
-    integer points within the projection.
-    *)
-  val cch_lira_lplh: man:DD.closed Apron.Manager.t
-    -> ?epsilon: QQ.t
-    -> 'a Syntax.context
-    -> Symbol.Set.t
-    -> 'a Syntax.arith_term array
-    -> 'a lira_to_polyhedron_abs
-
   (** Local abstraction for LRA formulas.
     Input formula must be in core LIRA with LRA terms, and the abstraction
     ignores all [is_int] atoms and ignores integrality of symbols.
@@ -89,10 +68,6 @@ module ConvexHull : sig
     -> Symbol.Set.t
     -> 'a Syntax.arith_term array
     -> 'a lira_to_polyhedron_abs
-
-  val cch_lra_hull_then_project: man:DD.closed Apron.Manager.t
-    -> 'a context
-    -> Symbol.Set.t -> 'a arith_term array -> 'a lira_to_polyhedron_abs
 
   (** Local abstraction for LIA formulas.
     Input formula must be in core LIRA with LRA terms, and the abstraction

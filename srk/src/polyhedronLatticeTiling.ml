@@ -955,18 +955,6 @@ end
 
 module PltConvexHull : sig
 
-  val local_project_local_hull:
-    man:DD.closed Apron.Manager.t ->
-    max_dim_in_target:int ->
-    epsilon:Q.t ->
-    (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) local_abstraction
-
-  (** This is a compact local abstraction. *)
-  val local_project_polyreccone :
-    man:DD.closed Apron.Manager.t ->
-    max_dim_in_target:int ->
-    (Plt.t, int -> Q.t, DD.closed DD.t, int -> Q.t) local_abstraction
-
   val by_polyreccone_and_lplh:
     man:DD.closed Apron.Manager.t ->
     max_dim_in_target:int ->
@@ -1046,24 +1034,10 @@ module ConvexHull : sig
     'a context -> Symbol.Set.t -> 'a arith_term array ->
     'a lira_to_polyhedron_abs
 
-  val cch_lira_lp_pcone:
-    man:DD.closed Apron.Manager.t ->
-    'a context -> Symbol.Set.t -> 'a arith_term array ->
-    'a lira_to_polyhedron_abs
-
-  val cch_lira_lplh:
-    man:DD.closed Apron.Manager.t -> ?epsilon: QQ.t ->
-    'a context -> Symbol.Set.t -> 'a arith_term array ->
-    'a lira_to_polyhedron_abs
-
   val cch_lra:
     man:DD.closed Apron.Manager.t ->
     'a context ->  Symbol.Set.t -> 'a arith_term array ->
     'a lira_to_polyhedron_abs
-
-  val cch_lra_hull_then_project:
-    man:DD.closed Apron.Manager.t -> 'a context
-    -> Symbol.Set.t -> 'a arith_term array -> 'a lira_to_polyhedron_abs
 
   (** All symbols must be of integer type.
       Local-project-local-hull is (sound and) compact when these conditions hold.
@@ -1094,21 +1068,6 @@ end = struct
       cubify (plt, m)
       |> PltConvexHull.by_polyreccone_and_lplh ~man ~epsilon ~max_dim_in_target
 
-  let cch_lira_lplh ~man ?(epsilon=default_epsilon)
-    srk symbols terms =
-    let (cubify, _) = Plt.cubify srk terms symbols in
-    let max_dim_in_target = Array.length terms - 1 in
-    fun (plt, m) ->
-      cubify (plt, m)
-      |> PltConvexHull.local_project_local_hull ~man ~epsilon ~max_dim_in_target
-
-  let cch_lira_lp_pcone ~man srk symbols terms =
-    let (cubify, _) = Plt.cubify srk terms symbols in
-    let max_dim_in_target = Array.length terms - 1 in
-    fun (plt, m) ->
-      cubify (plt, m)
-      |> PltConvexHull.local_project_polyreccone ~man ~max_dim_in_target
-
   let ddify ~man ambient_dim =
     (fun (p, m) -> P.dd_of ~man ambient_dim p, m)
 
@@ -1121,7 +1080,7 @@ end = struct
       |> LwCooper.real_local_project ~elim
       |> ddify ~man (Array.length terms)
 
-  let cch_lra_hull_then_project ~man srk symbols terms =
+  let _cch_lra_hull_then_project ~man srk symbols terms =
     let project =
       let abstract p =
         let max_dim_in_p = P.max_constrained_dim p in

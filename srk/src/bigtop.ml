@@ -284,35 +284,13 @@ let spec_list = [
    Arg.Set generator_rep,
    " Print generator representation of convex hull");
 
-  ("-lira-convex-hull-pc"
+  ("-lira-convex-hull"
   , Arg.String
       (fun file ->
-        ignore
-          (ConvHull.convex_hull srk (Plt.ConvexHull.cch_lira_lp_pcone srk)
-             (load_formula file));
-        Format.printf "Result: success"
-      )
-  ,
-    "Compute the convex hull of an existential formula in LIRA
-     using the polyhedral-level-set-and-recession-cone abstraction"
-  );
-
-  ("-lira-convex-hull-lplh"
-  , Arg.String
-      (fun file ->
-        ignore
-          (ConvHull.convex_hull srk (Plt.ConvexHull.cch_lira_lplh srk) (load_formula file));
-        Format.printf "Result: success"
-      )
-  , "Compute the convex hull of an existential formula in LIRA using local projection
-     followed by taking local hull, the latter of which is based on
-     'An efficient quantifier elimination procedure for Presburger arithmetic' (ICALP 2024))."
-  );
-
-  ("-lira-convex-hull-pc-lplh"
-  , Arg.String
-      (fun file ->
-        ignore (ConvHull.convex_hull srk (Plt.ConvexHull.cch_lira srk) (load_formula file));
+        ignore (
+          ConvHull.convex_hull srk
+            (Plt.ConvexHull.cch_lira srk) (load_formula file)
+        );
         Format.printf "Result: success"
       )
   , "Compute the convex hull of an existential formula in LIRA using the join of
