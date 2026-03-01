@@ -1065,19 +1065,8 @@ module ConvexHull : sig
     man:DD.closed Apron.Manager.t -> 'a context
     -> Symbol.Set.t -> 'a arith_term array -> 'a lira_to_polyhedron_abs
 
-  (** All symbols must be of integer type, and all terms must have integer
-      coefficients.
+  (** All symbols must be of integer type.
       Local-project-local-hull is (sound and) compact when these conditions hold.
-
-      For the latter condition, rounding assuming integer-valued variables is
-      in general unsound.
-      E.g.: t = 1/2 x + y, is_int(x), is_int(y), 1/2 x + y > 0,
-      i.e., 1/2 x + y >= 1/2.
-      Eliminating y gives t > 0 /\ is_int(t - 1/2 x).
-      Then rounding gives t >= 1 /\ is_int(t - 1/2 x), i.e.,
-      1/2 x + y >= 1.
-      This is not equivalent to the original formula, and is not a local
-      abstraction: consider (x, y) = (1, 0).
    *)
   val cch_lia:
     man:DD.closed Apron.Manager.t ->

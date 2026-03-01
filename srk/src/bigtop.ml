@@ -238,8 +238,6 @@ end = struct
         in
         (S.filter is_int symbols, S.filter is_real symbols)
       in
-      (* Format.printf "Formula before processing: @[%a@]@;"
-         (Syntax.Formula.pp srk) phi; *)
       Format.printf "Taking convex hull of formula: @[%a@]@;"
         (Syntax.Formula.pp srk) phi;
       Format.printf "Symbols to keep: @[%a@]@;" pp_symbols symbols_to_keep;
