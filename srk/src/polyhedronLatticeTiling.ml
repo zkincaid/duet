@@ -46,16 +46,6 @@ let formula_t srk term_of_dim v =
   let t = term_of_vec srk term_of_dim v in
   mk_not srk (mk_is_int srk t)
 
-(*
-let formula_of_dd srk term_of_dim dd =
-  DD.enum_constraints dd
-  |> BatEnum.fold
-       (fun atoms (kind, v) ->
-         P.formula_of_constraint srk term_of_dim (kind, v) :: atoms) []
-  |> List.rev
-  |> mk_and srk
-*)
-
 let collect_dimensions vector_of add_dim constraints =
   let dims = ref IntSet.empty in
   BatList.iter
