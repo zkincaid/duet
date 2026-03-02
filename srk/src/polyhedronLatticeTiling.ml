@@ -134,40 +134,6 @@ let test_point_in_lattice ?(level = !test_level) is_int str m l =
       l
   else ()
 
-(*
-let test_implication ?(level = !test_level) str solver consequence =
-  if Log.level_leq !my_verbosity_level level then
-    begin
-      logf str;
-      let srk = Abstract.Solver.get_context solver in
-      let phi = Abstract.Solver.get_formula solver in
-      let goal = Syntax.mk_and srk [phi; Syntax.mk_not srk consequence] in
-      let solver = SrkZ3.Solver.make srk in
-      let msg status =
-        Format.asprintf "@[%a@]@\n %s @\n@[%a@]@;"
-          (Syntax.Formula.pp srk) phi
-          status
-          (Syntax.Formula.pp srk) consequence
-      in
-      SrkZ3.Solver.add solver [goal];
-      if (SrkZ3.Solver.check solver = `Unsat) then
-        logf "Test passed: %s" (msg "implies")
-      else
-        failwith (msg "does not imply")
-    end
-  else ()
-
-let _test_hull ?(level = !test_level) solver terms dd =
-  if Log.level_leq !my_verbosity_level level && !test_convex_hull then
-    let srk = Abstract.Solver.get_context solver in
-    let consequence = formula_of_dd srk (fun dim -> terms.(dim)) dd in
-    test_implication
-      "Checking if convex hull is consistent with input formula..."
-      solver consequence
-  else
-    ()
-*)
-
 type plt_constraints = (P.constraint_kind * V.t) list * V.t list * V.t list
 
 module Plt: sig
@@ -873,7 +839,7 @@ end = struct
       if elim dim then
         failwith
           (Format.asprintf
-             "abstract_lw: Dimension %d has been eliminated" dim)
+             "LwCooper.local_project: Dimension %d has been eliminated" dim)
       else m dim
     in
     (fun (plt, m) -> local_project_ ~elim ~round_up plt m, restricted m)
