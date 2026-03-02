@@ -43,7 +43,11 @@ end
 module Solver : sig
   type 'a t
 
-  (** Allocate a new solver. *)
+  (** Allocate a new solver.
+    For LIRA, default preprocessing ensures that [get_formula] returns a
+    formula that can be destructed by [Linear.destruct_lira] or evaluated by
+    [Linear.eval_lira].
+  *)
   val make : 'a context -> ?theory:[`LIRR | `LIRA ]
     -> ?preprocess:('a formula -> 'a formula)
     -> 'a formula -> 'a t
