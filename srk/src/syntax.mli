@@ -513,15 +513,6 @@ val purify_expr : 'a context ->
   ('a, 'c) expr ->
   (('a, 'c) expr * (('a, 'b) expr) Symbol.Map.t)
 
-(** [retype srk fromto map expr] gives an expression [expr'] and [map'] such that
-    [expr'] is the same as [expr] except that each symbol of type
-    [from] is replaced with its image under [map] if it is in the domain,
-    or with a fresh symbols of type [to], and [map'] is [map] extended with
-    these fresh bindings.
- *)
-val retype: 'a context -> [`IntToReal | `RealToInt] -> symbol Symbol.Map.t ->
-            ('a, 'b) expr -> ('a, 'b) expr * symbol Symbol.Map.t
-
 (** Given a formula [phi], compute a formula without if-then-else terms that
    is equivalent to [phi] when projected on to the symbols of [phi].  If an
    *equivalent* ite-free formula is required, then use [lift_ite]. *)

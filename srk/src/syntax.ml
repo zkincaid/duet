@@ -1892,42 +1892,6 @@ let eliminate_is_int srk phi =
     )
     phi
 
-let retype srk (fromto: [`IntToReal | `RealToInt]) binding expr =
-  let retyped_symbol sym =
-    match fromto with
-    | `IntToReal ->
-       mk_symbol srk ~name:(Format.asprintf "%s_realified"
-                              (show_symbol srk sym))
-         `TyReal
-    | `RealToInt ->
-       mk_symbol srk ~name:(Format.asprintf "%s_integralized"
-                              (show_symbol srk sym))
-         `TyInt
-  in
-  let map =
-    Symbol.Set.fold
-      (fun sym map ->
-        match (typ_symbol srk sym, fromto) with
-        | (`TyInt, `IntToReal) ->
-           begin match Symbol.Map.find_opt sym map with
-           | Some _ -> map
-           | None -> Symbol.Map.add sym (retyped_symbol sym) map
-           end
-        | (`TyReal, `RealToInt) ->
-           begin match Symbol.Map.find_opt sym map with
-           | Some _ -> map
-           | None -> Symbol.Map.add sym (retyped_symbol sym) map
-           end
-        | (_, _) -> map
-      )
-      (symbols expr)
-      binding
-  in
-  let lookup s = try Symbol.Map.find s map with | Not_found -> s in
-  ( substitute_const srk (fun s -> mk_const srk (lookup s)) expr
-  , map
-  )
-
 let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
       srk formatter assertions =
   let open Format in

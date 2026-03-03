@@ -105,11 +105,39 @@ end = struct
 
   module S = Syntax.Symbol.Set
 
+  let retype srk (fromto: [`IntToReal | `RealToInt]) expr =
+    let table = Hashtbl.create 991 in
+    let retyped_symbol sym =
+      begin match fromto with
+      | `IntToReal ->
+         mk_symbol srk ~name:(Format.asprintf "%s_realified"
+                                (show_symbol srk sym))
+           `TyReal
+      | `RealToInt ->
+         mk_symbol srk ~name:(Format.asprintf "%s_integralized"
+                                (show_symbol srk sym))
+           `TyInt
+      end
+    in
+    let lookup s = begin try Hashtbl.find table s with
+      | Not_found ->
+        begin match (typ_symbol srk s, fromto) with
+        | (`TyInt, `IntToReal)
+          | (`TyReal, `RealToInt) ->
+          let new_sym = retyped_symbol s in
+          Hashtbl.add table s new_sym;
+          new_sym
+        | _ -> s
+        end
+      end
+    in
+    (substitute_const srk (fun s -> mk_const srk (lookup s)) expr, table)
+
   let retype_quantifier_free srk how phi =
     let retype fml =
       match how with
-      | `LiraToLra -> Syntax.retype srk `IntToReal Syntax.Symbol.Map.empty fml
-      | `LiraToLia _ -> Syntax.retype srk `RealToInt Syntax.Symbol.Map.empty fml
+      | `LiraToLra -> retype srk `IntToReal fml
+      | `LiraToLia _ -> retype srk `RealToInt fml
     in
     let preprocess fml =
       match how with
@@ -125,16 +153,16 @@ end = struct
       |> rewrite srk ~down:(pos_rewriter srk)
       |> preprocess in
     let introduced_symbols = S.diff (symbols processed_phi) (symbols phi) in
-    let (retyped_processed, map) = retype processed_phi in
+    let (retyped_processed, table) = retype processed_phi in
     let remap_symbols s =
-      match Symbol.Map.find_opt s map with
+      match Hashtbl.find_opt table s with
       | Some new_sym -> new_sym
       | None -> s
     in
     let introduced_symbols' =
       introduced_symbols |> S.map remap_symbols
     in
-    let equivalent = (Symbol.Map.is_empty map) in
+    let equivalent = (Hashtbl.length table == 0) in
     (retyped_processed, introduced_symbols', remap_symbols, equivalent)
 
   let retype_formula srk
