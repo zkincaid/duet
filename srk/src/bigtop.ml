@@ -111,14 +111,17 @@ end = struct
       | `LiraToLra -> Syntax.retype srk `IntToReal Syntax.Symbol.Map.empty fml
       | `LiraToLia _ -> Syntax.retype srk `RealToInt Syntax.Symbol.Map.empty fml
     in
-    let preprocess fml = match how with
-      | `LiraToLra -> Syntax.eliminate_floor_mod_div_int srk fml
+    let preprocess fml =
+      match how with
+      | `LiraToLra -> Syntax.eliminate_floor_mod_div srk fml
+        |> Syntax.eliminate_is_int srk
       | `LiraToLia `LraTerms -> Syntax.eliminate_floor_mod_div srk fml
-      | `LiraToLia `LraFormula -> Syntax.eliminate_floor_mod_div_int srk fml
+      | `LiraToLia `LraFormula -> Syntax.eliminate_floor_mod_div srk fml
+        |> Syntax.eliminate_is_int srk
       | `LiraToLia `JustSymbols -> fml
     in
     let processed_phi =
-      Syntax.rewrite srk ~down:(nnf_rewriter srk) phi
+      Syntax.eliminate_ite srk phi
       |> rewrite srk ~down:(pos_rewriter srk)
       |> preprocess in
     let introduced_symbols = S.diff (symbols processed_phi) (symbols phi) in

@@ -1079,8 +1079,8 @@ module Term = struct
     | Node (_, _, `TyArr) -> `ArrTerm sexpr
     | Node (_, _, `TyBool) -> assert false
 
-  let set_expr srk expr t = 
-    match refine srk t with 
+  let set_expr srk expr t =
+    match refine srk t with
     | `ArithTerm t' -> mk_eq srk expr t'
     | `ArrTerm t' -> mk_arr_eq srk expr t'
 end
@@ -1891,12 +1891,6 @@ let eliminate_is_int srk phi =
       | _ -> expr
     )
     phi
-
-let eliminate_floor_mod_div_int srk phi =
-  rewrite srk ~down:(nnf_rewriter srk) phi
-  |> rewrite srk ~down:(pos_rewriter srk)
-  |> eliminate_is_int srk
-  |> eliminate_floor_mod_div srk
 
 let retype srk (fromto: [`IntToReal | `RealToInt]) binding expr =
   let retyped_symbol sym =
