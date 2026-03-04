@@ -70,23 +70,11 @@ let print_result = function
   | `Unsat -> Format.printf "unsat@\n"
   | `Unknown -> Format.printf "unknown@\n"
 
-
-module Plt = PolyhedronLatticeTiling
-
-module ConvHull : sig
-
-  val dd_subset: DD.closed DD.t -> DD.closed DD.t -> bool
-
-  val convex_hull: 'a context
-    -> (
-      man:DD.closed Apron.Manager.t
-      -> Symbol.Set.t -> 'a Syntax.arith_term array
-      -> 'a Plt.ConvexHull.lira_to_polyhedron_abs
-    )
-    -> 'a formula -> DD.closed DD.t
+module Retype : sig
 
   (* `LiraToLra
-     - Remove floor, mod, div, is_int, and replace all real variables with integer ones
+     - Remove floor, mod, div, is_int, and replace all integer variables with 
+       real ones
 
      `LiraToLia:
      - `JustSymbols: just replace real variables with integer ones;
@@ -102,7 +90,6 @@ module ConvHull : sig
     'a formula -> 'a formula * bool
 
 end = struct
-
   module S = Syntax.Symbol.Set
 
   let retype srk (fromto: [`IntToReal | `RealToInt]) expr =
@@ -188,11 +175,23 @@ end = struct
       in
       ( requantify new_quantified_symbols phi', equivalent )
 
-  let dd_subset dd1 dd2 =
-    BatEnum.for_all
-      (fun cnstrnt ->
-        DD.implies dd1 cnstrnt)
-      (DD.enum_constraints dd2)
+end
+
+module Plt = PolyhedronLatticeTiling
+
+module ConvHull : sig
+
+  val convex_hull: 'a context
+    -> (
+      man:DD.closed Apron.Manager.t
+      -> Symbol.Set.t -> 'a Syntax.arith_term array
+      -> 'a Plt.ConvexHull.lira_to_polyhedron_abs
+    )
+    -> 'a formula -> DD.closed DD.t
+
+end = struct
+
+  module S = Syntax.Symbol.Set
 
   let pp_symbols fmt set =
     Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "@\n")
@@ -355,7 +354,7 @@ let spec_list = [
         in
         let phi = load_smtlib2 file in
         let (phi', equivalent) =
-          try ConvHull.retype_formula srk (`LiraToLia `LraFormula) phi
+          try Retype.retype_formula srk (`LiraToLia `LraFormula) phi
           with
           | _ -> Format.printf "Fail at file: %s" file;
                  failwith "Failed"
@@ -377,7 +376,7 @@ let spec_list = [
         in
         let phi = load_smtlib2 file in
         let (phi', equivalent) =
-          try ConvHull.retype_formula srk `LiraToLra phi
+          try Retype.retype_formula srk `LiraToLra phi
           with
           | _ -> Format.printf "Fail at file: %s" file;
                  failwith "Failed"
