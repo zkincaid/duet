@@ -17,12 +17,16 @@ let default_order = Monomial.degrevlex
 
 let monomials monomial_order polys =
   let module MonomialSet =
-    BatSet.Make(struct type t = Monomial.t
-                       let compare x y = match monomial_order x y with
-                         | `Lt -> -1
-                         | `Eq -> 0
-                         | `Gt -> 1
-                end)
+    BatSet.Make(
+      struct 
+        type t = Monomial.t
+          let compare x y = 
+            match monomial_order x y with
+            | `Lt -> -1
+            | `Eq -> 0
+            | `Gt -> 1
+      end
+    )
   in
   polys
   |> List.fold_left
