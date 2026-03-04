@@ -73,7 +73,7 @@ let print_result = function
 module Retype : sig
 
   (* `LiraToLra
-     - Remove floor, mod, div, is_int, and replace all integer variables with 
+     - Remove floor, mod, div, is_int, and replace all integer variables with
        real ones
 
      `LiraToLia:
@@ -227,12 +227,6 @@ end = struct
     |> List.rev
     |> mk_and srk
 
-  let _convex_hull mk_local_abs srk phi terms =
-    let man = Polka.manager_alloc_loose () in
-    let solver = Abstract.Solver.make srk ~theory:`LIRA phi in
-    let local_abs = mk_local_abs ~man (symbols phi) terms in
-    Abstract.ClosedConvexHull.abstract_by ~man solver (`LIRA local_abs) terms
-
   let convex_hull srk mk_local_abs phi =
     let (qf, phi) = Quantifier.normalize srk phi in
     if List.exists (fun (q, _) -> q = `Forall) qf then
@@ -271,14 +265,20 @@ end = struct
       Format.printf "Taking convex hull of formula: @[%a@]@;"
         (Syntax.Formula.pp srk) phi;
       Format.printf "Symbols to keep: @[%a@]@;" pp_symbols symbols_to_keep;
-      Format.printf "Symbols to eliminate: @[%a@]@;" pp_symbols symbols_to_eliminate;
+      Format.printf "Symbols to eliminate: @[%a@]@;"
+        pp_symbols symbols_to_eliminate;
       Format.printf "Integer symbols: @[%a@]@;"
         (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
            (fun fmt sym -> Format.fprintf fmt "%s" (Syntax.show_symbol srk sym)))
         (Symbol.Set.to_list int_symbols)
     in
     print_input ();
-    let result = _convex_hull mk_local_abs srk phi terms in
+    let man = Polka.manager_alloc_loose () in
+    let solver = Abstract.Solver.make srk ~theory:`LIRA phi in
+    let local_abs = mk_local_abs ~man symbols terms in
+    let result = Abstract.ClosedConvexHull.abstract_by ~man solver
+      (`LIRA local_abs) terms
+    in
     Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
       (Syntax.Formula.pp srk)
       (formula_of_dd srk (fun dim -> terms.(dim)) result);
@@ -365,7 +365,7 @@ let spec_list = [
         let fmt = Format.formatter_of_out_channel (open_out outfilename) in
         pp_smtlib2 srk fmt phi'
       )
-  , "Make a copy of an SMT file with the formula first replaced by an equivalent formula in the signature of LRA with integer-typed variables, and then all real variables are re-declared as integer"
+  , "Make a copy of an SMT file with the formula first replaced by an equivalent formula with only LRA terms and constraints, over some integer-typed variables, and then all real variables are re-declared as integer"
   );
 
   ("-realify-smt-file"
@@ -387,7 +387,7 @@ let spec_list = [
         let fmt = Format.formatter_of_out_channel (open_out outfilename) in
         pp_smtlib2 srk fmt phi'
       )
-  , "Make a copy of an SMT file with the formula first replaced by an equivalent formula in the signature of LRA with integer-typed variables, and then all integer-typed variables are re-declared as real"
+  , "Make a copy of an SMT file with the formula first replaced by an equivalent formula with only LRA terms and constraints, over some integer-typed variables, and then all integer-typed variables are re-declared as real"
   );
 
   ("-wedge-hull",
