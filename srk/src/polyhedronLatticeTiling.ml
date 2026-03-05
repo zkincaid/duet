@@ -521,8 +521,7 @@ let pp_virtual_term fmt vt =
   | PlusEpsilon t -> Format.fprintf fmt "%a + epsilon" pp_vector t
 
 module LwCooper: sig
-  val select_vt : ((int -> QQ.t) -> V.t -> V.t) ->
-                  int ->
+  val select_vt : int ->
                   (int -> QQ.t) ->
                   plt_constraints ->
                   virtual_term
@@ -539,18 +538,9 @@ module LwCooper: sig
       Loos-Weispfenning-based model-based projection for linear real arithmetic.
       For linear integer-real arithmetic, [local_project] is sound
       (i.e., a local abstraction) but may not have finite image.
-
-      Let PLT(x, Y) be a PLT in dimensions RR^{x \cup Y}.
-      [round_up: QQ^{x \cup Y} -> Term(Y) -> Term(Y)] is a function such that
-      for all terms [t], [t'] and [m] in PLT(x, Y),
-      [round_up m t = t'] only if m(t(y)) <= m(t'(y)) <= m(x).
-
-      If [round_up] has finite image for each [t], [abstract_cooper] is a
-      local abstraction that has finite image.
    *)
   val local_project:
     elim: (int -> bool) ->
-    round_up: ((int -> QQ.t) -> V.t -> V.t) ->
     (Plt.t, int -> QQ.t, Plt.t, int -> QQ.t) local_abstraction
 
   val real_local_project:
@@ -652,13 +642,13 @@ end = struct
     in
     let glb = ref None in
     let set_glb lb =
-      logf ~level:`debug "glb_for: setting lower bound @[%a@]"
+      logf ~level:`debug "LwCooper.glb_for: setting lower bound @[%a@]"
         pp_vector (let (_, lower_bound, _) = lb in lower_bound);
       glb := Some lb
     in
     List.iter
       (fun (kind, v) ->
-        logf ~level:`debug "glb_for: @[%a@]"
+        logf ~level:`debug "LwCooper.glb_for: @[%a@]"
           pp_pconstr (kind, v);
         let (coeff, w) = V.pivot dim v in
         if QQ.equal QQ.zero coeff then
@@ -696,7 +686,7 @@ end = struct
       p;
     (!glb, !has_upper_bound)
 
-  let select_vt round_up elim_dim m (p, l, t) =
+  let select_vt elim_dim m (p, l, t) =
     let gcd_coeffs =
       List.fold_left (fun gcd v -> QQ.gcd (V.coeff elim_dim v) gcd) QQ.zero
         (List.rev_append l t)
@@ -713,21 +703,17 @@ end = struct
       | (_, false) -> PlusInfinity delta
       | (None, _) -> MinusInfinity delta
       | (Some (kind, lower, _value), true) ->
-         let rounded = round_up m lower in
          let lower_point = Linear.evaluate_affine m lower in
-         let rounded_point = Linear.evaluate_affine m rounded in
          let remainder =
            if continuous then QQ.zero
-           else QQ.modulo (QQ.sub (m elim_dim) rounded_point) modulus
+           else QQ.modulo (QQ.sub (m elim_dim) lower_point) modulus
          in
-         let rounded_plus delta = V.add_term delta Linear.const_dim rounded in
+         let lower_plus delta = V.add_term delta Linear.const_dim lower in
          match (kind, QQ.equal QQ.zero remainder) with
-         | (`Zero, _) | (`Nonneg, _) | (`Pos, false) -> Term (rounded_plus remainder)
+         | (`Zero, _) | (`Nonneg, _) | (`Pos, false) -> Term (lower_plus remainder)
          | (`Pos, true) ->
-            assert (QQ.leq lower_point rounded_point);
-            if continuous then PlusEpsilon rounded
-            else if QQ.lt lower_point rounded_point then Term rounded
-            else Term (rounded_plus modulus) (* move up one level *)
+            if continuous then PlusEpsilon lower
+            else Term (lower_plus modulus) (* move up one level *)
     in
     logf ~level:`debug "LwCooper.select_vt: selected %a" pp_virtual_term vt;
     vt
@@ -788,9 +774,9 @@ end = struct
     |> mk_and srk
 
 
-  let project_one round_up elim_dim m (p, l, t) =
+  let project_one elim_dim m (p, l, t) =
     logf ~level:`debug "lwcooper_project_one: eliminating %d" elim_dim;
-    let vt = select_vt round_up elim_dim m (p, l, t) in
+    let vt = select_vt elim_dim m (p, l, t) in
     let (polyhedron, lattice, tiling) = virtual_sub [(elim_dim, vt)] (p, l, t)
     in
     test_point_in_polyhedron "LwCooper.project_one" m polyhedron;
@@ -804,12 +790,11 @@ end = struct
       |> IntSet.union (collect_dimensions (fun v -> v) elim l)
       |> IntSet.union (collect_dimensions (fun v -> v) elim t)
     in
-    IntSet.fold (fun elim_dim (p, l, t) ->
-        project_one (fun _ v -> v) elim_dim m (p, l, t))
+    IntSet.fold (fun elim_dim (p, l, t) -> project_one elim_dim m (p, l, t))
       elim_dimensions
       (p, l, t)
 
-  let local_project_ ~elim ~round_up plt m =
+  let local_project_ ~elim plt m =
     let open Plt in
     let p = P.enum_constraints (Plt.poly_part plt) |> BatList.of_enum in
     let l = L.generators (Plt.lattice_part plt) in
@@ -824,7 +809,7 @@ end = struct
     let (projected_p, projected_l, projected_t) =
       IntSet.fold
         (fun elim_dim (p, l, t) ->
-          project_one round_up elim_dim m (p, l, t)
+          project_one elim_dim m (p, l, t)
         )
         elim_dimensions
         (p, l, t)
@@ -834,7 +819,7 @@ end = struct
       ~lattice_part:(L.of_generators projected_l)
       ~tiling_part:(L.of_generators projected_t)
 
-  let local_project ~elim ~round_up =
+  let local_project ~elim =
     let restricted m dim =
       if elim dim then
         failwith
@@ -842,10 +827,10 @@ end = struct
              "LwCooper.local_project: Dimension %d has been eliminated" dim)
       else m dim
     in
-    (fun (plt, m) -> local_project_ ~elim ~round_up plt m, restricted m)
+    (fun (plt, m) -> local_project_ ~elim plt m, restricted m)
 
   let real_local_project ~elim =
-    let local_project = local_project ~elim ~round_up:(fun _m v -> v) in
+    let local_project = local_project ~elim in
     let lift p = Plt.mk_plt
       ~poly_part:p ~lattice_part:L.bottom ~tiling_part:L.bottom
     in
@@ -922,7 +907,7 @@ end = struct
   let local_project_local_hull ~man ~max_dim_in_target ~epsilon (plt, m) =
     let elim dim = dim > max_dim_in_target in
     CloseStrictIneq.round_epsilon epsilon (plt, m)
-    |> LwCooper.local_project ~elim ~round_up:(fun _m v -> v)
+    |> LwCooper.local_project ~elim
     |> LocalHull.local_hull ~man ~ambient_dim:(max_dim_in_target + 1)
 
   let local_project_polyreccone ~man ~max_dim_in_target =
@@ -1064,7 +1049,7 @@ end = struct
     fun (plt, m) ->
       cubify (plt, m)
       |> CloseStrictIneq.round_assuming_all_ints
-      |> LwCooper.local_project ~elim ~round_up:(fun _m v -> v)
+      |> LwCooper.local_project ~elim
       |> LocalHull.local_hull ~man ~ambient_dim:target_dim
 
   (*  This isn't exposed right now because input formulas are in core LIRA where
@@ -1109,7 +1094,7 @@ end
 
 let _formula_of_plt = Plt.formula_of_plt
 
-let select_vt = LwCooper.select_vt (fun _m v -> v)
+let select_vt = LwCooper.select_vt
 let virtual_subst
       srk
       ?(vec_of_sym=default_vec_of_sym)
