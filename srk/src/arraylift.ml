@@ -138,18 +138,16 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
 
 (* array_exponentiate lifts exponentiation operator e to work over formulas with arrays. *)
 let array_exponentiate (srk : 'a context) (e : 'a exp_op) : ('a TransitionFormula.t -> 'a Syntax.arith_term -> 'a Syntax.formula) = 
-  let e' (tf : 'a TransitionFormula.t) (k : 'a arith_term) : ('a formula) = 
+  fun (tf : 'a TransitionFormula.t) (k : 'a arith_term) ->
     let f = TransitionFormula.formula tf in 
     let array_symbols = List.filter (fun (s, s') -> typ_symbol srk s = `TyArr && typ_symbol srk s' = `TyArr) (TransitionFormula.symbols tf) in 
     let zs = List.fold_left (fun acc (s, s') -> (s, mk_symbol srk `TyInt) :: (s', mk_symbol srk `TyInt) :: acc) [] array_symbols in 
     let j = mk_symbol srk ~name:"j" `TyInt in 
     let j' = mk_symbol srk ~name:"j'" `TyInt in 
     let projected_formula = mk_and srk (f :: (mk_eq srk (mk_const srk j) (mk_const srk j')) :: (List.map (fun (a, z) -> mk_eq srk (mk_select srk (mk_const srk a) (mk_const srk j)) (mk_const srk z)) zs)) in 
-    let projected_formula = List.fold_left (fun acc (s, s') ->
-      let acc = if typ_symbol srk s = `TyArr then mk_exists_const srk s acc else acc in 
-      let acc = if typ_symbol srk s' = `TyArr then mk_exists_const srk s' acc else acc in 
-      acc
-      ) projected_formula (TransitionFormula.symbols tf) in 
+    let projected_formula = Symbol.Set.fold (fun s acc->
+      if typ_symbol srk s = `TyArr then mk_exists_const srk s acc else acc
+      ) (Syntax.symbols projected_formula) projected_formula in 
 
     let existentials, forall, skol = bubble_sym srk projected_formula in
     let with_universal = match forall with 
@@ -176,8 +174,6 @@ let array_exponentiate (srk : 'a context) (e : 'a exp_op) : ('a TransitionFormul
         if s = j' then mk_const srk j else mk_const srk s) ret in 
     
     mk_forall_const srk j ret 
-  in 
-  e'
 
 
   (* [map_elim ctx f] takes a formula in the array skolem fragment and returns an equivalent formula over numerical variables. *)
