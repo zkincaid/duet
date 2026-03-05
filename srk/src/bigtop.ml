@@ -73,15 +73,18 @@ let print_result = function
 module Retype : sig
 
   (* `LiraToLra
-     - Remove floor, mod, div, is_int, and replace all integer variables with
-       real ones
+    - First compute an equivalent formula in the language of LRA
+      (LRA terms, LRA atoms) free of floor, mod, div and is_int.
+    - Then replace all integer variables with real ones.
 
-     `LiraToLia:
-     - `JustSymbols: just replace real variables with integer ones;
-     - `LraTerms: in addition with floor, mod, div removed;
-     - `LraFormula: in addition with [is_int] removed.
+    `LiraToLia:
+    - `JustSymbols: just replace real variables with integer ones;
+    - `LraTerms: in addition with floor, mod, div removed;
+    - `LraFormula: in addition with [is_int] removed.
 
-     For `IntToReal, floor-mod-div-ints are always removed to get an LRA formula.
+    Integralization uses the last, i.e., first compute an equivalent formula
+    in the language of LRA, free of floor, mod, div, and is_int,
+    then replace all real variables with integer ones.
    *)
   val retype_formula:
     'a context ->
@@ -365,7 +368,8 @@ let spec_list = [
         let fmt = Format.formatter_of_out_channel (open_out outfilename) in
         pp_smtlib2 srk fmt phi'
       )
-  , "Make a copy of an SMT file with the formula first replaced by an equivalent formula with only LRA terms and constraints, over some integer-typed variables, and then all real variables are re-declared as integer"
+  , " Given <file>.smt as input, output file <file>_integralized.smt2 that \
+      contains the integralized version of the formula in <file>.smt2"
   );
 
   ("-realify-smt-file"
@@ -387,7 +391,8 @@ let spec_list = [
         let fmt = Format.formatter_of_out_channel (open_out outfilename) in
         pp_smtlib2 srk fmt phi'
       )
-  , "Make a copy of an SMT file with the formula first replaced by an equivalent formula with only LRA terms and constraints, over some integer-typed variables, and then all integer-typed variables are re-declared as real"
+  , " Given <file>.smt as input, output file <file>_realified.smt2 that \
+      contains the real relaxation of the formula in <file>.smt2"
   );
 
   ("-wedge-hull",
