@@ -3,12 +3,11 @@ open Iteration
 
 (* bubble_sym is an internal helper function for lowering formulas in the skolem array fragment
     to quantified numerical formulas. 
-    [bubble_sym srk form] returns a triple of the form (syms, is_forall, form') in which:
-        - form ==> \exists syms. \forall "". form' if is_forall 
-        - form ==> \exists syms. form' if not is_forall
+    [bubble_sym srk form] returns a triple of the form (syms, fr, form') in which:
+        - form ==> \exists syms. \forall fr.  form' 
         - form' contains no array terms
 *) 
-let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol option) * 'a formula) = 
+let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol) * 'a formula) = 
   (* rep_map : arr_var -> (index_term -> var) *)
   let (rep_map : (symbol, ('a, Syntax.typ_arith, symbol) Expr.HT.t) Hashtbl.t) = Hashtbl.create 16 in 
   let leading_existentials = ref [] in 
@@ -61,7 +60,7 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
     fold_rewrite srk 
     ~down:(fun e qo -> match destruct srk e with | `Var (i, t) -> if i >= qo && t != `TyArr then (mk_const srk (Env.find env (i - qo))) else e | _ -> e)
     ~up:(fun e qo -> match destruct srk e with | `Select (arr, index) -> replace_access arr index env qo | _ -> e)
-    ~combine:(fun e qo -> match destruct srk e with | `Quantify _ -> qo + 1 | _ -> qo)
+    ~combine:(fun e qo -> match destruct srk e with | `Quantify (`Exists, _, _, _) -> qo + 1 | `Quantify (`Forall, _, _, _) -> failwith "Nested foralls" | _ -> qo)
     0 f
   in
 
@@ -71,11 +70,11 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
     to eliminate array terms.
   *)
   (* [go form env] considers the formula \exists env . form
-     and returns (syms, is_forall, form') where
-        - \exists env . form ==> \exists syms. \forall name. form' if is_forall
-        - \exists env . form ==> \exists syms. form' if not is_forall
-        - form' contains no array terms *)
-  let rec go (f : 'a formula) (env : (symbol Env.t)): (bool * 'a formula) = 
+     and returns form' where
+        - form' contains no array terms
+        - \exists env . form ==> \exists syms. \forall forall_sym. form' 
+         *)
+  let rec go (f : 'a formula) (env : (symbol Env.t)): ('a formula) = 
      match Formula.destruct srk f with 
     | `Quantify (`Exists, name, typ, body) -> 
       let new_sym = mk_symbol srk ~name (typ :> typ) in 
@@ -85,7 +84,7 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
           (pp_symbol srk) new_sym
         in
         Expr.HT.add (Hashtbl.find rep_map new_sym) (mk_const srk forall_symbol) (mk_symbol srk `TyInt ~name);
-        let forall, body' = go body (Env.push new_sym env) in 
+        let body' = go body (Env.push new_sym env) in 
         let ai = get_or_create_replacement new_sym (mk_const srk forall_symbol) in 
         let fc = BatEnum.fold (fun acc (index, replacement) ->
             (mk_if srk (mk_eq srk index (mk_const srk forall_symbol)) (mk_eq srk (mk_const srk replacement) ai)) :: acc
@@ -93,30 +92,27 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
         let body'' = mk_exists_const srk (Expr.HT.find (Hashtbl.find rep_map new_sym) (mk_const srk forall_symbol)) 
           (mk_and srk ((body') :: fc))
       in 
-        forall, body''
+        body''
       ) else (
         leading_existentials := new_sym :: !leading_existentials; 
         go body (Env.push new_sym env) 
         ))
     | `Quantify (`Forall, _, typ, body) -> 
       assert (typ = `TyInt);
-      let body = replace (Env.push forall_symbol env) body in 
-      (true, body)
+      replace (Env.push forall_symbol env) body
     | `And ls -> 
-      let (forall, parts) = List.fold_left (fun (forall, parts) f -> 
-        let (f_forall, f_part) = go f env in 
-        f_forall || forall, f_part :: parts
-        ) (false, []) ls in 
-      (forall, mk_and srk parts)
+      let (parts) = List.fold_left (fun parts f -> 
+         go f env :: parts
+      ) [] ls in 
+      (mk_and srk parts)
     | `Or ls ->
       let branch_var = mk_symbol srk ~name:"branch" `TyInt in 
       (leading_existentials := branch_var :: !leading_existentials);
-      let (forall, parts) = List.fold_left (fun (forall, parts) f -> 
-          let ( f_forall, f_part) = go f env in 
-          f_forall || forall, f_part :: parts
-        ) (false, []) ls in 
+      let (parts) = List.fold_left (fun parts f -> 
+          go f env :: parts  
+        ) [] ls in 
       let parts = List.mapi (fun i part -> mk_and srk [part; mk_eq srk (mk_const srk branch_var) (mk_int srk i)]) parts in 
-      (forall, mk_or srk parts)
+      (mk_or srk parts)
     | `Atom _ | `Proposition _ -> 
       (* At this point, we want to run replace but cannot because we haven't yet seen a forall.
         We use the equivalence f <=> \forall d. f where f is d-free
@@ -124,15 +120,15 @@ let bubble_sym (srk : 'a context) (form : 'a formula) : (symbol list * (symbol o
       *)
       let f' = substitute srk (fun (i, typ) -> mk_var srk (i + 1) typ) f in 
       go (mk_forall srk `TyInt f') env 
-    | `Tru | `Fls -> (false, f)
+    | `Tru | `Fls -> (f)
     | `Ite (f, l, r) -> 
       let f' = mk_or srk [mk_and srk [f ; l]; mk_and srk [mk_not srk f; r]] in 
       let f' = rewrite srk ~down:(pos_rewriter srk) f' in 
       go f' env
     | `Not _ -> failwith "Not is not supported in Skolem fragment"
   in
-  let forall, retf = go form Syntax.Env.empty in 
-  (!leading_existentials, (if forall then (Some forall_symbol) else None), retf)
+  let retf = go form Syntax.Env.empty in 
+  (!leading_existentials, forall_symbol, retf)
 
 
 
@@ -150,10 +146,7 @@ let array_exponentiate (srk : 'a context) (e : 'a exp_op) : ('a TransitionFormul
       ) (Syntax.symbols projected_formula) projected_formula in 
 
     let existentials, forall, skol = bubble_sym srk projected_formula in
-    let with_universal = match forall with 
-      | None -> skol
-      | Some s -> mk_forall_const srk s skol
-    in
+    let with_universal = mk_forall_const srk forall skol in
       
     let with_everything = List.fold_left (fun acc s -> mk_exists_const srk s acc) with_universal existentials in 
 
@@ -179,10 +172,7 @@ let array_exponentiate (srk : 'a context) (e : 'a exp_op) : ('a TransitionFormul
   (* [map_elim ctx f] takes a formula in the array skolem fragment and returns an equivalent formula over numerical variables. *)
   let map_elim (srk : 'a context) (f : 'a formula) : 'a formula = 
     let syms, forall, f = bubble_sym srk f in 
-    let f = match forall with 
-      | None -> f 
-      | Some s -> mk_forall_const srk s f
-    in
+    let f = mk_forall_const srk forall f in
     
     let f = List.fold_left (fun acc sym -> mk_exists_const srk sym acc) f syms in 
     f
