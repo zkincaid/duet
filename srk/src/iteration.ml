@@ -18,14 +18,9 @@ module Solver = struct
     ; stack : ('a Formula.t list) A.t
     ; constants : Symbol.Set.t }
 
-  let preprocess srk theory phi = match theory with
-    | `LIRR -> phi
-    | `LIRA -> Nonlinear.linearize srk phi
-
   let make srk ?(theory=get_theory srk) tf =
-    let phi = preprocess srk theory (TF.formula tf) in
     let stack = A.singleton [TF.formula tf] in
-    { solver = Abstract.Solver.make srk ~theory phi
+    { solver = Abstract.Solver.make srk ~theory (TF.formula tf)
     ; symbols = TF.symbols tf
     ; stack = stack
     ; constants = TF.symbolic_constants tf }
@@ -64,11 +59,8 @@ module Solver = struct
     A.delete_last s.stack
 
   let add s formulas =
-    let pp_formulas =
-      List.map (preprocess (get_context s) (get_theory s)) formulas
-  in
-  Abstract.Solver.add s.solver pp_formulas;
-  A.upd s.stack (A.length s.stack - 1) (fun xs -> formulas@xs)
+    Abstract.Solver.add s.solver formulas;
+    A.upd s.stack (A.length s.stack - 1) (fun xs -> formulas@xs)
 
   let check s = Abstract.Solver.check s.solver
 
