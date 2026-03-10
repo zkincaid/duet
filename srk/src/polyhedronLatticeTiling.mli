@@ -54,7 +54,6 @@ module ConvexHull : sig
   val cch_lira: man:DD.closed Apron.Manager.t
     -> ?epsilon: QQ.t
     -> 'a Syntax.context
-    -> Symbol.Set.t (* abstract formulas over this set of symbols *)
     -> 'a Syntax.arith_term array (* to linear inequalities in these terms *)
     -> 'a lira_to_polyhedron_abs
 
@@ -65,7 +64,6 @@ module ConvexHull : sig
   *)
   val cch_lra: man:DD.closed Apron.Manager.t
     -> 'a Syntax.context
-    -> Symbol.Set.t
     -> 'a Syntax.arith_term array
     -> 'a lira_to_polyhedron_abs
 
@@ -75,7 +73,6 @@ module ConvexHull : sig
   *)
   val cch_lia: man:DD.closed Apron.Manager.t
     -> 'a Syntax.context
-    -> Symbol.Set.t
     -> 'a Syntax.arith_term array
     -> 'a lira_to_polyhedron_abs
 

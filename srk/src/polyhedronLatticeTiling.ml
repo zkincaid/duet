@@ -161,7 +161,7 @@ module Plt: sig
       input formula [F] as [F /\ /\_{x} is_int(x)], where [x] ranges over symbols in [F].
    *)
   val cubify:
-    'a context -> 'a arith_term array -> Symbol.Set.t ->
+    'a context -> 'a arith_term array ->
     ('a formula, 'a Interpretation.interpretation, t, int -> QQ.t)
       local_abstraction
     * (int -> 'a arith_term)
@@ -316,11 +316,6 @@ end = struct
       terms;
     BatList.of_enum !p_conds
 
-  let get_max_dim num_terms symbols =
-    match Symbol.Set.max_elt_opt symbols with
-    | None -> num_terms - 1
-    | Some dim -> Syntax.int_of_symbol dim + num_terms
-
   let implicit_is_ints srk vec_of_symbol conjuncts =
     let typ_int sym = (Syntax.typ_symbol srk sym = `TyInt) in
     let int_symbols =
@@ -337,11 +332,8 @@ end = struct
       int_symbols
       []
 
-  let cubify srk terms symbols =
+  let cubify srk terms =
     let num_terms = Array.length terms in
-    let max_dim = get_max_dim num_terms symbols in
-    logf ~level:`debug "initial plt abstraction: max_dim: %d, num_terms = %d@;"
-      max_dim num_terms;
     let dim_of_symbol sym = Syntax.int_of_symbol sym + num_terms in
     let term_defs = mk_term_definitions srk dim_of_symbol terms in
     let translate interp dim =
@@ -972,20 +964,18 @@ module ConvexHull : sig
 
   val cch_lira:
     man:DD.closed Apron.Manager.t -> ?epsilon: QQ.t ->
-    'a context -> Symbol.Set.t -> 'a arith_term array ->
+    'a context -> 'a arith_term array ->
     'a lira_to_polyhedron_abs
 
   val cch_lra:
-    man:DD.closed Apron.Manager.t ->
-    'a context ->  Symbol.Set.t -> 'a arith_term array ->
+    man:DD.closed Apron.Manager.t -> 'a context -> 'a arith_term array ->
     'a lira_to_polyhedron_abs
 
   (** All symbols must be of integer type.
       Local-project-local-hull is (sound and) compact when these conditions hold.
    *)
   val cch_lia:
-    man:DD.closed Apron.Manager.t ->
-    'a context -> Symbol.Set.t -> 'a arith_term array ->
+    man:DD.closed Apron.Manager.t -> 'a context -> 'a arith_term array ->
     'a lira_to_polyhedron_abs
 
 end = struct
@@ -1001,9 +991,8 @@ end = struct
     ('a formula, 'a Interpretation.interpretation, DD.closed DD.t, (int -> QQ.t))
     local_abstraction
 
-  let cch_lira ~man ?(epsilon=default_epsilon)
-      srk symbols terms =
-    let (cubify, _) = Plt.cubify srk terms symbols in
+  let cch_lira ~man ?(epsilon=default_epsilon) srk terms =
+    let (cubify, _) = Plt.cubify srk terms in
     let max_dim_in_target = Array.length terms - 1 in
     fun (plt, m) ->
       cubify (plt, m)
@@ -1012,8 +1001,8 @@ end = struct
   let ddify ~man ambient_dim =
     (fun (p, m) -> P.dd_of ~man ambient_dim p, m)
 
-  let cch_lra ~man srk symbols terms =
-    let (cubify, _) = Plt.cubify srk terms symbols in
+  let cch_lra ~man srk terms =
+    let (cubify, _) = Plt.cubify srk terms in
     let elim dim = dim >= Array.length terms in
     fun (plt, m) ->
       cubify (plt, m)
@@ -1021,7 +1010,7 @@ end = struct
       |> LwCooper.real_local_project ~elim
       |> ddify ~man (Array.length terms)
 
-  let _cch_lra_hull_then_project ~man srk symbols terms =
+  let _cch_lra_hull_then_project ~man srk terms =
     let project =
       let abstract p =
         let max_dim_in_p = P.max_constrained_dim p in
@@ -1036,14 +1025,14 @@ end = struct
         , restrict (Array.length terms) m
         )
     in
-    let (cubify, _) = Plt.cubify srk terms symbols in
+    let (cubify, _) = Plt.cubify srk terms in
     fun (plt, m) ->
       cubify (plt, m)
       |> CloseStrictIneq.round_assuming_no_ints
       |> project
 
-  let cch_lia ~man srk symbols terms =
-    let (cubify, _) = Plt.cubify srk terms symbols in
+  let cch_lia ~man srk terms =
+    let (cubify, _) = Plt.cubify srk terms in
     let target_dim = Array.length terms in
     let elim dim = dim >= Array.length terms in
     fun (plt, m) ->
@@ -1057,7 +1046,7 @@ end = struct
       formulas are in the language of LRA, so we need to purify [is_int] atoms.
       [cch_lia] should be better most of the time, and handles [is_int] directly.
   *)
-  let _cch_lia_hull_then_project hull_alg ~man srk symbols terms =
+  let _cch_lia_hull_then_project hull_alg ~man srk terms =
     let target_dim = Array.length terms in
     let project =
       let abstract plt _m =
@@ -1085,7 +1074,7 @@ end = struct
         , restrict target_dim m
         )
     in
-    let (cubify, _) = Plt.cubify srk terms symbols in
+    let (cubify, _) = Plt.cubify srk terms in
     fun (plt, m) ->
       cubify (plt, m)
       |> CloseStrictIneq.round_assuming_all_ints

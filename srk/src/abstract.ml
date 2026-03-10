@@ -755,12 +755,11 @@ module ClosedConvexHull = struct
   let abstract
     ?(man=Polka.manager_alloc_loose()) solver ?(bottom=None) terms =
     let srk = Solver.get_context solver in
-    let phi = Solver.get_formula solver in
     match Solver.get_theory solver with
     | `LIRR ->
       abstract_by ~man solver ~bottom (`LIRR (abstract_lirr man srk terms)) terms
     | `LIRA ->
-      let abs = Plt.ConvexHull.cch_lira ~man srk (symbols phi) terms in
+      let abs = Plt.ConvexHull.cch_lira ~man srk terms in
       abstract_by ~man solver ~bottom (`LIRA abs) terms
 
 end

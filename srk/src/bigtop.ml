@@ -187,7 +187,7 @@ module ConvHull : sig
   val print_convex_hull: 'a context
     -> (
       man:DD.closed Apron.Manager.t
-      -> Symbol.Set.t -> 'a Syntax.arith_term array
+      -> 'a Syntax.arith_term array
       -> 'a Plt.ConvexHull.lira_to_polyhedron_abs
     )
     -> 'a formula -> unit
@@ -261,7 +261,7 @@ end = struct
     print_input ();
     let man = Polka.manager_alloc_loose () in
     let solver = Abstract.Solver.make srk ~theory:`LIRA phi in
-    let local_abs = mk_local_abs ~man symbols terms in
+    let local_abs = mk_local_abs ~man terms in
     let result = Abstract.ClosedConvexHull.abstract_by ~man solver
       (`LIRA local_abs) terms
     in

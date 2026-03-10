@@ -17,7 +17,7 @@ let of_model_lira solver man terms =
   | `LIRR _ -> assert false
   | `LIRA model ->
     let polyhedron =
-      fst (Plt.ConvexHull.cch_lira ~man srk (symbols phi) terms (phi, model))
+      fst (Plt.ConvexHull.cch_lira ~man srk terms (phi, model))
     in
     let (zero, pos) =
       BatEnum.fold (fun (zero, pos) (kind, vec) ->
