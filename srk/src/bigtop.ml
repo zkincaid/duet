@@ -312,7 +312,7 @@ let spec_list = [
   ("-lia-convex-hull"
   , Arg.String
       (fun file ->
-        ConvHull.print_convex_hull srk 
+        ConvHull.print_convex_hull srk
           (Plt.ConvexHull.cch_lia srk) (load_formula file)
       )
   , "Compute the convex hull of an existential formula in linear integer arithmetic."
@@ -321,7 +321,7 @@ let spec_list = [
   ("-lra-convex-hull"
   , Arg.String
       (fun file ->
-        ConvHull.print_convex_hull srk 
+        ConvHull.print_convex_hull srk
           (Plt.ConvexHull.cch_lra srk) (load_formula file)
       )
   , "Compute the convex hull of an existential formula in linear rational arithmetic."
