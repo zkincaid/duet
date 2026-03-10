@@ -228,7 +228,7 @@ module Solver = struct
       | `LIRA _ -> `LIRA
     in
     let process = match preprocess with
-      | None -> to_core_lira srk ~theory
+      | None -> to_core srk ~theory
       | Some f -> f
     in
     let phis' = List.map process phis in
