@@ -6,10 +6,6 @@ module V = Linear.QQVector
 
 include Log.Make (struct let name = "srk.polyhedronLatticeTiling" end)
 
-let () = my_verbosity_level := `info
-(* let test_convex_hull = ref false *)
-let test_level = ref `debug
-
 let eager_hermite = ref false
 
 type ('concept1, 'model1, 'concept2, 'model2) local_abstraction =
@@ -87,52 +83,6 @@ let log_plt_constraints ~level str (p, l, t) =
     "%s: t_constraints: @[%a@]@\n" str
     (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "@\n")
        pp_vector) t
-
-let test_point_in_polyhedron ?(level = !test_level) str m p =
-  if Log.level_leq !my_verbosity_level level then
-    List.iter
-      (fun (kind, v) ->
-        logf ~level:!my_verbosity_level "%s: testing @[%a@]" str pp_pconstr (kind, v);
-        let result = Linear.evaluate_affine m v in
-        match kind with
-        | `Zero ->
-           if not (QQ.equal result QQ.zero) then
-             failwith
-               (Format.asprintf "%s: evaluated vector to %a, expected 0"
-                  str QQ.pp result)
-           else ()
-        | `Nonneg -> assert (QQ.leq QQ.zero result)
-        | `Pos -> assert (QQ.lt QQ.zero result)
-      )
-      p
-  else ()
-
-let test_point_in_lattice ?(level = !test_level) is_int str m l =
-  if Log.level_leq !my_verbosity_level level then
-    List.iter
-      (fun v ->
-        logf ~level:!my_verbosity_level "%s: testing %a(%a)"
-          str
-          (fun fmt is_int -> match is_int with
-                             | `IsInt -> Format.fprintf fmt "Int"
-                             | `NotInt -> Format.fprintf fmt "~Int")
-          is_int
-          Linear.QQVector.pp v;
-        let result = Linear.evaluate_affine m v in
-        match QQ.to_zz result, is_int with
-        | Some _, `IsInt -> ()
-        | None, `NotInt -> ()
-        | None, `IsInt ->
-           failwith
-             (Format.asprintf "%s: evaluated vector to %a, expected an integer"
-                str QQ.pp result)
-        | Some _, `NotInt ->
-           failwith
-             (Format.asprintf "%s: evaluated vector to %a, expected a non-integer"
-                str QQ.pp result)
-      )
-      l
-  else ()
 
 type plt_constraints = (P.constraint_kind * V.t) list * V.t list * V.t list
 
@@ -379,12 +329,6 @@ end = struct
         ; tiling_part = imp_t
         }
       in
-      test_point_in_polyhedron ~level:`debug "cubify"
-        (translate interp) (BatList.of_enum (P.enum_constraints plt.poly_part));
-      test_point_in_lattice ~level:`debug `IsInt "cubify"
-        (translate interp) (L.generators plt.lattice_part);
-      test_point_in_lattice ~level:`debug `NotInt "cubify"
-        (translate interp) (L.generators plt.tiling_part);
       plt
     in
     ( (fun (phi, m) -> (abstract phi m, translate m))
@@ -771,9 +715,6 @@ end = struct
     let vt = select_vt elim_dim m (p, l, t) in
     let (polyhedron, lattice, tiling) = virtual_sub [(elim_dim, vt)] (p, l, t)
     in
-    test_point_in_polyhedron "LwCooper.project_one" m polyhedron;
-    test_point_in_lattice `IsInt "LwCooper.project_one" m lattice;
-    test_point_in_lattice `NotInt "LwCooper.project_one" m tiling;
     (polyhedron, lattice, tiling)
 
   let local_project_plt ~elim m (p, l, t) =
