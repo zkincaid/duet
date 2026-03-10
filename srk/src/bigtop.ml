@@ -252,28 +252,11 @@ end = struct
       |> Array.of_list
     in
     let print_input () =
-      let (int_symbols, _real_symbols) =
-        let is_int sym =
-          match Syntax.typ_symbol srk sym with
-          | `TyInt -> true
-          | _ -> false
-        in
-        let is_real sym =
-          match Syntax.typ_symbol srk sym with
-          | `TyReal -> true
-          | _ -> false
-        in
-        (S.filter is_int symbols, S.filter is_real symbols)
-      in
       Format.printf "Taking convex hull of formula: @[%a@]@;"
         (Syntax.Formula.pp srk) phi;
       Format.printf "Symbols to keep: @[%a@]@;" pp_symbols symbols_to_keep;
       Format.printf "Symbols to eliminate: @[%a@]@;"
         pp_symbols symbols_to_eliminate;
-      Format.printf "Integer symbols: @[%a@]@;"
-        (Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt ", ")
-           (fun fmt sym -> Format.fprintf fmt "%s" (Syntax.show_symbol srk sym)))
-        (Symbol.Set.to_list int_symbols)
     in
     print_input ();
     let man = Polka.manager_alloc_loose () in
