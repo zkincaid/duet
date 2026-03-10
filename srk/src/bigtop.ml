@@ -184,13 +184,13 @@ module Plt = PolyhedronLatticeTiling
 
 module ConvHull : sig
 
-  val convex_hull: 'a context
+  val print_convex_hull: 'a context
     -> (
       man:DD.closed Apron.Manager.t
       -> Symbol.Set.t -> 'a Syntax.arith_term array
       -> 'a Plt.ConvexHull.lira_to_polyhedron_abs
     )
-    -> 'a formula -> DD.closed DD.t
+    -> 'a formula -> unit
 
 end = struct
 
@@ -230,7 +230,7 @@ end = struct
     |> List.rev
     |> mk_and srk
 
-  let convex_hull srk mk_local_abs phi =
+  let print_convex_hull srk mk_local_abs phi =
     let (qf, phi) = Quantifier.normalize srk phi in
     if List.exists (fun (q, _) -> q = `Forall) qf then
       failwith "universal quantification not supported";
@@ -267,8 +267,7 @@ end = struct
     in
     Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
       (Syntax.Formula.pp srk)
-      (formula_of_dd srk (fun dim -> terms.(dim)) result);
-    result
+      (formula_of_dd srk (fun dim -> terms.(dim)) result)
 
 end
 
@@ -303,11 +302,8 @@ let spec_list = [
   ("-lira-convex-hull"
   , Arg.String
       (fun file ->
-        ignore (
-          ConvHull.convex_hull srk
+          ConvHull.print_convex_hull srk
             (Plt.ConvexHull.cch_lira srk) (load_formula file)
-        );
-        Format.printf "Result: success"
       )
   , "Compute the convex hull of an existential formula in LIRA using the join of
      -lira-convex-hull-pc and -lira-convex-hull-lplh"
@@ -316,9 +312,8 @@ let spec_list = [
   ("-lia-convex-hull"
   , Arg.String
       (fun file ->
-        ignore
-          (ConvHull.convex_hull srk (Plt.ConvexHull.cch_lia srk) (load_formula file));
-        Format.printf "Result: success"
+        ConvHull.print_convex_hull srk 
+          (Plt.ConvexHull.cch_lia srk) (load_formula file)
       )
   , "Compute the convex hull of an existential formula in linear integer arithmetic."
   );
@@ -326,8 +321,8 @@ let spec_list = [
   ("-lra-convex-hull"
   , Arg.String
       (fun file ->
-        ignore (ConvHull.convex_hull srk (Plt.ConvexHull.cch_lra srk) (load_formula file));
-        Format.printf "Result: success"
+        ConvHull.print_convex_hull srk 
+          (Plt.ConvexHull.cch_lra srk) (load_formula file)
       )
   , "Compute the convex hull of an existential formula in linear rational arithmetic."
   );
