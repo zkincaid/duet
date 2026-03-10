@@ -95,7 +95,7 @@ module Solver = struct
     ; context : 'a context
     ; stack : ('a level) A.t }
 
-  let to_core_lira srk ~theory phi = match theory with
+  let to_core srk ~theory phi = match theory with
     | `LIRR -> Syntax.eliminate_floor_mod_div srk phi
     | `LIRA ->
       phi
@@ -105,7 +105,7 @@ module Solver = struct
 
   let make srk ?(theory=get_theory srk) ?preprocess formula =
     let process = match preprocess with
-      | None -> to_core_lira srk ~theory
+      | None -> to_core srk ~theory
       | Some f -> f
     in
     let phi = process formula in
