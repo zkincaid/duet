@@ -14,10 +14,6 @@ module FMPZ_mat = Flint.FMPZ_mat
 
 module V = Linear.QQVector
 
-include Log.Make(struct let name = "srk.intLattice" end)
-
-let () = my_verbosity_level := `info
-
 let list_of_vector num_dims v =
   let arr = Array.make num_dims QQ.zero in
   BatEnum.iter
