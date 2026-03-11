@@ -72,6 +72,7 @@ module Model = struct
       | 0 -> `Zero
       | c when c < 0 -> `Neg
       | _ -> `Pos
+
 end
 
 type ('a, 'b) domain =
@@ -685,21 +686,6 @@ module ClosedConvexHull = struct
           | None -> ());
       DD.of_constraints_closed ~man dim constraints
 
-  let print_model srk terms interp =
-    let result =
-      Array.init (Array.length terms)
-        (fun i ->
-          (terms.(i), Interpretation.evaluate_term interp terms.(i)))
-    in
-    logf ~level:`debug "model: @[%a@]@;"
-      (Format.pp_print_list
-         ~pp_sep:(fun fmt () -> Format.fprintf fmt "; ")
-         (fun fmt (t, value) ->
-           Format.fprintf fmt "(%a, %a)"
-             (Syntax.ArithTerm.pp srk) t
-             QQ.pp value))
-      (Array.to_list result)
-
   let abstract_by ~man solver ?(bottom=None) local_abs terms =
     let srk = Solver.get_context solver in
     let phi = Solver.get_formula solver in
@@ -725,24 +711,12 @@ module ClosedConvexHull = struct
       |> BatList.of_enum
       |> mk_and srk
     in
-    let counter = ref 0 in
-    let show m =
-      let symbols =
-        Syntax.Symbol.Set.elements (Syntax.symbols phi)
-        |> List.map (Syntax.mk_const srk) |> Array.of_list
-      in
-      print_model srk symbols m
-    in
     let of_model = match (Solver.get_theory solver, local_abs) with
       | (`LIRA, `LIRA abs) ->
           fun m ->
             begin match m with
             | `LIRA m0 ->
-              let () = show m0 in
-              counter := !counter + 1;
-              logf ~level:`debug "Abstraction loop iteration: %d" !counter;
               let result = fst (abs (phi, m0)) in
-              logf ~level:`debug "Abstraction loop iteration %d done" !counter;
               result
             | `LIRR _ -> assert false
             end
