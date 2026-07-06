@@ -293,7 +293,7 @@ let spec_list = [
 
   ("-normaliz",
    Arg.Unit (fun () -> PolynomialConeCpClosure.set_cutting_plane_method `Normaliz),
-   "Set weak theory solver to use Normaliz's integer hull computation (instead of Gomory-Chvatal");
+   " Set weak theory solver to use Normaliz's integer hull computation (instead of Gomory-Chvatal");
 
   ("-generator",
    Arg.Set generator_rep,
@@ -305,8 +305,7 @@ let spec_list = [
           ConvHull.print_convex_hull srk
             (Plt.ConvexHull.cch_lira srk) (load_formula file)
       )
-  , "Compute the convex hull of an existential formula in LIRA using the join of
-     -lira-convex-hull-pc and -lira-convex-hull-lplh"
+  , " Compute the convex hull of an existential formula in LIRA using the join of -lira-convex-hull-pc and -lira-convex-hull-lplh"
   );
 
   ("-lia-convex-hull"
@@ -315,7 +314,7 @@ let spec_list = [
         ConvHull.print_convex_hull srk
           (Plt.ConvexHull.cch_lia srk) (load_formula file)
       )
-  , "Compute the convex hull of an existential formula in linear integer arithmetic."
+  , " Compute the convex hull of an existential formula in linear integer arithmetic."
   );
 
   ("-lra-convex-hull"
@@ -324,11 +323,12 @@ let spec_list = [
         ConvHull.print_convex_hull srk
           (Plt.ConvexHull.cch_lra srk) (load_formula file)
       )
-  , "Compute the convex hull of an existential formula in linear rational arithmetic."
+  , " Compute the convex hull of an existential formula in linear rational arithmetic."
   );
 
   ("-integralize-smt-file"
-  , Arg.String (fun file ->
+  , Arg.String
+      (fun file ->
         let () =
           if not (Filename.check_suffix file ".smt2") then failwith "not an SMT file"
           else ()
@@ -340,11 +340,10 @@ let spec_list = [
           | _ -> Format.printf "Fail at file: %s" file;
                  failwith "Failed"
         in
-        let suffix = if equivalent then "_equivalent.smt2" else "_integralized.smt2" in
-        let outfilename = (Filename.remove_extension file) ^ suffix in
-        Format.printf "Writing to file %s@;" outfilename;
-        let fmt = Format.formatter_of_out_channel (open_out outfilename) in
-        pp_smtlib2 srk fmt phi'
+        Format.printf "Integralization is %s@\n"
+          (if equivalent then "equivalent" else "not equivalent" )
+        ;
+        pp_smtlib2 srk Format.std_formatter phi'
       )
   , " Given <file>.smt as input, output file <file>_integralized.smt2 that \
       contains the integralized version of the formula in <file>.smt2"
@@ -363,11 +362,10 @@ let spec_list = [
           | _ -> Format.printf "Fail at file: %s" file;
                  failwith "Failed"
         in
-        let suffix = if equivalent then "_equivalent.smt2" else "_realified.smt2" in
-        let outfilename = (Filename.remove_extension file) ^ suffix in
-        Format.printf "Writing to file %s@;" outfilename;
-        let fmt = Format.formatter_of_out_channel (open_out outfilename) in
-        pp_smtlib2 srk fmt phi'
+        Format.printf "Integralization is %s@\n"
+          (if equivalent then "equivalent" else "not equivalent" )
+        ;
+        pp_smtlib2 srk Format.std_formatter phi'
       )
   , " Given <file>.smt as input, output file <file>_realified.smt2 that \
       contains the real relaxation of the formula in <file>.smt2"
