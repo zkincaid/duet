@@ -17,7 +17,7 @@ let y = QQXs.of_dim 2
 let z = QQXs.of_dim 3
 
 let ideal = Rewrite.mk_rewrite Monomial.degrevlex
-let empty_cone = PolynomialCone.regularize (ideal []) []
+let empty_cone = PolynomialCone.make_cone (ideal []) []
 
 let test_polycone_triangle k () =
   (* Test if cuts in non-standard lattices work.

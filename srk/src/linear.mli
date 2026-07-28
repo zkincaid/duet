@@ -365,9 +365,14 @@ val const_linterm : QQ.t -> QQVector.t
     [const_of_linterm (const_linterm qq) = Some qq] must hold. *)
 val const_of_linterm : QQVector.t -> QQ.t option
 
-(** Convert a rational vector representing an affine term.  Raises [Nonlinear]
-    if the input term is non-linear. *)
-val linterm_of : 'a context -> 'a arith_term -> QQVector.t
+(** Convert a rational vector representing an affine term.  If provided,
+   [vec_of_sym] is used to translate each symbol to a vector; if not, each
+   symbol [k] is treated as a unit vector in the direction [dim_of_sym k] .
+   Raises [Nonlinear] if the input term is non-linear. *)
+val linterm_of : 'a context ->
+                 ?vec_of_sym:(symbol -> QQVector.t) ->
+                 'a arith_term ->
+                 QQVector.t
 
 (** Convert a rational vector to an affine term.  The equation [of_linterm srk
     (linterm_of srk t) = t] must hold. *)
@@ -391,3 +396,31 @@ val term_of_vec : ('a context) -> (int -> 'a arith_term) -> QQVector.t -> 'a ari
    given interpretation (the interpretation of [const_dim] is fixed to
    be 1).  *)
 val evaluate_affine : (int -> QQ.t) -> QQVector.t -> QQ.t
+
+(** Atomic predicates for linear integer/real arithmetic *)
+type lira_predicate = [ `Pos | `Nonneg | `Zero | `IsInt | `NotInt ]
+
+(** Minimal syntax for linear integer/real arithmetic *)
+type 'a open_lira = [
+  | `Tru
+  | `Fls
+  | `And of 'a list
+  | `Or of 'a list
+  | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
+  | `Atom of (lira_predicate * QQVector.t)
+  ]
+
+(** Destruct a formula as an atomic formula of linear integer/real arithmetic *)
+val destruct_lira_atom : 'a Syntax.context ->
+                         ?vec_of_sym:(symbol -> QQVector.t) ->
+                         'a formula ->
+                         (lira_predicate * QQVector.t)
+
+(** Destruct a formula as a linear integer/real arithmetic formula.  *)
+val destruct_lira : 'a Syntax.context ->
+                    ?vec_of_sym:(symbol -> QQVector.t) ->
+                    'a formula ->
+                    ('a formula) open_lira
+
+val eval_lira : 'a context -> ?vec_of_sym:(symbol -> QQVector.t)
+   -> ('b open_lira -> 'b) -> 'a Syntax.formula -> 'b

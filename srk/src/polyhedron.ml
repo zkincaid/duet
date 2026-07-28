@@ -50,15 +50,15 @@ type t = P.t
 
 let enum_constraints polyhedron = P.enum polyhedron
 
+let pp_constraint pp_dim formatter = function
+  | (`Zero, t) -> Format.fprintf formatter "%a = 0" (V.pp_term pp_dim) t
+  | (`Nonneg, t) -> Format.fprintf formatter "%a >= 0" (V.pp_term pp_dim) t
+  | (`Pos, t) -> Format.fprintf formatter "%a > 0" (V.pp_term pp_dim) t
+
 let pp pp_dim formatter polyhedron =
-  let pp_elt formatter = function
-    | (`Zero, t) -> Format.fprintf formatter "%a = 0" (V.pp_term pp_dim) t
-    | (`Nonneg, t) -> Format.fprintf formatter "%a >= 0" (V.pp_term pp_dim) t
-    | (`Pos, t) -> Format.fprintf formatter "%a > 0" (V.pp_term pp_dim) t
-  in
   let pp_sep formatter () = Format.fprintf formatter "@;" in
   Format.fprintf formatter "@[<v 0>%a@]"
-    (SrkUtil.pp_print_enum_nobox ~pp_sep pp_elt) (P.enum polyhedron)
+    (SrkUtil.pp_print_enum_nobox ~pp_sep (pp_constraint pp_dim)) (P.enum polyhedron)
 
 let of_dd polyhedron =
   BatEnum.fold (fun p cnstr -> P.add cnstr p) P.top (DD.enum_constraints polyhedron)
@@ -185,90 +185,6 @@ let select_equal_term x polyhedron =
   in
   go ()
 
-(* Loos-Weispfenning virtual term *)
-type lw_vt =
-  | MinusInfinity
-  | PlusEpsilon of V.t
-  | Term of V.t
-
-(* Model-based selection of a Loos-Weispfenning virtual term *)
-let select_lw m x polyhedron =
-  match select_equal_term x polyhedron with
-  | Some t -> Term t
-  | None ->
-    (* Internally to this function, it's convenient to represent a virtual
-       term as a triple consisting of a term, its value in the model, and a
-       flag indicating whether an epsilon is required (-oo is represented by
-       None). *)
-    let merge_vt_internal x y =
-      match x, y with
-      | None, x | x, None -> x
-      | Some (_, value, _), Some (_, value', _) when QQ.lt value value' -> y
-      | Some (_, value, _), Some (_, value', _) when QQ.lt value' value -> x
-      | Some (_, _, _), Some (_, _, true) -> y
-      | _, _ -> x
-    in
-    let vt_internal =
-      P.fold (fun (p, t) vt ->
-          let (a, t) = V.pivot x t in
-          if QQ.leq a QQ.zero then
-            vt
-          else
-            (* ax + t >= 0 /\ a > 0 |= x >= t/a *)
-            let toa = V.scalar_mul (QQ.inverse (QQ.negate a)) t in
-            let strict = (p = `Pos) in
-            let value = Linear.evaluate_affine m toa in
-            merge_vt_internal vt (Some (toa, value, strict)))
-        polyhedron
-        None
-    in
-    match vt_internal with
-    | None -> MinusInfinity
-    | Some (t, _, true) -> PlusEpsilon t
-    | Some (t, _, false) -> Term t
-
-let substitute_lw_vt x vt polyhedron =
-  match vt with
-  | Term t -> P.replace x t polyhedron
-  | MinusInfinity ->
-    P.fold (fun (p, term) polyhedron ->
-        let a = V.coeff x term in
-        if QQ.equal QQ.zero a then
-          P.add (p, term) polyhedron
-        else if QQ.lt QQ.zero a || p = `Zero then
-          bottom
-        else
-          polyhedron)
-      polyhedron
-      top
-  | PlusEpsilon t ->
-    P.fold (fun (p, term) polyhedron ->
-        let (a, term') = V.pivot x term in
-        if QQ.equal QQ.zero a then
-          P.add (p, term) polyhedron
-        else
-          let term' = V.add (V.scalar_mul a t) term' in
-          if p = `Zero then
-            bottom
-          else if QQ.lt QQ.zero a then
-            P.add (`Nonneg, term') polyhedron
-          else
-            P.add (`Pos, term') polyhedron)
-      polyhedron
-      top
-
-(* Model-guided projection of a polyhedron.  Given a point m within a
-   polyhedron p and a set of dimension xs, compute a polyhedron q such that
-   m|_xs is within q, and q is a subset of p|_xs (using |_xs to denote
-   projection of dimensions xs) *)
-let local_project m xs polyhedron =
-  (* Project a single variable *)
-  let project_one polyhedron x =
-    let vt = select_lw m x polyhedron in
-    substitute_lw_vt x vt polyhedron
-  in
-  List.fold_left project_one polyhedron xs
-
 (* Project a single variable, as long as the number of added constraints does
    not exceed max_add. If max_add is negative, the variable is projected no
    matter how many constraints it adds. *)
@@ -314,50 +230,6 @@ let project_one max_add polyhedron x =
 
 let project xs polyhedron =
   Log.time "Fourier-Motzkin" (List.fold_left (project_one (-1)) polyhedron) xs
-
-exception Nonlinear
-let to_apron cs env man polyhedron =
-  let open SrkApron in
-  let symvec v =
-    V.enum v
-    /@ (fun (coeff, coord) ->
-        if coord == Linear.const_dim then
-          (coeff, coord)
-        else
-          match CS.destruct_coordinate cs coord with
-          | `App (sym, []) -> (coeff, int_of_symbol sym)
-          | _ -> raise Nonlinear)
-    |> V.of_enum
-  in
-  (* In the common case that the polyhedron is over a coordinate system
-     without non-linear terms, it's faster to construct the apron abstract
-     value from linear constraints; fall back on tree constraints when
-     necessary. *)
-  let (linear, nonlinear) =
-    P.fold (fun (p, t) (linear, nonlinear) ->
-        try
-          let c =
-            match p with
-            | `Zero -> lcons_eqz (lexpr_of_vec env (symvec t))
-            | `Nonneg -> lcons_geqz (lexpr_of_vec env (symvec t))
-            | `Pos -> lcons_gtz (lexpr_of_vec env (symvec t))
-          in
-          (c::linear, nonlinear)
-        with Nonlinear ->
-          let c =
-            match p with
-            | `Zero -> tcons_eqz (texpr_of_term env (CS.term_of_vec cs t))
-            | `Nonneg -> tcons_geqz (texpr_of_term env (CS.term_of_vec cs t))
-            | `Pos -> tcons_gtz (texpr_of_term env (CS.term_of_vec cs t))
-          in
-          (linear, c::nonlinear)
-      )
-      polyhedron
-      ([], [])
-  in
-  match nonlinear with
-  | [] -> meet_lcons (top man env) linear
-  | _ -> meet_tcons (meet_lcons (top man env) linear) nonlinear
 
 let try_fourier_motzkin cs p polyhedron =
   let projected_linear =
@@ -520,7 +392,7 @@ let implies polyhedron (p, v) =
   | `Pos -> invalid_arg "Polyhedron.implies does not currently support strict \
                          inequalities"
 
-module NormalizCone = struct
+module IntegerHull = struct
 
   open Normalizffi
 
@@ -589,7 +461,7 @@ module NormalizCone = struct
     BatList.enum (List.append equalities inequalities)
     |> of_constraints
 
-  let integer_hull polyhedron =
+  let hull_by_normaliz polyhedron =
     let (cone, bijection) = normaliz_cone_by_constraints polyhedron in
 
     logf ~level:`trace "polyhedron: integer_hull: computed Normaliz cone for polyhedron:@[%a@]@;"
@@ -608,116 +480,16 @@ module NormalizCone = struct
     in
     polyhedron_of (cut_eqns, cut_ineqs, bijection)
 
-  (* [fractional_cutting_planes_at_face point active_constraints ambient_dim]
-     returns pairs [constraint >= constant], such that
-     [constraint = constant] is a cutting plane of the polyhedron in 
-     QQ^{[ambient_dim]} defined by [active_constraints] and contains [point],
-     and where [constant] is non-integer (so that the cutting plane makes 
-     progress when cut).
-  *)
-  let fractional_cutting_planes_at_face
-      point
-      (active : (constraint_kind * V.t) BatEnum.t)
-      ambient_dim
-    : (V.t * QQ.t) BatEnum.t option =
-    if V.is_integral point then
-      None
-    else
-      let (lines, rays) =
-        let strip_constant = snd % V.pivot Linear.const_dim in
-        BatEnum.fold (fun (lines, rays) -> function
-            | (`Zero, v) -> (strip_constant v :: lines, rays)
-            | (`Nonneg, v) -> (lines, strip_constant v :: rays)
-            | (`Pos, _v) -> assert false)
-          ([], [])
-          active
-      in
-      let basis = Cone.hilbert_basis (Cone.make ~lines ~rays ambient_dim) in
-      Some (basis
-            |> BatList.fold_left
-              (fun curr vector ->
-                 let constant_term = Linear.QQVector.dot vector point in
-                 if ZZ.equal (QQ.denominator constant_term) ZZ.one then
-                   curr
-                 else
-                   (vector, constant_term) :: curr) []
-            |> BatList.enum
-           )
-
-  let elementary_gc polyhedron ambient_dim =
-    logf ~level:`trace "elementary_gc: Computing minimal faces...@;";
-    let faces = DD.minimal_faces polyhedron in
-    logf ~level:`trace "elementary_gc: Computed minimal faces: found %d@;"
-      (List.length faces);
-    let cuts =
-      List.fold_left (fun curr (v, active) ->
-          let frac_cuts = fractional_cutting_planes_at_face v (BatList.enum active) ambient_dim in
-          match frac_cuts with
-          | None -> curr
-          | Some cuts ->
-            BatEnum.push curr (v, cuts);
-            curr)
-        (BatEnum.empty ())
-        faces
-    in
-    if BatEnum.is_empty cuts then
-      begin
-        logf "elementary_gc: all faces are integral@;";
-        `Fixed polyhedron
-      end
-    else
-      let changed = ref false in
-      let adjoin_constraint curr_polyhedron (lhs, rhs) =
-        (* TODO: Test if meet is faster than implication check; if so,
-             we should do meet directly once [changed] is true.
-        *)
-        let constant_term = QQ.negate rhs |> QQ.floor |> QQ.of_zz in
-        let new_constraint =
-          Linear.QQVector.add_term constant_term Linear.const_dim lhs in
-        if DD.implies curr_polyhedron (`Nonneg, new_constraint) then
-          begin
-            logf ~level:`trace "@[elementary_gc: polyhedron implies %a >= 0@]@;"
-              Linear.QQVector.pp new_constraint;
-            curr_polyhedron
-          end
-        else
-          begin
-            logf ~level:`trace "@[elementary_gc: computing meet with %a >= 0@]@;"
-              Linear.QQVector.pp new_constraint;
-            let intersected = DD.meet_constraints
-                curr_polyhedron [(`Nonneg, new_constraint)] in
-            changed := true;
-            intersected
-          end
-      in
-      let polyhedron =
-        BatEnum.fold (fun poly (_point, cutting_planes) ->
-            BatEnum.fold adjoin_constraint poly cutting_planes)
-          polyhedron cuts
-      in
-      if !changed then `Changed polyhedron else `Fixed polyhedron
-
-  let gomory_chvatal polyhedron =
+  let hull_by_gomory_chvatal polyhedron =
     let dim = 1 + max_constrained_dim polyhedron in
     let man = Polka.manager_alloc_loose () in
-    let rec iter polyhedron i =
-      let elem_closure =  elementary_gc polyhedron dim in
-      match elem_closure with
-      | `Fixed poly ->
-        logf ~level:`info "@[Polyhedron: Gomory-Chvatal finished in round %d@]@;" i;
-        poly
-      | `Changed poly ->
-        logf ~level:`trace "elementary_gc: entering round %d@;" (i + 1);
-        iter poly (i + 1)
-    in
-    iter (dd_of ~man dim polyhedron) 0
-    |> of_dd
+    of_dd (DD.integer_hull (dd_of ~man dim polyhedron))
 
 end
 
 let integer_hull = function
-  | `GomoryChvatal -> NormalizCone.gomory_chvatal
-  | `Normaliz -> NormalizCone.integer_hull
+  | `GomoryChvatal -> IntegerHull.hull_by_gomory_chvatal
+  | `Normaliz -> IntegerHull.hull_by_normaliz
 
 module IntDS = DisjointSet.Make(struct
     include Int
@@ -798,7 +570,8 @@ let _dual_relative_subcone dim halfspaces v =
     (Cone.make ~rays:cardinal_rays ~lines:[] dim)
     halfspaces
 
-let close_integral_point polyhedron ~rational ~integer n =
+
+let _close_point scale polyhedron ~rational ~integer n =
   (* Call the rational point r and the inger point z.
      Write P as { x : A_1 x >= b_1 /\ A_2 x >= b_2 }, where
      A_1 z >= A_1 r and A_2 z < A_2 r.  Define C to be the cone
@@ -826,7 +599,7 @@ let close_integral_point polyhedron ~rational ~integer n =
      lambda_0 v_0 + ... + lambda_n v_n where v_0,...,v_n is a set of integer
      vectors generating C, and each lambda_i >= 0. *)
   let rays = Array.of_list (Cone.generators c) in
-  BatArray.modify (fun v -> V.scalar_mul (QQ.of_zz (V.common_denominator v)) v) rays;
+  BatArray.modify scale rays;
   match Cone.simplex rays (V.sub integer rational) with
   | None -> assert false (* Impossible *)
   | Some soln ->
@@ -838,3 +611,18 @@ let close_integral_point polyhedron ~rational ~integer n =
         V.add z' (V.scalar_mul (QQ.sub lambda (QQ.of_zz (QQ.floor lambda))) rays.(i)))
       soln
       rational
+
+let close_integral_point =
+  _close_point (fun v -> V.scalar_mul (QQ.of_zz (V.common_denominator v)) v)
+
+let close_lattice_point = function
+  | [] -> (fun _ ~rational ~integer:_ _ -> rational)
+  | fns ->
+    _close_point (fun v ->
+        let gcd = List.fold_left (fun z f -> QQ.gcd (f v) z) QQ.zero fns in
+        if QQ.equal gcd QQ.zero then
+          (* v is orthogonal to all functions constrained to be integral -- no
+             need to scale. *)
+          v
+        else V.scalar_mul (QQ.inverse gcd) v)
+

@@ -200,15 +200,15 @@ module K = struct
   let refine_star x =
     let x_dnf = Log.time "cra:to_dnf" to_dnf x in
     if (List.length x_dnf) = 1 then star (List.hd x_dnf)
-    else 
+    else
       let pp_list f = List.iteri (fun i p -> Format.fprintf f "Path %d : @[%a@]@." i pp p) in
       log_pp ~level:`warn pp_list x_dnf;
       CRARefinement.refinement x_dnf
 
-  let star x = 
-    if (!cra_refine) then 
+  let star x =
+    if (!cra_refine) then
       Log.time "cra:refine_star" refine_star x
-    else 
+    else
       Log.time "cra:star" star x
 
   let project = exists V.is_global
@@ -364,7 +364,7 @@ and tr_bexpr bexpr =
                    :: sign_constraint))
             | _ ->
               Ctx.mk_eq x y
-            else 
+            else
               Ctx.mk_eq x y
           end
         | Ne ->
@@ -852,6 +852,7 @@ let mk_query ts entry =
 
 let analyze file =
   populate_offset_table file;
+  Abstract.ClosedConvexHull.dump_hull_prefix := file.filename;
   match file.entry_points with
   | [main] -> begin
       let rg = Interproc.make_recgraph file in
@@ -871,6 +872,11 @@ let analyze file =
           let path_condition =
             Ctx.mk_and [K.guard path; Ctx.mk_not phi]
             |> SrkSimplify.simplify_terms srk
+          in
+          let path_condition =
+            if Syntax.get_theory srk = `LIRA && !monotone then
+              Nonlinear.uninterpret srk path_condition
+            else path_condition
           in
           logf "Path condition to %s:%d:@\n%a"
             loc.Cil.file
@@ -903,10 +909,10 @@ let analyze file =
 
 let preimage transition formula =
   let open Syntax in
-  let transition = 
-    if get_theory srk = `LIRR then 
-      transition 
-    else K.linearize transition 
+  let transition =
+    if get_theory srk = `LIRR then
+      transition
+    else K.linearize transition
   in
   let fresh_skolem =
     Memo.memo (fun sym ->
@@ -923,7 +929,7 @@ let preimage transition formula =
          mk_const srk sym
     | None -> fresh_skolem sym
   in
-  mk_and srk [SrkSimplify.eliminate_floor srk (K.guard transition);
+  mk_and srk [Syntax.eliminate_floor_mod_div srk (K.guard transition);
               substitute_const srk subst formula]
 
 (* Attractor region analysis *)
@@ -1088,6 +1094,7 @@ let lift_universals srk phi =
   quantify_universals (Formula.eval srk alg phi)
 
 let prove_termination_main file =
+  Abstract.ClosedConvexHull.dump_hull_prefix := file.filename;
   populate_offset_table file;
   match file.entry_points with
   | [main] -> begin
@@ -1124,7 +1131,7 @@ let prove_termination_main file =
         | `Sat -> Format.printf "Cannot prove that program always terminates\n"
         | `Unsat -> Format.printf "Program always terminates\n"
         | `Unknown -> Format.printf "Unknown analysis result\n"
-      else  
+      else
         match Quantifier.simsat srk omega_paths_sum with
         | `Sat ->
           Format.printf "Cannot prove that program always terminates\n";
@@ -1133,10 +1140,17 @@ let prove_termination_main file =
             let simplified =
               omega_paths_sum
               |> Nonlinear.linearize srk
-              |> Quantifier.mbp srk (fun sym ->
-                      match V.of_symbol sym with
-                      | Some x -> V.is_global x
-                      | _ -> false)
+              |> (
+                fun phi ->
+                  let syms = Syntax.symbols phi in
+                  let onto = Syntax.Symbol.Set.filter (fun sym ->
+                    match V.of_symbol sym with
+                    | Some x -> V.is_global x
+                    | _ -> false
+                    ) syms
+                  in
+                  Quantifier.mbp srk onto phi
+              )
               |> Syntax.mk_not srk
             in
             Format.printf "Sufficient terminating conditions:\n%a\n"
@@ -1370,7 +1384,11 @@ let _ =
          | "LIRA" -> Syntax.set_theory srk `LIRA;
          | "LIRR" -> Syntax.set_theory srk `LIRR
          | th -> failwith ("Unrecognized theory: " ^ th)),
-     " Set background theory (LIRA, LIRR)")
+     " Set background theory (LIRA, LIRR)");
+  CmdLine.register_config
+    ("-dump-hulls",
+     Arg.Set Abstract.ClosedConvexHull.dump_hull,
+     " Output convex hull goals in SMTLIB2 format")
 
 let _ =
   CmdLine.register_pass

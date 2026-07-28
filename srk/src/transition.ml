@@ -65,11 +65,11 @@ struct
   let assign v term =
     { transform = M.add v term M.empty;
       guard = mk_true srk }
-  
-  let arith_assign v (t : C.t arith_term) = 
+
+  let arith_assign v (t : C.t arith_term) =
     assign v (t :> C.t term)
 
-  let arr_assign v (t : C.t arr_term) = 
+  let arr_assign v (t : C.t arr_term) =
     assign v (t :> C.t term)
 
   let parallel_assign assignment = construct (mk_true srk) assignment
@@ -262,7 +262,7 @@ struct
               else
                 mk_const srk (Var.symbol_of var)
             in
-            match Term.refine srk term' with 
+            match Term.refine srk term' with
             | `ArithTerm at -> (mk_eq srk term at)::eqs
             | `ArrTerm _ -> eqs (* ignore array equalities for wedge domain*)
             )
@@ -440,7 +440,13 @@ struct
              in
              let wp =
                (mk_not srk (mk_or srk (post'::reduced_guard)))
-               |> Quantifier.mbp srk (fun s -> Var.of_symbol s != None)
+               |> (
+                 fun phi ->
+                   let onto = symbols phi
+                     |> Symbol.Set.filter (fun s -> Var.of_symbol s != None)
+                   in
+                   Quantifier.mbp srk onto phi
+               )
                |> mk_not srk
              in
              (wp::itp, wp))
@@ -498,8 +504,10 @@ struct
                 :: (tr_subst tr.guard)
                 :: transform_formula)
     |> Nonlinear.linearize srk
+    |> Syntax.eliminate_floor_mod_div srk
+    |> Syntax.eliminate_ite srk
     |> rewrite srk ~down:(pos_rewriter srk)
-    |> Abstract.abstract ~exists srk man
+    |> SrkApron.abstract ~exists srk man
 
   let linearize tr =
     let (transform, defs) =

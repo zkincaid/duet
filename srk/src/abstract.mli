@@ -19,17 +19,6 @@ val vanishing_space : 'a context -> 'a formula -> 'a arith_term array -> Linear.
     that is implied by [phi]. *)
 val boxify : 'a context -> 'a formula -> 'a arith_term list -> 'a formula
 
-(** [abstract ?exists srk man phi] computes the strongest property that is
-    implied by [phi] which is expressible within a given abstract domain.  The
-    property is restricted to use only the symbols that satisfy the [?exists]
-    predicate (which defaults to the constant [true] predicate). *)
-val abstract : ?exists:(symbol -> bool) ->
-               'a context ->
-               'abs Apron.Manager.t ->
-               'a formula ->
-               ('a,'abs) SrkApron.property
-
-
 type 'a smt_model =
   [ `LIRA of 'a Interpretation.interpretation
   | `LIRR of Lirr.Model.t ]
@@ -40,7 +29,7 @@ type ('a, 'b) domain =
   ; formula_of : 'b -> 'a formula
   ; top : 'b
   ; bottom : 'b }
-  
+
 module Model : sig
   type 'a t = 'a smt_model
   val sat : 'a context -> 'a t -> 'a formula -> bool
@@ -54,8 +43,14 @@ end
 module Solver : sig
   type 'a t
 
-  (** Allocate a new solver. *)
-  val make : 'a context -> ?theory:[`LIRR | `LIRA ] -> 'a formula -> 'a t
+  (** Allocate a new solver.
+    For LIRA, default preprocessing ensures that [get_formula] returns a
+    formula that can be destructed by [Linear.destruct_lira] or evaluated by
+    [Linear.eval_lira].
+  *)
+  val make : 'a context -> ?theory:[`LIRR | `LIRA ]
+    -> ?preprocess:('a formula -> 'a formula)
+    -> 'a formula -> 'a t
 
   (** Symbolic abstraction as described in Reps, Sagiv, Yorsh---"Symbolic
      implementation of the best transformer", VMCAI 2004. *)
@@ -87,7 +82,8 @@ module Solver : sig
 
   (** [add s phis] conjoins each formula in [phis] to the formula associated
      with the solver. *)
-  val add : 'a t -> ('a formula) list -> unit
+  val add : 'a t -> ?preprocess: ('a formula -> 'a formula)
+    -> ('a formula) list -> unit
 
   (** Push a fresh entry onto the solver's stack.  Assertions added to the
      formula with [add] are reverted after the entry is [pop]ed off the
@@ -135,4 +131,47 @@ module LinearSpan : sig
      with [solver].  The affine equations are represented w.r.t. the basis
      defined by [Syntax.symbol_of_int / Syntax.int_of_symbol].  *)
   val affine_hull : 'a Solver.t -> ?bottom:t -> symbol list -> t
+end
+
+(** Domain of linear inequalities over a fixed set of terms *)
+module ClosedConvexHull : sig
+
+  type t = DD.closed DD.t
+
+  (** Dump convex hull goal to file when [abstract] is invoked *)
+  val dump_hull: bool ref
+  val dump_hull_prefix : string ref
+
+  type 'a lirr_local_abstraction = 'a smt_model -> DD.closed DD.t
+
+  (** Local abstraction for LIRR that abstracts formulas over symbols in
+    context to polyhedra in dimensions corresponding to terms in the array.
+  *)
+  val abstract_lirr: DD.closed Apron.Manager.t
+    -> 'a Syntax.context -> ('a arith_term) array
+    -> 'a lirr_local_abstraction
+
+  (**
+    A local abstraction [abs] for convex hulls is associated with a set of
+    formulas it can abstract, an array of terms
+    (the linear inequalities / polyhedra over which it abstracts to,
+    and a [man]ager for DD polyhedra.
+    Given [abs] that abstract to linear inequalities in (exactly) [terms],
+    a [solver] whose formula [F] can be abstracted by [abs],
+    and the [man]ager for the [abs],
+    [abstract_by man solver abs terms] is a polyhedron whose inequalities
+    when considered as inequalities in [terms] are implied by [F].
+  *)
+  val abstract_by: man:DD.closed Apron.Manager.t -> 'a Solver.t
+    -> ?bottom:(t option)
+    -> [
+    | `LIRR of 'a lirr_local_abstraction
+    | `LIRA of 'a PolyhedronLatticeTiling.ConvexHull.lira_to_polyhedron_abs
+    ]
+    -> ('a arith_term) array -> t
+
+  val abstract: ?man:(DD.closed Apron.Manager.t)
+    -> 'a Solver.t
+    -> ?bottom:(t option)
+    -> ('a arith_term) array -> t
 end

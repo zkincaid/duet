@@ -8,6 +8,7 @@ module Q = Quantifier
 module TF = TransitionFormula
 module Int = SrkUtil.Int
 module IS = Iteration.Solver
+module PLT = PolyhedronLatticeTiling
 include Log.Make(struct let name = "srk.vass" end)
 
 let closure solver =
@@ -238,21 +239,31 @@ let project_dnf srk exists phi =
   let module Solver = Smt.StdSolver in
   let solver = Solver.make srk in
   Solver.add solver [phi];
+  let elim dim =
+    match Linear.sym_of_dim dim with
+    | None -> false
+    | Some k -> not (exists k)
+  in
   let rec go cubes =
     match Solver.get_model solver with
     | `Unsat -> cubes
     | `Unknown -> assert false
     | `Sat m ->
-      match Interpretation.select_implicant m phi with
-      | None -> assert false
-      | Some imp ->
-        let cube =
-          Q.local_project_cube srk exists m imp
-          |> SrkSimplify.simplify_conjunction srk
-          |> mk_and srk
-        in
-        Solver.add solver [mk_not srk cube];
-        go (cube :: cubes)
+       match PLT.select_plt srk phi m with
+       | None -> assert false
+       | Some cube ->
+          let valuation i =
+            match Linear.sym_of_dim i with
+            | Some k -> Interpretation.real m k
+            | None -> QQ.one
+          in
+          let cube =
+            PLT.make_plt_constraints (PLT.poly_part cube)
+            |> PLT.local_project_plt ~elim valuation
+            |> PLT.formula_of_plt srk
+          in
+          Solver.add solver [mk_not srk cube];
+          go (cube :: cubes)
   in
   go []
 
@@ -582,7 +593,7 @@ let compute_trans_post_cond srk pre_cs post_cs trans gamma_trans term_list tr_sy
   let trans' = gamma_transformer srk term_list trans in
   let complete_trans_form = (mk_and srk [pre_cs;trans';post_cs]) in
   let post_trans = SrkApron.formula_of_property 
-      (Abstract.abstract ~exists:exists_post srk man complete_trans_form) in
+      (SrkApron.abstract ~exists:exists_post srk man complete_trans_form) in
   let lri_form =
     IS.make srk (TF.make
                    (rewrite srk ~down:(pos_rewriter srk) gamma_trans)
@@ -591,7 +602,7 @@ let compute_trans_post_cond srk pre_cs post_cs trans gamma_trans term_list tr_sy
   let preify = substitute_map srk (TF.pre_map srk tr_symbols) in
   let rslt =
     SrkApron.formula_of_property
-      (Abstract.abstract ~exists:exists_post srk man
+      (SrkApron.abstract ~exists:exists_post srk man
          (mk_and srk
             [preify post_trans; closure lri_form]))
   in

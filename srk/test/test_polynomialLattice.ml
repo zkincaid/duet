@@ -29,11 +29,11 @@ let z = QQXs.of_dim 3
 *)
 let lattice_of_twos =
   let open Infix in
-  let quadratic = Ideal.make [int(2) * x * x] in
+  let quadratic = Rewrite.mk_rewrite Monomial.degrevlex [int(2) * x * x] in
   let p1 = int(3) * x * x * y + ((- (int(2) * x * y)) + int(2) * x) + int(2) * y in
   let p2 = int(2) * x * y in
   let p3 = int(2) * y + int (1) in
-  PL.make quadratic [p1; p2; p3]
+  PL.make_lattice quadratic [p1; p2; p3]
 
 (*
   3y^2 ; 3x ; 3y
@@ -47,7 +47,7 @@ let lattice_of_threes =
   let p1 = int(3) * y * y in
   let p2 = int(3) * x in
   let p3 = int(3) * y in
-  PL.make (Ideal.make []) [p1; p2; p3]
+  PL.make_lattice (Rewrite.mk_rewrite Monomial.degrevlex []) [p1; p2; p3]
 
 let test_member () =
   let open Infix in

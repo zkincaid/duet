@@ -44,6 +44,9 @@ val enum_constraints : 'a t -> (constraint_kind * V.t) BatEnum.t
 (** Enumerate the constraints of a closed polyhedron. *)
 val enum_constraints_closed : closed t -> ([`Zero | `Nonneg] * V.t) BatEnum.t
 
+(** The ambient dimension of the polyhedron *)
+val dimension : 'a t -> int
+
 (** Convex hull of the union of two polyhedra. *)
 val join : 'a t -> 'a t -> 'a t
 
@@ -90,3 +93,16 @@ val lexpr_of_vec : V.t -> Linexpr0.t
    face is given by a point that it contains and the list of constraints
    active at that point (and all points on the minimal face).  *)
 val minimal_faces : 'a t -> (V.t * ((constraint_kind * V.t) list)) list
+
+val integer_hull : closed t -> closed t
+
+(** Given an interpretation [interp] of non-constant dimensions as terms,
+    [formula_of_dd srk interp dd] is a formula defining [dd], i.e.,
+    whose models correspond to points in [dd].
+ *)
+val formula_of_dd :
+  'b Syntax.context -> (int -> 'b Syntax.arith_term) -> 'a t -> 'b Syntax.formula
+
+val qq_of_scalar : Scalar.t -> QQ.t
+val qq_of_coeff : Coeff.t -> QQ.t option
+val coeff_of_qq : QQ.t -> Coeff.t

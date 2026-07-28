@@ -33,7 +33,6 @@ let load_smtlib2 filename =
 
 let load_chc fp filename = Chc.ChcSrkZ3.parse_file srk fp filename
 
-
 let load_formula filename =
   let formula =
     if Filename.check_suffix filename "m" then load_math_formula filename
@@ -71,6 +70,208 @@ let print_result = function
   | `Unsat -> Format.printf "unsat@\n"
   | `Unknown -> Format.printf "unknown@\n"
 
+module Retype : sig
+
+  (* `LiraToLra
+    - First compute an equivalent formula in the language of LRA
+      (LRA terms, LRA atoms) free of floor, mod, div and is_int.
+    - Then replace all integer variables with real ones.
+
+    `LiraToLia:
+    - `JustSymbols: just replace real variables with integer ones;
+    - `LraTerms: in addition with floor, mod, div removed;
+    - `LraFormula: in addition with [is_int] removed.
+
+    Integralization uses the last, i.e., first compute an equivalent formula
+    in the language of LRA, free of floor, mod, div, and is_int,
+    then replace all real variables with integer ones.
+   *)
+  val retype_formula:
+    'a context ->
+    [ `LiraToLra
+    | `LiraToLia of [`JustSymbols | `LraTerms | `LraFormula]] ->
+    'a formula -> 'a formula * bool
+
+end = struct
+  module S = Syntax.Symbol.Set
+
+  let retype srk (fromto: [`IntToReal | `RealToInt]) expr =
+    let table = Hashtbl.create 991 in
+    let retyped_symbol sym =
+      begin match fromto with
+      | `IntToReal ->
+         mk_symbol srk ~name:(Format.asprintf "%s_realified"
+                                (show_symbol srk sym))
+           `TyReal
+      | `RealToInt ->
+         mk_symbol srk ~name:(Format.asprintf "%s_integralized"
+                                (show_symbol srk sym))
+           `TyInt
+      end
+    in
+    let lookup s = begin try Hashtbl.find table s with
+      | Not_found ->
+        begin match (typ_symbol srk s, fromto) with
+        | (`TyInt, `IntToReal)
+          | (`TyReal, `RealToInt) ->
+          let new_sym = retyped_symbol s in
+          Hashtbl.add table s new_sym;
+          new_sym
+        | _ -> s
+        end
+      end
+    in
+    (substitute_const srk (fun s -> mk_const srk (lookup s)) expr, table)
+
+  let retype_quantifier_free srk how phi =
+    let retype fml =
+      match how with
+      | `LiraToLra -> retype srk `IntToReal fml
+      | `LiraToLia _ -> retype srk `RealToInt fml
+    in
+    let preprocess fml =
+      match how with
+      | `LiraToLra -> Syntax.eliminate_floor_mod_div srk fml
+        |> Syntax.eliminate_is_int srk
+      | `LiraToLia `LraTerms -> Syntax.eliminate_floor_mod_div srk fml
+      | `LiraToLia `LraFormula -> Syntax.eliminate_floor_mod_div srk fml
+        |> Syntax.eliminate_is_int srk
+      | `LiraToLia `JustSymbols -> fml
+    in
+    let processed_phi =
+      Syntax.eliminate_ite srk phi
+      |> rewrite srk ~down:(pos_rewriter srk)
+      |> preprocess in
+    let introduced_symbols = S.diff (symbols processed_phi) (symbols phi) in
+    let (retyped_processed, table) = retype processed_phi in
+    let remap_symbols s =
+      match Hashtbl.find_opt table s with
+      | Some new_sym -> new_sym
+      | None -> s
+    in
+    let introduced_symbols' =
+      introduced_symbols |> S.map remap_symbols
+    in
+    let equivalent = (Hashtbl.length table == 0) in
+    (retyped_processed, introduced_symbols', remap_symbols, equivalent)
+
+  let retype_formula srk
+        (how : [ `LiraToLra
+               | `LiraToLia of [`JustSymbols | `LraTerms | `LraFormula]])
+        phi =
+    let (qf, phi) = Quantifier.normalize srk phi in
+    let requantify quantifiers phi =
+      List.fold_left
+        (fun phi sym ->
+          mk_exists_const srk sym phi)
+        phi
+        (List.rev quantifiers)
+    in
+    if List.exists (fun (q, _) -> q = `Forall) qf then
+      failwith "universal quantification not supported"
+    else
+      let (phi', introduced_symbols, remap, equivalent) =
+        retype_quantifier_free srk how phi in
+      let new_quantified_symbols =
+        let retyped_original = List.map (fun (_, sym) -> remap sym) qf in
+        retyped_original @ S.to_list introduced_symbols
+      in
+      ( requantify new_quantified_symbols phi', equivalent )
+
+end
+
+module Plt = PolyhedronLatticeTiling
+
+module ConvHull : sig
+
+  val print_convex_hull: 'a context
+    -> (
+      man:DD.closed Apron.Manager.t
+      -> 'a Syntax.arith_term array
+      -> 'a Plt.ConvexHull.lira_to_polyhedron_abs
+    )
+    -> 'a formula -> unit
+
+end = struct
+
+  module S = Syntax.Symbol.Set
+
+  let pp_symbols fmt set =
+    Format.pp_print_list ~pp_sep:(fun fmt () -> Format.fprintf fmt "@\n")
+      (fun fmt sym ->
+        Format.fprintf fmt "%a: %a"
+          (Syntax.pp_symbol srk) sym pp_typ (typ_symbol srk sym))
+      fmt (S.to_list set)
+
+  let term_of_vector srk term_of_dim v =
+    let open Syntax in
+    Linear.QQVector.enum v
+    |> BatEnum.fold
+         (fun summands (coeff, dim) ->
+           if dim <> Linear.const_dim then
+             mk_mul srk [mk_real srk coeff; term_of_dim dim] :: summands
+           else
+             mk_real srk coeff :: summands)
+         []
+    |> mk_add srk
+
+  let formula_p srk term_of_dim (kind, v) =
+    let t = term_of_vector srk term_of_dim v in
+    match kind with
+    | `Zero -> mk_eq srk t (mk_zero srk)
+    | `Nonneg -> mk_leq srk (mk_zero srk) t
+    | `Pos -> mk_lt srk (mk_zero srk) t
+
+  let formula_of_dd srk term_of_dim dd =
+    DD.enum_constraints dd
+    |> BatEnum.fold
+         (fun atoms (kind, v) ->
+           formula_p srk term_of_dim (kind, v) :: atoms) []
+    |> List.rev
+    |> mk_and srk
+
+  let print_convex_hull srk mk_local_abs phi =
+    let (qf, phi) = Quantifier.normalize srk phi in
+    if List.exists (fun (q, _) -> q = `Forall) qf then
+      failwith "universal quantification not supported";
+    let quantified_symbols = List.map (fun (_, sym) -> sym) qf in
+    let original_symbols_to_keep =
+      S.diff (symbols phi) (S.of_list quantified_symbols) in
+    let symbols_to_eliminate = S.of_list quantified_symbols in
+    Format.printf "Quantified symbols: %a\n"
+      (Format.pp_print_list ~pp_sep:Format.pp_print_space
+         (fun fmt (_, sym) -> (Syntax.pp_symbol srk) fmt sym)) qf;
+
+    let symbols = Syntax.symbols phi in
+    let symbols_to_keep = S.diff symbols symbols_to_eliminate in
+    assert (S.cardinal symbols_to_keep = S.cardinal original_symbols_to_keep);
+    let terms =
+      List.map (Syntax.mk_const srk) (S.to_list original_symbols_to_keep)
+      (* Order matters, and we map using the order of original symbols to allow
+         comparison between methods *)
+      |> Array.of_list
+    in
+    let print_input () =
+      Format.printf "Taking convex hull of formula: @[%a@]@;"
+        (Syntax.Formula.pp srk) phi;
+      Format.printf "Symbols to keep: @[%a@]@;" pp_symbols symbols_to_keep;
+      Format.printf "Symbols to eliminate: @[%a@]@;"
+        pp_symbols symbols_to_eliminate;
+    in
+    print_input ();
+    let man = Polka.manager_alloc_loose () in
+    let solver = Abstract.Solver.make srk ~theory:`LIRA phi in
+    let local_abs = mk_local_abs ~man terms in
+    let result = Abstract.ClosedConvexHull.abstract_by ~man solver
+      (`LIRA local_abs) terms
+    in
+    Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
+      (Syntax.Formula.pp srk)
+      (formula_of_dd srk (fun dim -> terms.(dim)) result)
+
+end
+
+
 let spec_list = [
   ("-simsat",
    Arg.String (fun file ->
@@ -92,47 +293,83 @@ let spec_list = [
 
   ("-normaliz",
    Arg.Unit (fun () -> PolynomialConeCpClosure.set_cutting_plane_method `Normaliz),
-   "Set weak theory solver to use Normaliz's integer hull computation (instead of Gomory-Chvatal");
+   " Set weak theory solver to use Normaliz's integer hull computation (instead of Gomory-Chvatal");
 
   ("-generator",
    Arg.Set generator_rep,
    " Print generator representation of convex hull");
 
-  ("-convex-hull",
-   Arg.String (fun file ->
-       let (qf, phi) = Quantifier.normalize srk (load_formula file) in
-       if List.exists (fun (q, _) -> q = `Forall) qf then
-         failwith "universal quantification not supported";
-       let exists v =
-         not (List.exists (fun (_, x) -> x = v) qf)
-       in
-       let polka = Polka.manager_alloc_strict () in
-       let pp_hull formatter hull =
-         if !generator_rep then begin
-           let env = SrkApron.get_env hull in
-           let dim = SrkApron.Env.dimension env in
-           Format.printf "Symbols:   [%a]@\n@[<v 0>"
-             (SrkUtil.pp_print_enum (Syntax.pp_symbol srk)) (SrkApron.Env.vars env);
-           SrkApron.generators hull
-           |> List.iter (fun (generator, typ) ->
-               Format.printf "%s [@[<hov 1>"
-                 (match typ with
-                  | `Line    -> "line:     "
-                  | `Vertex  -> "vertex:   "
-                  | `Ray     -> "ray:      "
-                  | `LineMod -> "line mod: "
-                  | `RayMod  -> "ray mod:  ");
-               for i = 0 to dim - 2 do
-                 Format.printf "%a@;" QQ.pp (Linear.QQVector.coeff i generator)
-               done;
-               Format.printf "%a]@]@;" QQ.pp (Linear.QQVector.coeff (dim - 1) generator));
-           Format.printf "@]"
-         end else
-           SrkApron.pp formatter hull
-       in
-       Format.printf "Convex hull:@\n @[<v 0>%a@]@\n"
-         pp_hull (Abstract.abstract ~exists srk polka phi)),
-   " Compute the convex hull of an existential linear arithmetic formula");
+  ("-lira-convex-hull"
+  , Arg.String
+      (fun file ->
+          ConvHull.print_convex_hull srk
+            (Plt.ConvexHull.cch_lira srk) (load_formula file)
+      )
+  , " Compute the convex hull of an existential formula in LIRA using the join of -lira-convex-hull-pc and -lira-convex-hull-lplh"
+  );
+
+  ("-lia-convex-hull"
+  , Arg.String
+      (fun file ->
+        ConvHull.print_convex_hull srk
+          (Plt.ConvexHull.cch_lia srk) (load_formula file)
+      )
+  , " Compute the convex hull of an existential formula in linear integer arithmetic."
+  );
+
+  ("-lra-convex-hull"
+  , Arg.String
+      (fun file ->
+        ConvHull.print_convex_hull srk
+          (Plt.ConvexHull.cch_lra srk) (load_formula file)
+      )
+  , " Compute the convex hull of an existential formula in linear rational arithmetic."
+  );
+
+  ("-integralize-smt-file"
+  , Arg.String
+      (fun file ->
+        let () =
+          if not (Filename.check_suffix file ".smt2") then failwith "not an SMT file"
+          else ()
+        in
+        let phi = load_smtlib2 file in
+        let (phi', equivalent) =
+          try Retype.retype_formula srk (`LiraToLia `LraFormula) phi
+          with
+          | _ -> Format.printf "Fail at file: %s" file;
+                 failwith "Failed"
+        in
+        Format.printf "Integralization is %s@\n"
+          (if equivalent then "equivalent" else "not equivalent" )
+        ;
+        pp_smtlib2 srk Format.std_formatter phi'
+      )
+  , " Given <file>.smt as input, output file <file>_integralized.smt2 that \
+      contains the integralized version of the formula in <file>.smt2"
+  );
+
+  ("-realify-smt-file"
+  , Arg.String (fun file ->
+        let () =
+          if not (Filename.check_suffix file ".smt2") then failwith "not an SMT file"
+          else ()
+        in
+        let phi = load_smtlib2 file in
+        let (phi', equivalent) =
+          try Retype.retype_formula srk `LiraToLra phi
+          with
+          | _ -> Format.printf "Fail at file: %s" file;
+                 failwith "Failed"
+        in
+        Format.printf "Integralization is %s@\n"
+          (if equivalent then "equivalent" else "not equivalent" )
+        ;
+        pp_smtlib2 srk Format.std_formatter phi'
+      )
+  , " Given <file>.smt as input, output file <file>_realified.smt2 that \
+      contains the real relaxation of the formula in <file>.smt2"
+  );
 
   ("-wedge-hull",
    Arg.String (fun file ->

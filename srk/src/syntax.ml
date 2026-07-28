@@ -1079,8 +1079,8 @@ module Term = struct
     | Node (_, _, `TyArr) -> `ArrTerm sexpr
     | Node (_, _, `TyBool) -> assert false
 
-  let set_expr srk expr t = 
-    match refine srk t with 
+  let set_expr srk expr t =
+    match refine srk t with
     | `ArithTerm t' -> mk_eq srk expr t'
     | `ArrTerm t' -> mk_arr_eq srk expr t'
 end
@@ -1838,14 +1838,11 @@ let eliminate_floor_mod_div srk phi =
     begin
       match destruct srk expr with
       | `Unop (`Floor, t) ->
-        (* floor(t) --> [s = floor(t)] ; s : Int, s* : Real ; t = s + s* /\ 0 <= s* < 1 *)
-        let fractional_part = mk_symbol srk ~name:"fraction" `TyReal
-                              |> mk_const srk in
-        let integer_part = mk_const srk sym in
-        let sum = mk_add srk [integer_part ; fractional_part] in
-        let lower_bound = mk_leq srk (mk_real srk QQ.zero) fractional_part in
-        let upper_bound = mk_lt srk fractional_part (mk_real srk QQ.one) in
-        [mk_eq srk t sum; lower_bound; upper_bound]
+        (* floor(t) --> [s = floor(t)], iff t - 1 < s <= t /\ Int(s); Int(s) is handled by type of symbol *)
+        let s = mk_const srk sym in
+        let lower_bound = mk_lt srk (mk_sub srk t (mk_int srk 1)) s in
+        let upper_bound = mk_leq srk s t in
+        [mk_and srk [lower_bound; upper_bound]]
       | `Binop (`Mod, s, t) ->
         let quotient = mk_symbol srk ~name:"quotient" `TyInt
                        |> mk_const srk in
@@ -1872,6 +1869,28 @@ let eliminate_floor_mod_div srk phi =
       []
   in
   mk_and srk (phi' :: equivalences)
+
+let eliminate_is_int srk phi =
+  rewrite srk
+    ~down:(fun expr ->
+      match destruct srk expr with
+      | `Not phi ->
+         begin match destruct srk phi with
+         | (`Atom (`IsInt t)) ->
+            let s = mk_symbol srk ~name:"for_not_int" `TyInt in
+            let bound = mk_const srk s in
+            mk_and srk [ mk_lt srk bound t
+                       ; mk_lt srk t (mk_add srk [bound; mk_real srk QQ.one])
+              ]
+         | _ -> expr
+         end
+      | `Atom (`IsInt t) ->
+         let s = mk_symbol srk ~name:"for_is_int" `TyInt
+         in
+         mk_eq srk (mk_const srk s) t
+      | _ -> expr
+    )
+    phi
 
 let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
       srk formatter assertions =
@@ -1976,7 +1995,8 @@ let pp_smtlib2_gen ?(named=false) ?(env=Env.empty) ?(strings=Hashtbl.create 991)
         (SrkUtil.pp_print_enum ~pp_sep (go env)) (BatList.enum args)
     | Var (v, _), [] ->
        (try pp_print_string formatter (Env.find env v)
-       with Not_found -> invalid_arg "pp_smtlib2: free variable")
+        with Not_found ->
+          invalid_arg (Format.asprintf "pp_smtlib2: free variable %s" (show_symbol srk v)))
     | Add, terms ->
       fprintf formatter "(+ @[";
       SrkUtil.pp_print_enum

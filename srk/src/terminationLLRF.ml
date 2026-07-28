@@ -29,7 +29,7 @@ let llrf_residual solver =
   let dim = Array.length pre in
   let rec loop nb_invariants =
     let precondition =
-      ConvexHull.abstract abs_solver ~man pre
+      Abstract.ClosedConvexHull.abstract ~man abs_solver pre
     in
     if DD.is_bottom precondition then
       None (* Residual is inconsistent *)
@@ -37,7 +37,7 @@ let llrf_residual solver =
       (* Find the cone of quasi-ranking functions and strengthen F to
          constrain the generators of the cone to be invariant *)
       let non_inc_cone =
-        ConvexHull.abstract abs_solver ~man diff
+        Abstract.ClosedConvexHull.abstract abs_solver ~man diff
         |> Polyhedron.of_dd
         |> Polyhedron.dual_cone dim
         |> Polyhedron.dd_of ~man dim

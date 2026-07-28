@@ -75,11 +75,11 @@ module EPTerm = struct
 end
 
 module XSeq = struct
-  let seq_of_exp modulus lambda = 
-    UltimatelyPeriodic.unfold (fun power -> (power * lambda) mod modulus) 1 
+  let seq_of_exp modulus lambda =
+    UltimatelyPeriodic.unfold (fun power -> (power * lambda) mod modulus) 1
     |> periodic_approx
 
-  let seq_of_polynomial modulus poly = 
+  let seq_of_polynomial modulus poly =
     let lcm_of_denoms =
       BatEnum.fold (fun current_lcm (coeff, _) -> ZZ.lcm current_lcm (QQ.denominator coeff))
       ZZ.one
@@ -88,7 +88,7 @@ module XSeq = struct
     let poly = Polynomial.QQX.scalar_mul (QQ.of_zz lcm_of_denoms) poly in
     let modulus = modulus * (BatOption.get (ZZ.to_int lcm_of_denoms)) in
     (0 -- (modulus - 1))
-    /@ (fun i -> 
+    /@ (fun i ->
         match QQ.to_int (Polynomial.QQX.eval poly (QQ.of_int i)) with
           | Some result -> QQ.of_zzfrac (ZZ.of_int (result mod modulus)) lcm_of_denoms
           | None -> assert false)
@@ -107,9 +107,9 @@ module XSeq = struct
 
   (* characteristic sequence of an exponential polynomial modulo some number *)
   let seq_of_exp_polynomial modulus exppoly =
-    BatEnum.fold 
-      (fun existing_seq (poly, base) -> 
-        let b = match QQ.to_zz base with 
+    BatEnum.fold
+      (fun existing_seq (poly, base) ->
+        let b = match QQ.to_zz base with
           | Some i -> BatOption.get (ZZ.to_int (ZZ.modulo i (ZZ.of_int modulus)))
           | None -> failwith "Non-integer base in the exponential polynomial"
         in
@@ -118,9 +118,9 @@ module XSeq = struct
         Periodic.map2 add_mod existing_seq current_seq)
       (Periodic.make [QQ.zero])
       (ExpPolynomial.enum exppoly)
-  
-  (* Compute characteristic sequence of atomic formulas LHS < 0, LHS = 0, LHS <= 0. 
-     LHS has form c^T x < 0, c^T x <= 0, or c^T x = 0. 
+
+  (* Compute characteristic sequence of atomic formulas LHS < 0, LHS = 0, LHS <= 0.
+     LHS has form c^T x < 0, c^T x <= 0, or c^T x = 0.
       op: <, <=, =
       vec: coefficients vector c
       exp_poly: gives A^k x where A is the dynamics matrix, so that we get to compute
@@ -182,10 +182,7 @@ module XSeq = struct
       |> Periodic.mapn (mk_add srk)
     in
     let mk_divides t =
-      mk_eq
-        srk
-        (mk_mod srk t (mk_real srk (QQ.of_int divisor)))
-        (mk_zero srk)
+      mk_is_int srk (mk_div srk t (mk_real srk (QQ.of_int divisor)))
     in
     Periodic.map mk_divides dividend_xseqs
 end
@@ -232,7 +229,7 @@ let int_eigenspace dim t =
 let closed_form sim_symbols linterm ep_mat =
   let vec =
     BatArray.fold_lefti
-      (fun vec i symbol -> 
+      (fun vec i symbol ->
         let coeff = Vec.coeff (Linear.dim_of_sym symbol) linterm in
         ExpPolynomial.Vector.add_term (ExpPolynomial.scalar coeff) i vec)
       ExpPolynomial.Vector.zero
@@ -250,87 +247,104 @@ let mp solver =
   | `Unsat -> (logf ~attributes:[`Bold; `Green] "Transition formula UNSAT, done"); mk_false srk
   | `Sat ->
     let tf = IS.get_transition_formula solver in
-     let qdlts_abs =
-       DLTSPeriodicRational.abstract_rational solver
-       |> DLTS.simplify srk ~scale:true
-     in
-     let module PLM = Lts.PartialLinearMap in
-     let omega_domain = snd (PLM.iteration_sequence qdlts_abs.dlts) in
-     let dim = BatArray.length qdlts_abs.simulation in
-     (* Columns of G form a basis for omega domain. *)
-     let g =
-       constraints_to_generators dim (Linear.QQMatrix.of_rows omega_domain)
-     in
-     let tr = PLM.map qdlts_abs.dlts in
-     let tr_omega = inv_subspace_restriction tr g in
-     (* Columns of Z form basis for integer domain of tr_omega. *)
-     let z = int_eigenspace (Linear.QQMatrix.nb_columns g) tr_omega in
-     let gz = Linear.QQMatrix.mul g z in
-     let tr_z = inv_subspace_restriction tr gz in
-     (* Introduce one symbol per dimension of the integer domain. *)
-     let gz_symbols =
-       Array.init
-         (Linear.QQMatrix.nb_columns gz)
-         (fun i -> mk_symbol srk ~name:(Format.asprintf "dta<%d>" i) `TyInt)
-     in
-     (* GZz = Sx *)
-     let sim_constraints =
-       BatList.init
-         (Array.length qdlts_abs.simulation)
-         (fun i ->
-           let gz_term =
-             Linear.QQMatrix.row i gz
-             |> Linear.term_of_vec srk (fun j -> (mk_const srk gz_symbols.(j)))
-           in
-           mk_eq srk qdlts_abs.simulation.(i) gz_term)
-     in
-     let gz_symbols_set = Symbol.Set.of_array gz_symbols in
-     (* exists x,x'. F(x,x') /\ GZz = Sx *)
-     let guard =
-       mk_and srk (TF.formula tf::sim_constraints)
-       |> Syntax.eliminate_floor_mod_div srk
-       |> Quantifier.mbp srk (fun s -> Symbol.Set.mem s gz_symbols_set)
-       |> SrkSimplify.simplify_dda srk
-       |> SrkSimplify.eliminate_floor srk
-     in
-     logf "DTA guard: %a" (Formula.pp srk) guard;
-     let tr_z_exp = BatOption.get (ExpPolynomial.exponentiate_rational tr_z) in
-     let term_of_dim i =
-       if i == Linear.const_dim then mk_one srk
-       else mk_const srk gz_symbols.(i)
-     in
-     let algebra = function 
-       | `Tru -> Periodic.make [mk_true srk]
-       | `Fls -> Periodic.make [mk_false srk]
-       | `And xs -> Periodic.mapn (mk_and srk) xs
-       | `Or xs -> Periodic.mapn (mk_or srk) xs
-       | `Not x -> Periodic.map (mk_not srk) x
-       | `Atom (`Arith (op, s, t)) -> 
-          begin
-            match SrkSimplify.simplify_integer_atom srk op s t with 
-            | `CompareZero (op, vec) ->
-               let cf = closed_form gz_symbols (Vec.negate vec) tr_z_exp in
-               let predicate = match op with
-                 | `Eq -> `Zero
-                 | `Leq -> `Nonneg
-                 | `Lt -> `Pos
-               in
-               XSeq.seq_of_compare_atom srk predicate cf term_of_dim
-            | `Divides (divisor, vec) ->
-               XSeq.seq_of_divides_atom srk divisor (closed_form gz_symbols vec tr_z_exp) term_of_dim
-            | `NotDivides (divisor, vec) ->
-               XSeq.seq_of_divides_atom srk divisor (closed_form gz_symbols vec tr_z_exp) term_of_dim
-               |> Periodic.map (mk_not srk)
-          end
-       | `Quantify _ -> failwith "should not see quantifiers in the TF"
-       | `Atom (`ArrEq _) -> failwith "should not see ArrEq in the TF"
-       | `Atom (`IsInt _) -> failwith "should not see IsInt in the TF"
-       | `Proposition _ -> failwith "should not see proposition in the TF"
-       | `Ite _ -> failwith "should not see ite in the TF"
-     in
-     let xseq = Formula.eval srk algebra guard in
-     let f = mk_and srk (sim_constraints@(Periodic.period xseq)) in
-     logf "DTA mp: %a" (Formula.pp srk) f;
-     f
-     |> Quantifier.mbp srk (fun s -> not (Symbol.Set.mem s gz_symbols_set))
-     |> mk_not srk
+    let qdlts_abs =
+      DLTSPeriodicRational.abstract_rational solver
+      |> DLTS.simplify srk ~scale:true
+    in
+    let module PLM = Lts.PartialLinearMap in
+    let omega_domain = snd (PLM.iteration_sequence qdlts_abs.dlts) in
+    let dim = BatArray.length qdlts_abs.simulation in
+    (* Columns of G form a basis for omega domain. *)
+    let g =
+      constraints_to_generators dim (Linear.QQMatrix.of_rows omega_domain)
+    in
+    let tr = PLM.map qdlts_abs.dlts in
+    let tr_omega = inv_subspace_restriction tr g in
+    (* Columns of Z form basis for integer domain of tr_omega. *)
+    let z = int_eigenspace (Linear.QQMatrix.nb_columns g) tr_omega in
+    let gz = Linear.QQMatrix.mul g z in
+    let tr_z = inv_subspace_restriction tr gz in
+    (* Introduce one symbol per dimension of the integer domain. *)
+    let gz_symbols =
+      Array.init
+        (Linear.QQMatrix.nb_columns gz)
+        (fun i -> mk_symbol srk ~name:(Format.asprintf "dta<%d>" i) `TyInt)
+    in
+    (* GZz = Sx *)
+    let sim_constraints =
+      BatList.init
+        (Array.length qdlts_abs.simulation)
+        (fun i ->
+          let gz_term =
+            Linear.QQMatrix.row i gz
+            |> Linear.term_of_vec srk (fun j -> (mk_const srk gz_symbols.(j)))
+          in
+          mk_eq srk qdlts_abs.simulation.(i) gz_term)
+    in
+    let gz_symbols_set = Symbol.Set.of_array gz_symbols in
+    (* exists x,x'. F(x,x') /\ GZz = Sx *)
+    let guard =
+      mk_and srk (TF.formula tf::sim_constraints)
+      |> Quantifier.mbp srk gz_symbols_set
+      |> SrkSimplify.simplify_dda srk
+      |> SrkSimplify.eliminate_floor srk
+      (* 
+        TODO: Modify [Quantifier.mbp] to not introduce floor when doing QE for 
+        LIA formulas, so we don't have to worry about floor here.
+        [SrkSimplify.eliminate_floor] eliminates floor arising from integer 
+        division for divisors up to 10 without introducing new symbols, but
+        introduces new symbols when eliminating floor in general.
+        [mp] is unsound when new Skolem constants are introduced.
+      *)
+    in
+    logf "DTA guard: %a" (Formula.pp srk) guard;
+    let tr_z_exp = BatOption.get (ExpPolynomial.exponentiate_rational tr_z) in
+    let term_of_dim i =
+      if i == Linear.const_dim then mk_one srk
+      else mk_const srk gz_symbols.(i)
+    in
+    let algebra = function
+      | `Tru -> Periodic.make [mk_true srk]
+      | `Fls -> Periodic.make [mk_false srk]
+      | `And xs -> Periodic.mapn (mk_and srk) xs
+      | `Or xs -> Periodic.mapn (mk_or srk) xs
+      | `Not x -> Periodic.map (mk_not srk) x
+      | `Atom (`Arith (op, s, t)) ->
+        let normalize typ v =
+          if op = `Lt && (typ == `TyInt)
+          then
+            (* Strengthen inequality in integer variables with integer 
+              coefficients 
+            *)
+            (Vec.add v (Linear.const_linterm (QQ.of_int 1)), `Leq)
+          else
+            (Vec.scalar_mul (QQ.of_zz (Vec.common_denominator v)) v , op)
+        in
+        let (v, op) =
+          let diff = Syntax.mk_sub srk s t in
+          Linear.linterm_of srk diff
+          |> normalize (expr_typ srk diff)
+        in
+        let cf = closed_form gz_symbols (Vec.negate v) tr_z_exp in
+        let predicate = match op with
+          | `Eq -> `Zero
+          | `Leq -> `Nonneg
+          | `Lt -> `Pos
+        in
+        XSeq.seq_of_compare_atom srk predicate cf term_of_dim
+      | `Quantify _ -> failwith "should not see quantifiers in the TF"
+      | `Atom (`ArrEq _) -> failwith "should not see ArrEq in the TF"
+      | `Atom (`IsInt t) ->
+        let vec = Linear.linterm_of srk t in
+        let divisor = Vec.common_denominator vec in
+        let rescaled = Vec.scalar_mul (QQ.of_zz divisor) vec in
+        XSeq.seq_of_divides_atom srk divisor (closed_form gz_symbols rescaled tr_z_exp) term_of_dim
+      | `Proposition _ -> failwith "should not see proposition in the TF"
+      | `Ite _ -> failwith "should not see ite in the TF"
+    in
+    let xseq = Formula.eval srk algebra guard in
+    let f = mk_and srk (sim_constraints@(Periodic.period xseq)) in
+    logf "DTA mp: %a" (Formula.pp srk) f;
+    f
+    |> Quantifier.mbp srk (Symbol.Set.diff (symbols f) gz_symbols_set)
+    |> mk_not srk

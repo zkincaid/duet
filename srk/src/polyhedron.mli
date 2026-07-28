@@ -20,6 +20,11 @@ type generator_kind = [ `Vertex | `Ray | `Line ]
 (** Enumerate the constraints of a polyhedron. *)
 val enum_constraints : t -> (constraint_kind * V.t) BatEnum.t
 
+val pp_constraint : (Format.formatter -> int -> unit) ->
+                    Format.formatter ->
+                    (constraint_kind * V.t) ->
+                    unit
+
 val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
 
 (** Intersect two polyhedra. *)
@@ -37,10 +42,10 @@ val of_formula : ?admit:bool -> 'a CoordinateSystem.t -> 'a formula -> t
 
 val of_constraints : (constraint_kind * V.t) BatEnum.t -> t
 
+val max_constrained_dim : t -> Linear.QQVector.dim
+
 (** Inverse of [of_formula] *)
 val to_formula : 'a context -> (int -> 'a arith_term) -> t -> 'a formula
-
-val to_apron : 'a CoordinateSystem.t -> 'a SrkApron.Env.t -> 'abs Apron.Manager.t -> t -> ('a,'abs) SrkApron.property
 
 (** Test whether a point, representing as a map from symbols to rationals, is
     inside a polyhedron. *)
@@ -68,13 +73,6 @@ val of_cube : 'a context -> ('a formula) list -> t
 (** Convert a polyhedron to a conjunction of atomic formulas (as returned by
     [Interpretation.select_implicant]). *)
 val cube_of : 'a context -> t -> ('a formula) list
-
-
-(** Model-guided projection of a polyhedron.  Given a point m within a
-    polyhedron p and a set of dimension xs, compute a polyhedron q such that
-    m|_xs is within q, and q is a subset of p|_xs (using |_xs to denote
-    projection of dimensions xs) *)
-val local_project : (int -> QQ.t) -> int list -> t -> t
 
 (** Fourier-Motzkin elimination. *)
 val project : int list -> t -> t
@@ -125,3 +123,5 @@ val of_dd : 'a DD.t -> t
    Haase, Krishna, Madnani, Mishra, Zetzsche: "An efficient quantifier
    elimination procedure for Presburger arithmetic", ICALP 2024.  *)
 val close_integral_point : t -> rational:V.t -> integer:V.t -> int -> V.t
+
+val close_lattice_point : (V.t -> QQ.t) list -> t -> rational:V.t -> integer:V.t -> int -> V.t

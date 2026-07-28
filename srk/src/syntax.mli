@@ -231,7 +231,8 @@ val rewrite : 'a context -> ?down:(('a, 'b) rewriter) -> ?up:(('a, 'b) rewriter)
 val nnf_rewriter : 'a context -> ('a, typ_fo) rewriter
 
 (** Convert to negation normal form ({i down} pass), and eliminate negated
-   arithmetic propositions. *)
+    equalities and inequalities.
+  *)
 val pos_rewriter : 'a context -> ('a, typ_fo) rewriter
 
 module Expr : sig
@@ -411,7 +412,7 @@ module Term : sig
   val typ : 'a context -> 'a t -> typ_term
   val refine : 'a context -> 'a t -> [ `ArithTerm of 'a arith_term
                                      | `ArrTerm of 'a arr_term ]
-  val set_expr : 'a context -> ('a, 'b) expr -> 'a t -> 'a formula 
+  val set_expr : 'a context -> ('a, 'b) expr -> 'a t -> 'a formula
 end
 
 module ArithTerm : sig
@@ -425,7 +426,7 @@ module ArithTerm : sig
   val destruct : 'a context -> 'a t -> ('a t, 'a) open_arith_term
   val construct : 'a context -> ('a t, 'a) open_arith_term -> 'a t
   val eval : 'a context -> (('b, 'a) open_arith_term -> 'b) -> 'a t -> 'b
-  val eval_partial : 'a context -> (('b, 'a) open_arith_term -> 'b option) -> 'a t -> 'b option 
+  val eval_partial : 'a context -> (('b, 'a) open_arith_term -> 'b option) -> 'a t -> 'b option
   (** Convert a term to an arith_term.  Raise [Invalid_arg] if the
      expression is not an arith_term. *)
   val arith_term_of : 'a context -> 'a term -> 'a arith_term
@@ -443,7 +444,7 @@ module ArrTerm : sig
   val destruct : 'a context -> 'a t -> ('a t, 'a) open_arr_term
   val construct : 'a context -> ('a t, 'a) open_arr_term -> 'a t
   val eval : 'a context -> (('b, 'a) open_arr_term -> 'b) -> 'a t -> 'b
-  val eval_partial : 'a context -> (('b, 'a) open_arr_term -> 'b option) -> 'a t -> 'b option 
+  val eval_partial : 'a context -> (('b, 'a) open_arr_term -> 'b option) -> 'a t -> 'b option
 end
 
 (** {2 Formulas} *)
@@ -498,7 +499,7 @@ val mk_is_int : 'a context -> 'a arith_term -> 'a formula
 val mk_arr_eq : 'a context -> 'a arr_term -> 'a arr_term -> 'a formula
 
 (** Syntactic sugar for creating arithmetic relation atoms *)
-val mk_compare : [ `Eq | `Leq | `Lt ] -> 'a context -> 'a arith_term -> 
+val mk_compare : [ `Eq | `Leq | `Lt ] -> 'a context -> 'a arith_term ->
   'a arith_term -> 'a formula
 
 (** Purify all sub-expressions that match the given predicate, i.e., replace
@@ -527,10 +528,14 @@ val lift_ite : 'a context -> 'a formula -> 'a formula
    arr_eq terms. *)
 val eliminate_arr_eq : 'a context -> 'a formula -> 'a formula
 
-(** Given a formula [phi], compute an equivalent formula without floor, mod,
-   or div terms that is equivalent to [phi] when projected on to the symbols
+(** Given a formula [phi], compute a formula without floor, mod, and div terms
+    that is equivalent to [phi] when projected on to the symbols
    of [phi]. *)
 val eliminate_floor_mod_div : 'a context -> 'a formula -> 'a formula
+
+(** Given a formula [phi], compute a formula without [is_int] by introducing
+  fresh integer-typed symbols. *)
+val eliminate_is_int: 'a context -> 'a formula -> 'a formula
 
 (** Print a formula as a satisfiability query in SMTLIB2 format.
     The query includes function declarations and (check-sat).
@@ -554,10 +559,10 @@ val pp_smtlib2 : ?env:(string Env.t) -> 'a context ->
     Format.formatter -> 'a formula -> unit
 
 (** Print an expression.  This variant of pp_expr avoids printing a symbol
-    number (e.g., "x:5") for a symbol S (i.e., a program variable or function 
-    name) if there does not exist any other symbol in the expression that has 
+    number (e.g., "x:5") for a symbol S (i.e., a program variable or function
+    name) if there does not exist any other symbol in the expression that has
     the same name as S.  *)
-val pp_expr_unnumbered : ?env:(string Env.t) -> 'a context -> 
+val pp_expr_unnumbered : ?env:(string Env.t) -> 'a context ->
     Format.formatter -> ('a, 'b) expr -> unit
 
 module Formula : sig
@@ -652,7 +657,7 @@ module Infix (C : sig
   val var : int -> typ_fo -> (C.t, 'typ) expr
 
   val ( .%[] ) : C.t arr_term -> C.t arith_term -> C.t arith_term
-  val ( .%[]<- ) : C.t arr_term -> C.t arith_term -> C.t arith_term -> 
+  val ( .%[]<- ) : C.t arr_term -> C.t arith_term -> C.t arith_term ->
     C.t arr_term
   val ( == ) : C.t arr_term -> C.t arr_term -> C.t formula
 

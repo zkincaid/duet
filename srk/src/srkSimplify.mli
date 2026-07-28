@@ -43,25 +43,10 @@ val simplify_dda : 'a context -> 'a formula -> 'a formula
    division with a dominator less than [max]. *)
 val eliminate_idiv : ?max:int -> 'a context -> 'a formula -> 'a formula
 
-(** Purify floor functions in an expression: replace each function
-   application within a formula with a fresh symbol, and return both
-   the resulting formula [phi] and a mapping [f] from the fresh
-   symbols to terms, so that if we substitute each symbol [s] in the
-   domain of [f] with [floor (f s)], we get the original formula *)
-val purify_floor : 'a context ->
-                   ('a,'b) expr ->
-                   (('a,'b) expr * (('a,typ_arith) expr) Symbol.Map.t)
-
 (** Eliminate floor functions in a formula.  The formula is equivalent
    to the original, modulo the fresh symbols introduced in floor
    purification. *)
 val eliminate_floor : 'a context -> 'a formula -> 'a formula
-
-(** Simplify an atomic formula that consists of a binary operation of integers. *)
-val simplify_integer_atom : 'a context -> [`Eq | `Leq | `Lt ] -> 'a arith_term -> 'a arith_term ->
-                            [ `CompareZero of [ `Eq | `Leq | `Lt ] * Linear.QQVector.t
-                            | `Divides of ZZ.t * Linear.QQVector.t
-                            | `NotDivides of ZZ.t * Linear.QQVector.t ]
 
 (** Return a propositional skeleton of a formula using fresh variables
     and a mapping of these variables to the original atoms.

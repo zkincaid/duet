@@ -203,7 +203,7 @@ let floor x =
 let of_apron ivl =
   let cvt scalar =
     if Apron.Scalar.is_infty scalar == 0
-    then Some (SrkApron.qq_of_scalar scalar)
+    then Some (DD.qq_of_scalar scalar)
     else None
   in
   make (cvt ivl.Apron.Interval.inf) (cvt ivl.Apron.Interval.sup)
