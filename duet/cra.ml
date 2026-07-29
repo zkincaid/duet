@@ -595,6 +595,12 @@ let weight def =
     Log.errorf "No translation for definition: %a" Def.pp def;
     assert false
 
+let weight def =
+  if Syntax.get_theory srk = `LIRA && !monotone then
+    K.linearize (weight def)
+  else (weight def)
+
+
 type 'a label = 'a TransitionSystem.label =
   | Weight of 'a
   | Call of int * int
@@ -868,15 +874,15 @@ let analyze file =
               K.get_transform v path
             | _ -> Ctx.mk_const sym
           in
+          let phi =
+            if Syntax.get_theory srk = `LIRA && !monotone then
+              Nonlinear.uninterpret srk phi
+            else phi
+          in
           let phi = Syntax.substitute_const Ctx.context sigma phi in
           let path_condition =
             Ctx.mk_and [K.guard path; Ctx.mk_not phi]
             |> SrkSimplify.simplify_terms srk
-          in
-          let path_condition =
-            if Syntax.get_theory srk = `LIRA && !monotone then
-              Nonlinear.uninterpret srk path_condition
-            else path_condition
           in
           logf "Path condition to %s:%d:@\n%a"
             loc.Cil.file

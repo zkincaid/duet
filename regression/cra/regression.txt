@@ -41,5 +41,5 @@ degree4_monomial: duet.exe -theory LIRR -lirr-sp -cra @code/degree4_monomial.c
 degree4_binomial: duet.exe -theory LIRR -lirr-sp -cra @code/degree4_binomial.c
 power_log: duet.exe -cra @code/power_log.c
 fib_secure: duet.exe -cra @code/fib_secure.c
-div_mod_sanity_lira: duet.exe -monotone -cra -cra-no-forward-inv -theory LIRA @code/div_mod_sanity.c
+div_mod_sanity_lira: duet.exe -cra -cra-no-forward-inv -theory LIRA @code/div_mod_sanity.c
 div_mod_sanity_lirr: duet.exe -cra -cra-no-forward-inv -theory LIRR -lirr @code/div_mod_sanity.c

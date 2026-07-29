@@ -528,11 +528,19 @@ let equational_saturation ?lemma:(lemma=(fun _ -> ())) wedge =
       let add_canonical reduced provenance =
         (* Add [reduced->term] to the canonical map.  Or if there's already a
            mapping [reduced->rep], add the equation rep=term *)
-        if Expr.HT.mem canonical reduced then begin
-          logf ~level:`trace "Lemma: %a" (Formula.pp srk) provenance;
-          lemma provenance;
-          meet_atoms wedge [mk_eq srk term (Expr.HT.find canonical reduced)]
-        end else
+        match Term.destruct srk reduced with
+        | `Real _ ->
+          add_bound provenance (mk_eq srk term reduced)
+        | _ when Expr.HT.mem canonical reduced ->
+          let equality =
+            mk_eq srk term (Expr.HT.find canonical reduced)
+          in
+          let congruence_lemma = mk_if srk provenance equality in
+          logf ~level:`trace "Lemma: %a"
+            (Formula.pp srk) congruence_lemma;
+          lemma congruence_lemma;
+          meet_atoms wedge [equality]
+        | _ ->
           Expr.HT.add canonical reduced term
       in
       begin match CS.destruct_coordinate wedge.cs id with

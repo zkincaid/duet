@@ -36,7 +36,6 @@ let nudge4 () =
     QQ.of_string "7101121311700181/210624583337114836055367340864637790190801098222508621955072000120"
   in
   let q_lo = QQ.nudge_down ~accuracy:3 q in
-  Log.errorf "Nudge: %a" QQ.pp q_lo;
   assert_bool "0 < nudge_down(q)" (QQ.lt QQ.zero q_lo);
   assert_bool "nudge_down(q) <= q" (QQ.leq q_lo q)
 
