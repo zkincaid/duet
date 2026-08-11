@@ -13,6 +13,7 @@ open Syntax
    as existentially quantified variables). *)
 type 'a t
 
+val show : 'a context -> 'a t -> string
 (** Construct a transition formula.  The [exists] predicate identifies
    Skolem constants ([exists s] fails if [s] is a Skolem constant),
    with the default behavior that no symbols are Skolem consntas; the

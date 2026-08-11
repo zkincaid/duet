@@ -227,6 +227,14 @@ type ('a, 'b) rewriter = ('a, 'b) expr -> ('a, 'b) expr
 val rewrite : 'a context -> ?down:(('a, 'b) rewriter) -> ?up:(('a, 'b) rewriter) ->
   ('a, 'typ) expr -> ('a, 'typ) expr
 
+(** Rewrite an expression while folding over the tree. The {i down} rewriter is applied to each
+    expression goign down the expression tree and the {i up} rewriter is
+    applied to each expression going up the tree. The accumulator is updated at each node after
+    the down rewrite.
+*)
+val fold_rewrite: 'a context -> ?down:(('a, 'b) expr -> 'c -> ('a, 'b) expr) -> ?up:(('a, 'b) expr -> 'c -> ('a, 'b) expr) -> 
+  ?combine:(('a, 'typ) expr -> 'c -> 'c) -> 'c -> ('a, 'typ) expr -> ('a, 'typ) expr
+
 (** Convert to negation normal form ({i down} pass). *)
 val nnf_rewriter : 'a context -> ('a, typ_fo) rewriter
 
