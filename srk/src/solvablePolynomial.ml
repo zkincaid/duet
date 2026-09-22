@@ -1789,7 +1789,7 @@ end
 
 module I = Polynomial.Rewrite
 
-module Id = Polynomial.Ideal
+module Id = Ideal
 
 module SolvablePolynomialLIRR = struct
 

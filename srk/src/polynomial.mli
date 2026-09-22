@@ -336,6 +336,9 @@ module Rewrite : sig
   (** Is one rewrite equal to another? *)
   val equal : t -> t -> bool
 
+  (** Does the rewrite system reduce the polynomial to zero? *)
+  val reduce_zero : t -> QQXs.t -> bool
+
   (** Find the subset of rewrites that only refer to monomials satisfying the
      given predicate.  Assuming that the rewrite is a grobner basis and the set of
      monomials satisfying the predicate is downwards-closed w.r.t. the
@@ -344,57 +347,17 @@ module Rewrite : sig
   val restrict : (Monomial.t -> bool) -> t -> t
 end
 
-(** A polynomial ideal is a set of polynomials that is closed under
-   addition, and is closed under multiplication by any polynomial. *)
-module Ideal : sig
-  type t
-
-  (** Pretty print *)
-  val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
-
-  (** Compute the smallest ideal that contains a given set of polynomials *)
-  val make : QQXs.t list -> t
-
-  val add_saturate : t -> QQXs.t -> t
-
-  val reduce : t -> QQXs.t -> QQXs.t
-
-  (** Compute a finite set of polynomials that generates the given
-     ideal.  Note [make (generators i) = i], but [generators (make g)]
-     is not necessarily equal to [g]. *)
-  val generators : t -> QQXs.t list
-
-  (** Is one ideal contained inside another? *)
-  val subset : t -> t -> bool
-
-  (** Is one ideal equal to another? *)
-  val equal : t -> t -> bool
-
-  (** Does an ideal contain a given polynomial? *)
-  val mem : QQXs.t -> t -> bool
-
-  (** Intersect two ideals. *)
-  val intersect : t -> t -> t
-
-  (** Compute the ideal consisting of all products of polynomials
-     belonging to the two given ideals *)
-  val product : t -> t -> t
-
-  (** Compute the ideal consisting of all sums of polynomials beloning
-     to the two given ideals *)
-  val sum : t -> t -> t
-
-  (** Compute the ideal consisting of all polynomials in the given
-     ideal that are defined only over dimensions satisfying the given
-     predicate. *)
-  val project : (int -> bool) -> t -> t
-
-  (** Make a rewrite system from the given ideal.*)
-  val mk_rewrite : t -> Rewrite.t
-end
 
 (**Grobner basis computation using the FGb library.*)
 module FGb : sig
+  type fmon = ZZ.t * int list
+  type fpoly = fmon list
+
+  val convert_to_faugere : Monomial.dim list -> QQXs.t -> fpoly
+  val convert_from_faugere : Monomial.dim list -> fpoly -> QQXs.t
+  val grobner_basis_fmon :
+    Monomial.dim list -> Monomial.dim list -> fpoly list -> fpoly list
+
   (**[grobner_basis block1 block2 polys] computes a Grobner basis of the polynomials in [polys] within the ring Q\[block1, block2\]. 
   The monomial order used in the computation is a block ordering defined by the variables in [block1] and [block2] with [block1] >> [block2]. That is,
   for any monomials m1 and m2 where, m1 contains variables in [block1] but m2 does not, m1>m2. The monomial order within each block is degree reverse
