@@ -9,7 +9,7 @@ clean:
 	dune clean
 
 test:
-	dune runtest -f
+	dune exec test/test_srk.exe
 
 install:
 	dune build @install

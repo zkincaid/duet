@@ -21,6 +21,7 @@ RUN apt-get install -y pkg-config
 RUN apt-get install -y autoconf
 RUN apt-get install -y libtool
 RUN apt-get install -y libflint-dev
+RUN apt-get install -y msolve
 RUN apt-get install -y default-jre
 
 ## Run in usermode

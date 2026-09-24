@@ -22,12 +22,16 @@ Duet depends on several software packages.  The following dependencies need to b
 
 On Ubuntu, you can install these packages with:
 ```
- sudo apt-get install opam libgmp-dev libmpfr-dev default-jre python python3-distutils python3-lib2to3 libffi-dev pkg-config autoconf libtool libflint-dev
+ sudo apt-get install opam libgmp-dev libmpfr-dev default-jre python python3-distutils python3-lib2to3 libffi-dev pkg-config autoconf libtool libflint-dev msolve
 ```
+
+The `msolve` package is available in Ubuntu 24.04 and newer.  On older Ubuntu
+releases, install it from source using the instructions in the
+[msolve repository](https://github.com/algebraic-solving/msolve).
 
 On MacOS, you can install these packages (except Java) with:
 ```
- brew install opam gmp mpfr python libffi pkg-config autoconf libtool flint
+ brew install opam gmp mpfr python libffi pkg-config autoconf libtool flint msolve
 ```
 
 Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
@@ -36,6 +40,11 @@ Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, an
  opam install ocamlbuild ocamlfind zarith ocamlgraph batteries ppx_deriving ounit menhir ctypes-foreign
  opam install cil apron normalizffi flint.dev faugere.dev z3
 ```
+
+Duet can optionally use msolve to accelerate Gröbner-basis computations.  The
+`msolve` executable must be available on `PATH`; alternatively, set the
+`MSOLVE` environment variable to its path.  Duet uses msolve by default; pass
+`-no-msolve` to use its built-in Buchberger implementation instead.
 
 ### Building Duet
 
