@@ -204,8 +204,8 @@ let project ~keep t =
       (fun v ->
         V.fold
           (fun dim entry u -> if keep dim then V.add_term entry dim u else u)
-          V.zero
           v
+          V.zero
       )
       t.generators
     |> Vs.to_list
@@ -218,7 +218,12 @@ let project_as_dual ~keep t =
     | false, true -> 1
     | _, _ -> Int.compare x y
   in
-  hermitize ~compare t
+  (* With the dropped dimensions leftmost in the HNF, the rows that do not
+     involve any dropped dimension form a basis for the sublattice of
+     generators that are independent of the dropped dimensions. *)
+  let hnf = hermitize ~compare t in
+  let independent v = BatEnum.for_all (fun (_, dim) -> keep dim) (V.enum v) in
+  { hnf with generators = Vs.filter independent hnf.generators }
 
 let pp pp_dim fmt t =
   let rescale v = V.scalar_mul (QQ.of_zzfrac ZZ.one t.denominator) v in

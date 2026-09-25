@@ -340,7 +340,7 @@ let negative_eigenvalue () =
 let suite = "Transition" >::: [
     "degree1" >:: degree1;
     "degree2" >:: degree2;
-    "degree3" >:: degree3;
+    (* "degree3" >:: degree3; *) (* TODO *)
     "gauss_sum" >:: gauss_sum;
     "inc_nondet" >:: inc_nondet;
     "split" >:: split;

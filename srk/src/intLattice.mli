@@ -34,9 +34,15 @@ val member : Linear.QQVector.t -> hnf t -> bool
 (** The highest dimension that appears in some generator. *)
 val max_dim : 'a t -> Linear.QQVector.dim option
 
-(** [project_as_dual keep t] interprets the generators of [t] as constraints
-    of a mixed-integer lattice, and computes the constraints for the projection
-    of this lattice onto the dimensions marked true by [keep].
+(** [project_as_dual keep t] computes the sublattice of [t] consisting of
+    the vectors that are independent of the dimensions not marked true by
+    [keep], i.e., the intersection of [t] with the span of the kept
+    dimensions.
+
+    Viewing the generators of [t] as linear functionals, [t] defines a
+    mixed-integer lattice [M = { u : f(u) is an integer for all f in t }].
+    The result consists of the constraints defining the projection of [M]
+    onto the dimensions marked true by [keep].
 *)
 val project_as_dual : keep:(Linear.QQVector.dim -> bool) -> 'a t -> hnf t
 
