@@ -11,7 +11,6 @@ depends: [
   "apron"
   "zarith"
   "z3"
-  "ntl"
   "ocamlgraph"
   "normalizffi"
   "faugere"

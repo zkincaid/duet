@@ -24,6 +24,10 @@ RUN apt-get install -y libflint-dev
 RUN apt-get install -y msolve
 RUN apt-get install -y default-jre
 
+RUN userdel -r ubuntu \
+    && groupadd --gid 1000 $USERNAME \
+    && useradd --uid 1000 --gid 1000 -m -s /bin/bash $USERNAME
+
 ## Run in usermode
 
 # [Optional] Set the default user. Omit if you want to keep the default as root.
@@ -52,4 +56,4 @@ RUN opam install -y flint.dev
 RUN opam install -y faugere.dev
 RUN opam install -y z3
 
-RUN eval `opam config env`
+RUN echo 'eval $(opam env)' >> ~/.bashrc

@@ -19,7 +19,8 @@ the main functionality implemented in the library:
 Srk also provides an interface to several other libraries, including
  + [Z3](https://github.com/Z3Prover/z3): SMT solver
  + [Apron](http://apron.cri.ensmp.fr/library): numerical abstract domain library
- + [NTL](http://www.shoup.net/ntl/): number theory library
+ + [FLINT](https://flintlib.org/): fast library for number theory
+ + [msolve](https://github.com/algebraic-solving/msolve): Gröbner bases and polynomial system solving (optional)
 
 References
 ----------
@@ -37,25 +38,39 @@ Srk depends on several software packages.  The following dependencies need to be
 
  + [opam](http://opam.ocaml.org) (with OCaml >= 4.10 & native compiler)
    - If you have an older version of opam installed, you can install opam2 using `opam install opam-devel`
+ + A C compiler, make, and m4
  + [GMP and MPFR](https://gmplib.org/)
- + Python 2.7
+ + Python 3
+ + Libffi
+ + Pkg-config
+ + Flint
 
 On Ubuntu, you can install these packages with:
 ```
- sudo apt-get install opam libgmp-dev libmpfr-dev libntl-dev python2.7
+ sudo apt-get install build-essential m4 opam libgmp-dev libmpfr-dev python3 python-is-python3 libffi-dev pkg-config libflint-dev msolve
 ```
+
+The `msolve` package is available in Ubuntu 24.04 and newer.  On older Ubuntu
+releases, install it from source using the instructions in the
+[msolve repository](https://github.com/algebraic-solving/msolve).
 
 On MacOS, you can install these packages with:
 ```
- brew install opam gmp mpfr ntl python@2
+ brew install opam gmp mpfr python libffi pkg-config flint msolve
 ```
 
-Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of duet's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
+Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, and install the rest of srk's dependencies.  These are built from source, so grab a coffee &mdash; this may take a long time.
 ```
- opam remote add sv git://github.com/zkincaid/sv-opam.git#modern
+ opam remote add sv https://github.com/zkincaid/sv-opam.git
+ opam install dune zarith ocamlgraph batteries ppx_deriving ounit menhir ctypes-foreign
+ opam install apron normalizffi flint.dev faugere.dev z3
+```
 
- opam install ocamlgraph batteries ppx_deriving z3 apron ounit menhir ntl
-```
+Srk can optionally use msolve to accelerate Gröbner-basis computations.  The
+`msolve` executable must be available on `PATH`; alternatively, set the
+`MSOLVE` environment variable to its path.  Msolve is used by default; set
+`Ideal.use_msolve := false` to use the built-in Buchberger implementation
+instead.
 
 ### Building srk
 
