@@ -63,14 +63,18 @@ Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, an
 ```
  opam remote add sv https://github.com/zkincaid/sv-opam.git
  opam install dune zarith ocamlgraph batteries ppx_deriving ounit menhir ctypes-foreign
- opam install apron normalizffi flint.dev faugere.dev z3
+ opam install apron normalizffi flint.dev z3
 ```
 
-Srk can optionally use msolve to accelerate Gröbner-basis computations.  The
+Duet can optionally use msolve to accelerate Gröbner-basis computations.  The
 `msolve` executable must be available on `PATH`; alternatively, set the
-`MSOLVE` environment variable to its path.  Msolve is used by default; set
-`Ideal.use_msolve := false` to use the built-in Buchberger implementation
-instead.
+`MSOLVE` environment variable to its path.  Srk uses msolve by default to
+accelerate Gröbner-basis computations; set `Ideal.use_msolve := false` to use
+the built-in Buchberger implementation for ideal computations instead (srk
+also falls back to Buchberger when msolve cannot be found).  The implementation of
+number fields **requires** msolve.
+setting does not affect number-field operations: `NumberField.primitive_elem`
+and `NumberField.splitting_field` **requires** msolve.
 
 ### Building srk
 

@@ -210,6 +210,10 @@ module type Multivariate = sig
   (** The set of dimensions that appear in a polynomial *)
   val dimensions : t -> SrkUtil.Int.Set.t
 
+  (** The smallest and largest dimensions that appear in a polynomial, or
+     [None] if the polynomial is constant *)
+  val var_range : t -> (int * int) option
+
   (** Maximum total degree of a monomial term *)
   val degree : t -> int
 
@@ -227,6 +231,12 @@ module QQXs : sig
 
   val pp : (Format.formatter -> int -> unit) -> Format.formatter -> t -> unit
   val compare : t -> t -> int
+
+  (** [resultant variable p q] eliminates [variable] from [p] and [q].
+      Nonnegative SRK dimensions are used directly as FLINT variable indices;
+      callers may renumber dimensions first if compact coordinates are needed.
+      Returns [None] if FLINT cannot perform the computation. *)
+  val resultant : Monomial.dim -> t -> t -> t option
 
   (** Convert a rational vector to a linear polynomial, where each dimension
       corresponds to a variable except the designated [const] dimension, which
@@ -345,32 +355,6 @@ module Rewrite : sig
      monomial ordering, this is a grobner basis for the intersection of the ideal
       and the space of polynomials over the given set of monomials *)
   val restrict : (Monomial.t -> bool) -> t -> t
-end
-
-
-(**Grobner basis computation using the FGb library.*)
-module FGb : sig
-  type fmon = ZZ.t * int list
-  type fpoly = fmon list
-
-  val convert_to_faugere : Monomial.dim list -> QQXs.t -> fpoly
-  val convert_from_faugere : Monomial.dim list -> fpoly -> QQXs.t
-  val grobner_basis_fmon :
-    Monomial.dim list -> Monomial.dim list -> fpoly list -> fpoly list
-
-  (**[grobner_basis block1 block2 polys] computes a Grobner basis of the polynomials in [polys] within the ring Q\[block1, block2\]. 
-  The monomial order used in the computation is a block ordering defined by the variables in [block1] and [block2] with [block1] >> [block2]. That is,
-  for any monomials m1 and m2 where, m1 contains variables in [block1] but m2 does not, m1>m2. The monomial order within each block is degree reverse
-  lexicographic defined by the order of the variables in the given list. That is [grobner_basis \["x"; "y"; "z"\] \[\] polys] defines a drl order with [x] > [y] > [z].
-  As in the previous example [block2] can be empty, indicated a normal drl order. However, [block1] must be non-empty. For the input polynomials to be 
-  well formed the variables in [polys] need to be in the set [block1 @ block2]. *)
-  val grobner_basis : Monomial.dim list -> Monomial.dim list -> QQXs.t list -> QQXs.t list
-
-  (**[get_mon_order block1 block2] should return the monomial ordering used in the Grobner basis computation [grobner_basis block1 block2 polys].*)
-  val get_mon_order : Monomial.dim list -> Monomial.dim list -> Monomial.t -> Monomial.t -> [`Eq | `Lt | `Gt]
-
-  (**Use the FGb package when calling FGb.grobner_basis when set to true. Otherwise use Rewrite.grobner_basis.*)
-  val use_fgb : bool ref
 end
 
 

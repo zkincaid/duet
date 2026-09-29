@@ -1323,7 +1323,7 @@ let _ =
          K.domain := product [ LirrInvariants.exp
                              ; LIRRGuard.exp
                              ; SolvablePolynomial.SolvablePolynomialLIRR.exp ]),
-     " Use weak arithmetic theory with solvable polynomial maps");
+     " Use weak arithmetic theory with solvable polynomial maps (requires msolve)");
   CmdLine.register_config
     ("-lirr-usp",
      Arg.Unit (fun () ->
@@ -1332,7 +1332,7 @@ let _ =
         K.domain := product [ SolvablePolynomial.UltSolvablePolynomialLIRR.exp
                             ; LIRRGuard.exp
                             ; LirrInvariants.exp ]),
-    " Use weak arithmetic theory with ultimately solvable polynomial maps");
+    " Use weak arithmetic theory with ultimately solvable polynomial maps (requires msolve)");
   CmdLine.register_config
     ("-lirr-sp-quad",
      Arg.Unit (fun () ->
@@ -1342,7 +1342,7 @@ let _ =
                             ; SolvablePolynomial.SolvablePolynomialLIRRQuadratic.exp
                             ; LIRRGuard.exp
                             ; LirrInvariants.exp ]),
-    " Use weak arithmetic theory with solvable polynomial maps using quadratic simulations");
+    " Use weak arithmetic theory with solvable polynomial maps using quadratic simulations (requires msolve)");
   CmdLine.register_config
     ("-termination-no-exp",
      Arg.Clear termination_exp,
@@ -1382,12 +1382,7 @@ let _ =
   CmdLine.register_config
     ("-no-msolve",
      Arg.Clear Ideal.use_msolve,
-     " Use Buchberger's algorithm instead of msolve in ideal Grobner basis computation"
-    );
-  CmdLine.register_config
-    ("-no-fgb",
-     Arg.Clear Polynomial.FGb.use_fgb,
-     " Do not use fgb in any Grobner basis computation"
+     " Use Buchberger's algorithm instead of msolve for ideal computations"
     );
   CmdLine.register_config
     ("-theory",

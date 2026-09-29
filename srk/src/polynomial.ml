@@ -505,6 +505,7 @@ module type Multivariate = sig
   val div_monomial : t -> Monomial.t -> t option
   val qr_monomial : t -> Monomial.t -> t * t
   val dimensions : t -> SrkUtil.Int.Set.t
+  val var_range : t -> (int * int) option
   val degree : t -> int
   val fold : (dim -> scalar -> 'a -> 'a) -> t -> 'a -> 'a
   val compare : (scalar -> scalar -> int) -> t -> t -> int
@@ -595,6 +596,18 @@ module MakeMultivariate(R : Algebra.Ring) = struct
       p
       S.empty
 
+  let var_range p =
+    fold (fun m _ range ->
+        match Monomial.IntMap.min_binding_opt m with
+        | None -> range
+        | Some (smallest, _) ->
+          let largest, _ = Monomial.IntMap.max_binding m in
+          match range with
+          | None -> Some (smallest, largest)
+          | Some (lo, hi) -> Some (min lo smallest, max hi largest))
+      p
+      None
+
   let degree p =
     fold (fun m _ d -> max (Monomial.total_degree m) d) p 0
 end
@@ -621,6 +634,57 @@ module QQXs = struct
            Format.fprintf formatter "@[%a*%a@]" QQ.pp coeff (Monomial.pp pp_dim) m)
         formatter
         (enum p)
+
+  let resultant variable p q =
+    let smallest, largest =
+      List.fold_left
+        (fun (smallest, largest) polynomial ->
+           match var_range polynomial with
+           | None -> smallest, largest
+           | Some (lo, hi) -> min smallest lo, max largest hi)
+        (variable, variable)
+        [p; q]
+    in
+    if smallest < 0 then invalid_arg "QQXs.resultant: negative variable";
+    (* Dimensions are FLINT variable indices, so the context needs one more
+       variable than the largest dimension. *)
+    let variable_count = largest + 1 in
+    let ctx = Flint.FMPQ_mpoly.CTX.mk variable_count in
+    let to_flint polynomial =
+      let terms =
+        fold
+          (fun monomial coefficient terms ->
+             let exponents = Array.make variable_count 0 in
+             BatEnum.iter
+               (fun (variable, exponent) ->
+                  exponents.(variable) <- exponent)
+               (Monomial.enum monomial);
+             (coefficient, exponents)::terms)
+          polynomial
+          []
+      in
+      Flint.FMPQ_mpoly.of_terms ~ctx terms
+    in
+    let of_flint polynomial =
+      Flint.FMPQ_mpoly.to_terms ~ctx polynomial
+      |> List.map (fun (coefficient, exponents) ->
+          let monomial = ref Monomial.one in
+          Array.iteri
+            (fun variable exponent ->
+               monomial := Monomial.mul_term variable exponent !monomial)
+            exponents;
+          coefficient, !monomial)
+      |> of_list
+    in
+    match
+      Flint.FMPQ_mpoly.resultant
+        ~ctx
+        ~variable
+        (to_flint p)
+        (to_flint q)
+    with
+    | Some resultant -> Some (of_flint resultant)
+    | None -> None
 
   let of_vec ?(const=Linear.const_dim) vec =
     let (const_coeff, vec) = V.pivot const vec in
@@ -1335,82 +1399,6 @@ module Rewrite = struct
 
   let get_monomial_ordering = R.get_monomial_ordering
   let reduce_rewrite = R.reduce_rewrite
-end
-
-
-module FGb = struct
-  type fmon = Z.t * (int list)
-  type fpoly = fmon list
-
-  let () = Faugere_zarith.Fgb_int_zarith.set_number_of_threads 2(*; Faugere_zarith.Fgb_int_zarith.set_fgb_verbosity 1*)
-
-  let use_fgb = ref true
-
-  let mon_to_fmon vs m = 
-    List.map (
-      fun v -> 
-        match Monomial.IntMap.find_opt v m with
-          | None -> 0
-          | Some d -> d)
-      vs
-
-  let convert_to_faugere (vs : Monomial.dim list) (p : QQXs.t) : fpoly = 
-    let (clearing_denom, rat_fmon) = 
-      BatEnum.fold (
-        fun (cd, ml) (c, m)  -> 
-          let new_cd = Z.lcm (Q.den c) cd in 
-          (new_cd, (c, mon_to_fmon vs m) :: ml)
-       ) (Z.one, []) (QQXs.enum p)        
-      in
-    List.map (
-      fun (c, m) -> Q.num (Q.mul (Q.of_bigint clearing_denom) c), m
-    ) rat_fmon
-
-  let convert_from_faugere (vs : Monomial.dim list) (p : fpoly) : QQXs.t =
-    let convert_fmon_to_mon (c, fm) = 
-      Q.of_bigint c, Monomial.of_enum (BatList.enum (List.mapi (fun i deg -> List.nth vs i, deg) fm)) in
-    QQXs.of_list (List.map convert_fmon_to_mon p)
-
-  (* Is this right? *)
-  let get_mon_order (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) a b = 
-    let ablk1, ablk2 = Monomial.split_block (fun v -> List.mem v blk1) a in
-    let bblk1, bblk2 = Monomial.split_block (fun v -> List.mem v blk1) b in
-    let compare_by_block fmon1 fmon2 = 
-      let diff_rev = List.rev (List.map2 (-) fmon1 fmon2) in
-      match List.find_opt ((<>) 0) diff_rev with
-      | None -> `Eq
-      | Some x -> 
-        if x < 0 then `Gt
-        else `Lt
-    in
-    let ablk1_total, bblk1_total = Monomial.total_degree ablk1, Monomial.total_degree bblk1 in
-    if ablk1_total > bblk1_total then `Gt
-    else if ablk1_total < bblk1_total then `Lt
-    else
-      let blk_comp = compare_by_block (mon_to_fmon blk1 ablk1) (mon_to_fmon blk1 bblk1) in
-      match blk_comp with
-      | `Gt | `Lt -> blk_comp
-      | `Eq ->
-        let ablk2_total, bblk2_total = Monomial.total_degree ablk2, Monomial.total_degree bblk2 in
-        if ablk2_total > bblk2_total then `Gt
-        else if ablk2_total < bblk2_total then `Lt
-        else
-          compare_by_block (mon_to_fmon blk2 ablk2) (mon_to_fmon blk2 bblk2)
-
-  let grobner_basis_fmon (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) (polys : fpoly list) = 
-    let non_zero = List.filter (fun ml -> not (List.for_all (fun (c, _) -> ZZ.equal ZZ.zero c) ml)) polys in 
-    if List.length non_zero = 0 then [convert_to_faugere (blk1 @ blk2) QQXs.zero]
-    else
-      Faugere_zarith.Fgb_int_zarith.fgb non_zero (List.map string_of_int blk1) (List.map string_of_int blk2)
-
-  let grobner_basis (blk1 : Monomial.dim list) (blk2 : Monomial.dim list) (polys : QQXs.t list) = 
-    if !use_fgb then
-      let fpolys = List.map (convert_to_faugere (blk1 @ blk2)) polys in
-      let gb = grobner_basis_fmon blk1 blk2 fpolys in
-      List.map (convert_from_faugere (blk1 @ blk2)) gb
-    else
-      Rewrite.generators (Rewrite.grobner_basis (Rewrite.mk_rewrite (get_mon_order blk1 blk2) polys))
-
 end
 
 

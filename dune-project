@@ -19,7 +19,6 @@
     z3
     ocamlgraph
     normalizffi
-    faugere
     flint
     ))
 

@@ -516,15 +516,13 @@ module MakeEPNF(NF : NumberField.NF) (*: ExpPolyNF with module NF = NF*) = struc
     logf ~level:`trace "Algebraic Relations : Pre_vars %d - %d, Post_vars %d - %d, iter_var %d, field_var %d, root_vars >= %d" 0 (post_offset - 1) post_offset (iter_var - 1) iter_var field_var root_offset;
     let pp_i = Format.pp_print_list ~pp_sep:(fun f () -> Format.pp_print_newline f ()) (QQXs.pp (fun f i -> Format.fprintf f "x_%d" i)) in
     log_pp ~level:`trace pp_i ideal;
-    let biggest_root_i, _ = IM.max_binding (snd !bases_in_rec) in
-    let gb = FGb.grobner_basis (List.init ((biggest_root_i + root_offset) - field_var + 1) (fun i -> i + field_var)) (List.init (iter_var + 1) (fun i -> i)) ideal in
+    let gb =
+      Ideal.project_generators (fun variable -> variable <= iter_var) ideal
+      |> Ideal.generators
+    in
     log ~level:`trace "After gb";
     log_pp ~level:`trace pp_i gb;
-    List.filter (
-      fun p ->
-        let ds = QQXs.dimensions p in
-        SrkUtil.Int.Set.disjoint ds (SrkUtil.Int.Set.of_list (List.init ((biggest_root_i + root_offset) - field_var + 1) (fun i -> i + field_var)))
-    ) gb
+    gb
 
   let algebraic_relations () = 
     algebraic_relations_in (get_rec_sols ())

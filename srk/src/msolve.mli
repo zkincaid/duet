@@ -3,6 +3,9 @@
     The executable is selected by the [MSOLVE] environment variable and
     defaults to [msolve]. *)
 
+(** Whether the msolve executable can be found.  Checked once, on first use. *)
+val available : unit -> bool
+
 val grobner_basis :
   Polynomial.Monomial.dim list ->
   Polynomial.Monomial.dim list ->
@@ -27,11 +30,12 @@ val get_mon_order :
   [ `Eq | `Lt | `Gt ]
 
 (** [parametrization variables polys] computes a rational univariate
-    parametrization of a zero-dimensional system.  It returns the linear form,
-    its minimal polynomial, the common denominator, and the numerator/scale
-    pair for each variable other than the parametrizing variable. *)
+    representation of the zero-dimensional system [polys]: a square-free
+    polynomial [m] and, for each variable in [variables] (in order), a
+    polynomial [c_i] with [deg c_i < deg m], such that the solutions of
+    [polys] are exactly the points [(c_1(t), ..., c_n(t))] for [t] a root
+    of [m]. *)
 val parametrization :
   Polynomial.Monomial.dim list ->
   Polynomial.QQXs.t list ->
-  QQ.t list * Polynomial.QQX.t * Polynomial.QQX.t *
-  (Polynomial.QQX.t * QQ.t) list
+  Polynomial.QQX.t * (Polynomial.QQX.t list)

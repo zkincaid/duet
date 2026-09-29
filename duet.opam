@@ -15,7 +15,6 @@ depends: [
   "z3"
   "ocamlgraph"
   "normalizffi"
-  "faugere"
   "flint"
 ]
 build: [

@@ -22,29 +22,17 @@ let primitive_elem needed_deg mp0 mp1 v0 v1 =
   let mp0d, mp1d = QQXs.degree mp0, QQXs.degree mp1 in
   if mp0d = 0 then make_univariate mp1, QQX.zero, QQX.identity
   else if mp1d = 0 then make_univariate mp0, QQX.identity, QQX.zero
+  else if not (Msolve.available ()) then
+    failwith
+      "NumberField.primitive_elem: the msolve executable is required \
+       (install msolve, or set MSOLVE to its path)"
   else
-    let v2 = (max v0 v1) + 1 in
-    let rec aux i =
-      (* v0 + iv1 - v2*)
-      let lin_comb =
-        QQXs.of_list [Q.one, Monomial.singleton v0 1
-                    ; Q.of_int i, Monomial.singleton v1 1
-                    ; Q.minus_one, Monomial.singleton v2 1]
-      in
-      let gb = FGb.grobner_basis [v0; v1] [v2] [mp0; mp1; lin_comb] in
-      let v2_poly = 
-        List.find (
-          fun p -> 
-            let dims = QQXs.dimensions p in
-            SrkUtil.Int.Set.is_singleton dims && SrkUtil.Int.Set.mem v2 dims) gb in
-      if QQXs.degree v2_poly = needed_deg then v2_poly, Rewrite.mk_rewrite (FGb.get_mon_order [v0;v1] [v2]) gb
-      else if i > needed_deg then failwith "Unable to find primitive element, which breaks the primitive element theorem."
-      else aux (i+1)
-    in
-    let prim, r = aux 1 in
-    let v0_in_prim = make_univariate (Rewrite.reduce r (QQXs.of_dim v0)) in
-    let v1_in_prim = make_univariate (Rewrite.reduce r (QQXs.of_dim v1)) in
-    make_univariate prim, v0_in_prim, v1_in_prim
+    match Msolve.parametrization [v0; v1] [mp0; mp1] with
+    | min_poly, [v0_in_prim; v1_in_prim] ->
+      if QQX.order min_poly <> needed_deg then
+        failwith "msolve: primitive-element parametrization has the wrong degree";
+      min_poly, v0_in_prim, v1_in_prim
+    | _ -> assert false
 
 
 module type NF = sig  
@@ -168,9 +156,7 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
 
   let deg = QQX.order int_poly
 
-  let reduce a = 
-    if QQX.is_zero int_poly then a
-    else snd (QQX.qr a int_poly)
+  let reduce a = snd (QQX.qr a int_poly)
 
   (*The isomorphism is recognized by x --> 1/d x.*)
   let make_elem p = reduce (QQX.map (fun d c -> QQ.div c (QQ.exp (QQ.of_zz min_poly_den_multiple) d)) p)
@@ -270,67 +256,83 @@ module MakeNF (A : sig val min_poly : QQX.t end) = struct
           QQXs.add (QQXs.mul_monomial (Monomial.singleton 1 m) (make_multivariate 0 coef)) acc
       ) p QQXs.zero
 
+    let shifted_norm p shift =
+      let generator = QQXs.of_dim 0 in
+      let shifted_variable =
+        QQXs.sub
+          (QQXs.of_dim 1)
+          (QQXs.scalar_mul (Q.of_int shift) generator)
+      in
+      let shifted_polynomial =
+        QQXs.substitute
+          (function
+            | 0 -> generator
+            | 1 -> shifted_variable
+            | variable -> QQXs.of_dim variable)
+          (de_lift p)
+      in
+      match
+        QQXs.resultant 0
+          (make_multivariate 0 int_poly)
+          shifted_polynomial
+      with
+      | Some norm -> make_univariate norm
+      | None -> failwith "FLINT failed to compute a resultant"
+
+    let is_square_free p =
+      let gcd, _, _ = QQX.gcdext p (QQX.derivative p) in
+      QQX.order gcd = 0
+
     (* Factoring polynomials via Trager's method*)
     let factor_square_free_poly p =
-      if QQX.is_zero int_poly then
+      if deg = 1 then
         let p_uni = make_univariate (de_lift p) in
         let content, facts = QQX.factor p_uni in
         make_elem (QQX.scalar content), List.map (fun (f, _) -> lift f) facts
       else
-        (*let lc = coeff (order p) p in
-        let pmonic = scalar_mul (inverse lc) p in
-        let pmonic_deg = order pmonic in
-        let pmonicxs = de_lift pmonic in (* p is a multivariate polynomial in 0, the variable of the field, and 1 the variable of the polynomial.*)*)
-        let prim, v0_in_prim, v1_in_prim =
-          primitive_elem
-            ((order p) * deg)
-            (make_multivariate 0 int_poly)
-            (de_lift p)
-            0
-            1
-        in
-        let primxs = make_multivariate 0 prim in
-        let v1_term = QQXs.sub (make_multivariate 1 (QQX.identity)) (make_multivariate 0 v0_in_prim) in 
-        let v2_term = QQXs.sub (make_multivariate 2 (QQX.identity)) (make_multivariate 0 v1_in_prim) in
-        let mon_order = FGb.get_mon_order [0;2] [1] in
-        let (_, factors) = QQX.factor prim in (*Is the content needed somewhere?*)
-        let find_factor (fact, deg) = 
-          if deg > 1 then failwith "Primitive element contains square factor?";
-          let factxs = make_multivariate 0 fact in
-          let ps = FGb.grobner_basis [0;2] [1] [primxs; v1_term; v2_term; factxs] in
-          let v2ps = 
-            List.filter (
-                fun p -> 
-                let dims = QQXs.dimensions p in
-                if (SrkUtil.Int.Set.mem 2 dims) && not (SrkUtil.Int.Set.mem 0 dims) then
-                  true
-                else false
-              ) ps
+        (* The roots of the shifted norm are b + shift*a, for a a conjugate of
+           the generator and b a root of the corresponding conjugate of p.
+           Since p is square-free, two of them coincide only if shift =
+           (b' - b)/(a - a') for some pair of the n roots with a <> a', so at
+           most n(n-1)/2 shifts are bad. *)
+        let n = deg * order p in
+        let max_shift = (n * (n - 1) / 2) + 1 in
+        let rec find_shift shift =
+          if shift > max_shift then
+            failwith "factor_square_free_poly: polynomial is not square-free";
+          let norm = shifted_norm p shift in
+          let norm =
+            QQX.scalar_mul
+              (Q.inv (QQX.coeff (QQX.order norm) norm))
+              norm
           in
-          let poly =
-            match v2ps with
-            | [] -> failwith "Unable to find factor in reduced ring";
-            | p::ps ->
-               List.fold_left (fun p q ->
-                   if QQXs.degree p < QQXs.degree q then p else q)
-                 p
-                 ps
-          in
-          let poly_lc, _, _ = QQXs.split_leading mon_order poly in
-          let poly = QQXs.of_enum (BatEnum.map (fun (c, m) -> QQ.div c poly_lc, m) (QQXs.enum poly)) in 
-          QQXs.fold (
-            fun m coef acc ->
-              let var_part, coef_part = 
-                BatEnum.fold (
-                  fun (var_part, coef_part) (var, deg) ->
-                    if var = 2 then mul (exp identity deg) var_part, coef_part
-                    else var_part, QQX.mul (QQX.exp QQX.identity deg) coef_part
-                    ) (one, QQX.one) (Monomial.enum m) in
-              let coe = QQX.scalar_mul coef coef_part in
-              add (scalar_mul coe var_part) acc
-          ) poly zero
+          if QQX.order norm = deg * order p && is_square_free norm then
+            shift, norm
+          else find_shift (shift + 1)
         in
-        (E.one, List.map find_factor factors)
+        let shift, norm = find_shift 1 in
+        let _, factors = QQX.factor norm in
+        let generator = make_elem QQX.identity in
+        let shifted_variable =
+          add identity (scalar (E.int_mul shift generator))
+        in
+        let find_factor (factor, multiplicity) =
+          if multiplicity <> 1 then
+            failwith "Shifted norm is not square-free";
+          let candidate =
+            QQX.fold
+              (fun degree coefficient candidate ->
+                 add candidate
+                   (scalar_mul
+                      (of_rat coefficient)
+                      (exp shifted_variable degree)))
+              factor
+              zero
+          in
+          let factor, _, _ = gcdext p candidate in
+          factor
+        in
+        (coeff (order p) p, List.map find_factor factors)
 
 
     let factor (p : t) = 
@@ -1026,6 +1028,3 @@ let splitting_field p_with_squares : sf =
       aux new_min_poly
   in
   aux QQX.zero
-  
-
-

@@ -17,6 +17,21 @@ let variables polynomials =
     IS.empty
     polynomials
 
+(* For small instances, the overhead of launching msolve dominates
+   Groebner basis computation time.  This function heursitically
+   detects small instances. *)
+let is_small_instance generators =
+  let max_quadrics = 4 in
+  let degree_at_most d = List.for_all (fun p -> QQXs.degree p <= d) in
+  degree_at_most 1 generators
+  || (List.compare_length_with generators max_quadrics <= 0
+      && degree_at_most 2 generators)
+
+let use_msolve_for generators =
+  !use_msolve
+  && not (is_small_instance generators)
+  && Msolve.available ()
+
 let rewrite_of_basis basis =
   Rewrite.mk_rewrite order basis
   |> Rewrite.reduce_rewrite
@@ -27,7 +42,7 @@ let make_buchberger generators =
 let make generators =
   let generators = nonzero generators in
   if generators = [] then Rewrite.mk_rewrite order []
-  else if !use_msolve then
+  else if use_msolve_for generators then
     let variables = variables generators in
     if SrkUtil.Int.Set.is_empty variables then make_buchberger generators
     else
@@ -42,7 +57,8 @@ let make generators =
 
 let add_saturate ideal polynomial =
   if QQXs.is_zero polynomial then ideal
-  else if !use_msolve then make (polynomial :: Rewrite.generators ideal)
+  else if use_msolve_for (polynomial :: Rewrite.generators ideal) then
+    make (polynomial :: Rewrite.generators ideal)
   else Rewrite.add_saturate ideal polynomial
 
 let reduce = Rewrite.reduce
@@ -58,14 +74,14 @@ let equal = Rewrite.equal
 let mem polynomial ideal =
   Rewrite.reduce_zero ideal polynomial
 
-let project_impl pred generators =
+let project_generators pred generators =
   let module IS = SrkUtil.Int.Set in
   let bad, good =
     variables generators
     |> IS.partition (not % pred)
   in
   if IS.is_empty bad then make generators
-  else if !use_msolve then
+  else if use_msolve_for generators then
     (* Reverse both blocks for the same variable-precedence convention used
        in [make].  The first block remains the elimination block. *)
     Msolve.eliminate
@@ -86,7 +102,7 @@ let project_impl pred generators =
     |> make
 
 let project pred ideal =
-  project_impl pred (generators ideal)
+  project_generators pred (generators ideal)
 
 let intersect left right =
   let left_generators = generators left in
@@ -108,7 +124,7 @@ let intersect left right =
       (QQXs.mul (QQXs.sub (QQXs.scalar QQ.one) (QQXs.of_dim t)))
       right_generators
   in
-  project_impl ((<>) t) (left_generators @ right_generators)
+  project_generators ((<>) t) (left_generators @ right_generators)
 
 let product left right =
   let left_generators = generators left in
@@ -124,9 +140,9 @@ let product left right =
   |> make
 
 let sum left right =
-  List.fold_left
-    (fun ideal polynomial -> add_saturate ideal polynomial)
-    left
-    (generators right)
+  let right_generators = generators right in
+  if use_msolve_for (generators left @ right_generators) then
+    make (generators left @ generators right)
+  else List.fold_left add_saturate left right_generators
 
 let mk_rewrite ideal = ideal

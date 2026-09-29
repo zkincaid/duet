@@ -68,14 +68,14 @@ Next, add the [sv-opam](https://github.com/zkincaid/sv-opam) OPAM repository, an
 ```
  opam remote add sv https://github.com/zkincaid/sv-opam.git
  opam install dune zarith ocamlgraph batteries ppx_deriving ounit menhir ctypes-foreign
- opam install cil apron normalizffi flint.dev faugere.dev z3
+ opam install cil apron normalizffi flint.dev z3
 ```
 
 Duet can optionally use msolve to accelerate Gröbner-basis computations.  The
 `msolve` executable must be available on `PATH`; alternatively, set the
 `MSOLVE` environment variable to its path.  Duet uses msolve by default; pass
-`-no-msolve` to use its built-in Buchberger implementation instead.
-
+`-no-msolve` to use its built-in Buchberger implementation instead.  The `-lirr-sp`,
+`-lirr-usp`, and `-lirr-sp-quad` can only be used on installations with msolve.
 
 ### Building Duet
 

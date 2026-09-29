@@ -53,7 +53,6 @@ RUN opam install -y cil
 RUN opam install -y apron
 RUN opam install -y normalizffi
 RUN opam install -y flint.dev
-RUN opam install -y faugere.dev
 RUN opam install -y z3
 
 RUN echo 'eval $(opam env)' >> ~/.bashrc

@@ -58,6 +58,32 @@ let test_eval () =
   let p = mk_qqx [-1; 2; -3; 4] in
   assert_equal ~printer:QQ.show (QQ.of_int 23) (QQX.eval p (QQ.of_int 2))
 
+let test_var_range () =
+  let p =
+    QQXs.add
+      (QQXs.mul (QQXs.of_dim 3) (QQXs.of_dim 7))
+      (QQXs.add (QQXs.of_dim 5) (QQXs.scalar (QQ.of_int 2)))
+  in
+  let printer = function
+    | None -> "None"
+    | Some (lo, hi) -> Printf.sprintf "Some (%d, %d)" lo hi
+  in
+  assert_equal ~printer (Some (3, 7)) (QQXs.var_range p);
+  assert_equal ~printer None (QQXs.var_range (QQXs.scalar (QQ.of_int 2)));
+  assert_equal ~printer None (QQXs.var_range QQXs.zero)
+
+let test_resultant () =
+  let a = QQXs.of_dim 0 in
+  let x = QQXs.of_dim 1 in
+  let f = QQXs.sub (QQXs.exp a 2) (QQXs.scalar (QQ.of_int 2)) in
+  let g = QQXs.sub x a in
+  match QQXs.resultant 0 f g with
+  | Some resultant ->
+    assert_equal_qqxs
+      (QQXs.sub (QQXs.exp x 2) (QQXs.scalar (QQ.of_int 2)))
+      resultant
+  | None -> assert_failure "FLINT failed to compute a resultant"
+
 let test_summation1 () =
   let p = mk_qqx [2] in
   let r = mk_qqx [2; 2] in
@@ -323,6 +349,8 @@ let suite = "Polynomial" >::: [
     "compose1" >:: test_compose1;
     "compose2" >:: test_compose2;
     "eval" >:: test_eval;
+    "var_range" >:: test_var_range;
+    "resultant" >:: test_resultant;
     "test_summation1" >:: test_summation1;
     "test_summation2" >:: test_summation2;
     "test_qr1" >:: test_qr1;

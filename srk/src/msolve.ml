@@ -51,6 +51,16 @@ let executable () =
   | Some path -> path
   | None -> "msolve"
 
+let available =
+  let available =
+    lazy
+      (Sys.command
+         (Printf.sprintf "command -v %s > /dev/null 2>&1"
+            (shell_quote (executable ())))
+       = 0)
+  in
+  fun () -> Lazy.force available
+
 let write_input chan variables polynomials =
   let variable_count = List.length variables in
   let write_monomial exponents =
@@ -250,7 +260,8 @@ let read_parametrization filename =
   match list (parse_output contents) with
   | [dimension; data] when atom dimension = "0" ->
     begin match list data with
-      | [_dimension; _variable_count; _degree; _names; linear_form; parametrizations] ->
+      | [_dimension; _variable_count; _degree; names; linear_form; parametrizations] ->
+        let names = List.map atom (list names) in
         let linear_form = List.map rational (list linear_form) in
         begin match list parametrizations with
           | [_count; parametrization] ->
@@ -263,7 +274,7 @@ let read_parametrization filename =
                          | [numerator; scale] -> polynomial numerator, rational scale
                          | _ -> failwith "msolve: malformed coordinate")
                 in
-                linear_form, polynomial minimal_polynomial,
+                names, linear_form, polynomial minimal_polynomial,
                 polynomial denominator, coordinates
               | _ -> failwith "msolve: malformed parametrization"
             end
@@ -297,7 +308,58 @@ let parametrization variables polynomials =
        let status = Sys.command command in
        if status <> 0 then
          failwith (Printf.sprintf "msolve exited with status %d" status);
-       read_parametrization output)
+       let names, linear_form, m, denominator, coordinates =
+         read_parametrization output
+       in
+       let modulo p = snd (QQX.qr p m) in
+       (* msolve gives each coordinate as a numerator/scale pair, representing
+          -(numerator / scale) / denominator modulo m. *)
+       let denominator_inverse =
+         let gcd, inverse, _ = QQX.gcdext denominator m in
+         if QQX.order gcd <> 0 then
+           failwith "msolve: parametrization denominator is not invertible";
+         inverse
+       in
+       let value (numerator, scale) =
+         QQX.mul numerator denominator_inverse
+         |> QQX.scalar_mul (Q.neg (Q.inv scale))
+         |> modulo
+       in
+       let values = List.map value coordinates in
+       (* msolve may omit the coordinate of its last variable (which may be a
+          variable that it introduced); it is determined by the linear form
+          t = sum_i l_i x_i. *)
+       let values =
+         let arity = List.length names in
+         if List.length values = arity then values
+         else if List.length values + 1 = arity
+              && List.length linear_form = arity then
+           match List.rev linear_form with
+           | last :: rest when not (Q.equal last Q.zero) ->
+             let sum =
+               List.fold_left2
+                 (fun sum coefficient value ->
+                    QQX.add sum (QQX.scalar_mul coefficient value))
+                 QQX.zero
+                 (List.rev rest)
+                 values
+             in
+             values
+             @ [modulo (QQX.scalar_mul (Q.inv last) (QQX.sub QQX.identity sum))]
+           | _ -> failwith "msolve: cannot reconstruct the last coordinate"
+         else failwith "msolve: inconsistent parametrization arity"
+       in
+       let named_values = List.combine names values in
+       let values =
+         List.mapi
+           (fun index _ ->
+              let name = Printf.sprintf "x%d" index in
+              match List.assoc_opt name named_values with
+              | Some value -> value
+              | None -> failwith ("msolve: missing coordinate " ^ name))
+           variables
+       in
+       m, values)
 
 let grobner_basis block1 block2 polynomials =
   if block1 = [] then invalid_arg "Msolve.grobner_basis: empty first block";
