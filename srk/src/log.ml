@@ -138,7 +138,10 @@ let time str f arg =
     let result = f arg in
     record_time();
     result
-  with exn -> record_time(); raise exn
+  with exn ->
+    let bt = Printexc.get_raw_backtrace () in
+    record_time();
+    Printexc.raise_with_backtrace exn bt
 
 let phase str f arg =
   let padding =
