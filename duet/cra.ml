@@ -595,10 +595,13 @@ let weight def =
     Log.errorf "No translation for definition: %a" Def.pp def;
     assert false
 
-let weight def =
+(* Monotone analysis in LIRA requires linear transitions *)
+let linearize_weight tr =
   if Syntax.get_theory srk = `LIRA && !monotone then
-    K.linearize (weight def)
-  else (weight def)
+    K.linearize tr
+  else tr
+
+let weight def = linearize_weight (weight def)
 
 
 type 'a label = 'a TransitionSystem.label =
@@ -781,7 +784,7 @@ let make_transition_system rg =
                 | Assert (phi, msg) ->
                   let condition = tr_bexpr phi in
                   add_assert def.did (condition, Def.get_location def, msg);
-                  Weight (K.assume condition)
+                  Weight (linearize_weight (K.assume condition))
                 | AssertMemSafe (expr, msg) ->
                   let condition =
                     match tr_expr expr with
@@ -793,7 +796,7 @@ let make_transition_system rg =
                       ]
                   in
                   add_assert def.did (condition, Def.get_location def, msg);
-                  Weight (K.assume condition)
+                  Weight (linearize_weight (K.assume condition))
                 | _ -> Weight (weight def)
               in
               RG.G.fold_succ
