@@ -201,9 +201,17 @@ module Solver = struct
     | `Unknown -> `Unknown
 
   let abstract solver domain =
+    (* (As of Oct 2 2026) experimentally, pushing/popping the
+       currently conjectured concept at each iteration is cheaper than
+       doing it once, despite the fact that learned clauses aren't
+       retained between iterations. *)
     let rec fix prop =
-      block solver (domain.formula_of prop);
-      match get_model solver with
+      let model =
+        with_blocking solver (fun () ->
+            block solver (domain.formula_of prop);
+            get_model solver) ()
+      in
+      match model with
       | `Sat m -> fix (domain.join (domain.of_model m) prop)
       | `Unsat -> prop
       | `Unknown -> domain.top
@@ -214,7 +222,7 @@ module Solver = struct
         domain.bottom
         (A.last solver.stack).models
     in
-    with_blocking solver fix init
+    fix init
 
   (* Does a model satisfy a given formula? *)
   let sat srk m phi = match m with
