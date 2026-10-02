@@ -496,48 +496,53 @@ module Solver = struct
         | None -> assert false
       end
     | `TyArr -> assert false (* TODO: intepretations for arrays *)
-    | `TyFun (params, _) ->
+    | `TyFun (params, ret) ->
       let decl = decl_of_symbol z3 srk sym in
-      let finterp = match Z3.Model.get_func_interp m decl with
+      begin match Z3.Model.get_func_interp m decl with
         | None ->
-          logf "symbol: %a" (pp_symbol srk) sym;
-          assert false
-
-        | Some interp -> interp
-      in
-      let formals =
-        List.mapi (fun i typ -> mk_var srk i typ) params
-      in
-      let default =
-        of_z3 srk sym_of_decl
-          (Z3.Model.FuncInterp.get_else finterp)
-      in
-      let mk_eq x y = (* type-generic equality *)
-        match Expr.refine srk x, Expr.refine srk y with
-        | `ArithTerm x, `ArithTerm y ->
-          (mk_eq srk x y :> ('a, 'typ_fo) Syntax.expr)
-        | `Formula x, `Formula y ->
-          (mk_iff srk x y :> ('a, 'typ_fo) Syntax.expr)
-        | _, _ -> assert false
-      in
-      let func =
-        List.fold_right (fun entry rest ->
-            let value =
-              Z3.Model.FuncInterp.FuncEntry.get_value entry
-              |> of_z3 srk sym_of_decl
-            in
-            let cond =
-              List.map2 (fun formal value ->
-                  mk_eq formal (of_z3 srk sym_of_decl value))
-                formals
-                (Z3.Model.FuncInterp.FuncEntry.get_args entry)
-              |> mk_and srk
-            in
-            mk_ite srk cond value rest)
-          (Z3.Model.FuncInterp.get_entries finterp)
-          default
-      in
-      `Fun func
+          (* Z3 omits interpretations of functions that are irrelevant to
+             satisfiability (e.g., functions that are eliminated during
+             pre-processing); any interpretation will do. *)
+          begin match ret with
+            | `TyInt | `TyReal -> `Fun (mk_zero srk :> ('a, typ_fo) expr)
+            | `TyBool -> `Fun (mk_false srk :> ('a, typ_fo) expr)
+            | `TyArr -> assert false
+          end
+        | Some finterp ->
+          let formals =
+            List.mapi (fun i typ -> mk_var srk i typ) params
+          in
+          let default =
+            of_z3 srk sym_of_decl
+              (Z3.Model.FuncInterp.get_else finterp)
+          in
+          let mk_eq x y = (* type-generic equality *)
+            match Expr.refine srk x, Expr.refine srk y with
+            | `ArithTerm x, `ArithTerm y ->
+              (mk_eq srk x y :> ('a, 'typ_fo) Syntax.expr)
+            | `Formula x, `Formula y ->
+              (mk_iff srk x y :> ('a, 'typ_fo) Syntax.expr)
+            | _, _ -> assert false
+          in
+          let func =
+            List.fold_right (fun entry rest ->
+                let value =
+                  Z3.Model.FuncInterp.FuncEntry.get_value entry
+                  |> of_z3 srk sym_of_decl
+                in
+                let cond =
+                  List.map2 (fun formal value ->
+                      mk_eq formal (of_z3 srk sym_of_decl value))
+                    formals
+                    (Z3.Model.FuncInterp.FuncEntry.get_args entry)
+                  |> mk_and srk
+                in
+                mk_ite srk cond value rest)
+              (Z3.Model.FuncInterp.get_entries finterp)
+              default
+          in
+          `Fun func
+      end
 
   let get_model ?(symbols=[]) ?(assumptions=[]) solver =
     let srk = solver.srk in
