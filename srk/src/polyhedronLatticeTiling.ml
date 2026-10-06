@@ -796,15 +796,9 @@ end = struct
           V.zero
           (0 --^ ambient_dim)
       in
-      let fns =
-        let covectors =
-          (L.generators (Plt.lattice_part plt))
-          @ (L.generators (Plt.tiling_part plt))
-        in
-        (* Taking the dot-product with the lattice / tiling constraints
-           effectively homogenizes them, since the coefficient
-           Linear.const_dim is zero for every point in the primal space. *)
-        List.map (fun vec -> V.dot vec) covectors
+      let covectors =
+        (L.generators (Plt.lattice_part plt))
+        @ (L.generators (Plt.tiling_part plt))
       in
       let dd = P.dd_of ~man ambient_dim p in
       let generators =
@@ -812,7 +806,7 @@ end = struct
             match k with
             | `Vertex ->
                let int_v =
-                 P.close_lattice_point fns p ~rational:v ~integer:m_vec ambient_dim
+                 P.close_lattice_point covectors p ~rational:v ~integer:m_vec ambient_dim
                in
                (`Vertex, int_v)
             | `Ray -> (`Ray, v)

@@ -124,4 +124,12 @@ val of_dd : 'a DD.t -> t
    elimination procedure for Presburger arithmetic", ICALP 2024.  *)
 val close_integral_point : t -> rational:V.t -> integer:V.t -> int -> V.t
 
-val close_lattice_point : (V.t -> QQ.t) list -> t -> rational:V.t -> integer:V.t -> int -> V.t
+(** Given a list of covectors [F], a polyhedron [p], a rational point [r] in
+    [p], and a point [z] in [p] (in an ambient space of dimension [n]), find a
+    point [q] in [p] that is close to [r] such that [f(q-z)] is an integer for
+    each [f] in [F].  Covectors are applied homogeneously (constant
+    coefficients are ignored). *)
+val close_lattice_point : V.t list -> t -> rational:V.t -> integer:V.t -> int -> V.t
+
+(** Find a point that belongs to the polyhedron, should one exist. *)
+val find_point : t -> V.t option
