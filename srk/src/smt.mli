@@ -43,6 +43,39 @@ module Solver : sig
   val pop : 'a t -> int -> unit
 end
 
+(** Constrained Horn clause solving via Z3's Fixedpoint interface (Spacer),
+    with refutation-witness extraction.  This is a thin wrapper around
+    {!SrkZ3.FixedpointChc} -- see that module's documentation for the CHC
+    conventions (relations are [`TyFun (_, `TyBool)] symbols; rules are
+    formulas over constants; bodies must be positive) and for the record
+    fields of {!SrkZ3.FixedpointChc.query_answer} /
+    {!SrkZ3.FixedpointChc.step}.
+
+    Note: CHC solving is Z3-backed regardless of the context's theory
+    (unlike {!Solver.make}, there is no LIRR backend). *)
+module ChcSolver : sig
+  type 'a t
+  type query_status = SrkZ3.FixedpointChc.query_status
+  type 'a relation_fact = 'a SrkZ3.FixedpointChc.relation_fact
+  type 'a step = 'a SrkZ3.FixedpointChc.step
+  type 'a query_answer = 'a SrkZ3.FixedpointChc.query_answer
+
+  val make : ?context:SrkZ3.z3_context -> 'a context -> 'a t
+  val mk_relation : 'a t -> ?name:string -> typ_fo list -> symbol
+  val register_relation : 'a t -> symbol -> unit
+  val add_rule : 'a t -> ?name:string -> ?vars:symbol list ->
+    body:'a formula -> head:'a formula -> unit -> unit
+  val add : 'a t -> 'a formula list -> unit
+  val error_relation : 'a t -> symbol
+  val query_relation : 'a t -> symbol -> 'a query_answer
+  val get_solution : 'a t -> symbol -> 'a formula
+  val pp_rules : Format.formatter -> 'a t -> unit
+  val pp_fact : 'a t -> Format.formatter -> 'a relation_fact -> unit
+  val pp_step : 'a t -> Format.formatter -> 'a step -> unit
+  val pp_derivation : 'a t -> Format.formatter -> 'a step list -> unit
+  val to_string : 'a t -> string
+end
+
 (** Compute a model of a formula.  The model is abstract -- it can be used to
     evaluate terms, but its bindings may not be enumerated (see
     [Interpretation] for more detail). *)
