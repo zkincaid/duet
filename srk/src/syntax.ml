@@ -554,6 +554,7 @@ let destruct _srk sexpr =
   | Node (App func, args, _) -> `App (func, args)
   | Node (Var (v, `TyReal), [], _) -> `Var (v, `TyReal)
   | Node (Var (v, `TyInt), [], _) -> `Var (v, `TyInt)
+  | Node (Var (v, `TyArr), [], _) -> `Var (v, `TyArr)
   | Node (Var (v, `TyBool), [], _) -> `Proposition (`Var v)
   | Node (Add, sum, _) -> `Add sum
   | Node (Mul, product, _) -> `Mul product
@@ -1607,6 +1608,15 @@ let pos_rewriter srk sexpr =
 let rec rewrite srk ?down:(down=fun x -> x) ?up:(up=fun x -> x) sexpr =
   let (Node (label, children, _)) = (down sexpr).obj in
   up (srk.mk label (List.map (rewrite srk ~down ~up) children))
+
+let fold_rewrite srk ?down:(down=fun x _ ->x) ?up:(up=fun x _ -> x) ?combine:(combine=fun _ a -> a) acc sexpr = 
+  let rec go acc e = 
+    let d = (down e acc) in 
+    let (Node (label, children, _)) = d.obj in
+    let acc' = combine d acc in 
+    up (srk.mk label (List.map (go acc') children)) acc 
+  in
+  go acc sexpr
 
 let mk_compare op =
   match op with
