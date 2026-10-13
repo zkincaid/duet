@@ -139,6 +139,33 @@ module Solver = struct
       { s_add ; s_check ; s_get_model; s_push; s_pop }
 end
 
+(* A generic interface representing a CHC solver.
+
+   This module is implemented by SrkZ3.FixedpointChc, which wraps around
+   Z3's Spacer API. Note that for now, CHC solving is Z3-backed regardless
+   of theory (there is no LIRR CHC backend). *)
+module ChcSolver = struct
+  type 'a t = 'a SrkZ3.FixedpointChc.t
+  type query_status = SrkZ3.FixedpointChc.query_status
+  type 'a relation_fact = 'a SrkZ3.FixedpointChc.relation_fact
+  type 'a step = 'a SrkZ3.FixedpointChc.step
+  type 'a query_answer = 'a SrkZ3.FixedpointChc.query_answer
+
+  let make ?context srk = SrkZ3.FixedpointChc.mk_solver ?context srk
+  let mk_relation = SrkZ3.FixedpointChc.mk_relation
+  let register_relation = SrkZ3.FixedpointChc.register_relation
+  let add_rule = SrkZ3.FixedpointChc.add_rule
+  let add = SrkZ3.FixedpointChc.add
+  let error_relation = SrkZ3.FixedpointChc.error_relation
+  let query_relation = SrkZ3.FixedpointChc.query_relation
+  let get_solution = SrkZ3.FixedpointChc.get_solution
+  let pp_rules = SrkZ3.FixedpointChc.pp_rules
+  let pp_fact = SrkZ3.FixedpointChc.pp_fact
+  let pp_step = SrkZ3.FixedpointChc.pp_step
+  let pp_derivation = SrkZ3.FixedpointChc.pp_derivation
+  let to_string = SrkZ3.FixedpointChc.to_string
+end
+
 let is_sat srk phi =
   let solver = Solver.make srk in
   Solver.add solver [phi];

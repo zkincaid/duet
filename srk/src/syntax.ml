@@ -1290,9 +1290,9 @@ module Formula = struct
        alg (`Ite (eval srk alg cond, eval srk alg bthen, eval srk alg belse))
 
   let eval_memo srk alg =
-    let table = BatInnerWeaktbl.create 991 in
+    let table = Hashtbl.create 991 in
     let rec go phi =
-      try BatInnerWeaktbl.find table phi.tag
+      try Hashtbl.find table phi.tag
       with Not_found ->
         let result = match destruct srk phi with
           | `Tru -> alg `Tru
@@ -1307,7 +1307,7 @@ module Formula = struct
           | `Ite (cond, bthen, belse) ->
             alg (`Ite (go cond, go bthen, go belse))
         in
-        BatInnerWeaktbl.add table phi.tag result;
+        Hashtbl.add table phi.tag result;
         result
     in
     go
