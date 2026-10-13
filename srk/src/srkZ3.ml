@@ -456,7 +456,8 @@ module Solver = struct
       else
         Z3.Solver.mk_solver_s context theory
     in
-    let of_formula = z3_of_formula srk context in
+    (* Each call to `make` gets its own memo table *)
+    let of_formula phi = z3_of_formula srk context phi in
     let formula_of t = formula_of_z3 srk t in
     { srk; z3 = context; s; of_formula; formula_of }
 
