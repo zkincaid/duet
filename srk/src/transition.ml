@@ -141,8 +141,8 @@ struct
             | Some t -> t
             | None -> mk_const srk (Var.symbol_of v)
           in
-          left_eq := (Term.set_expr srk phi left_term)::(!left_eq);
-          right_eq := (Term.set_expr srk phi right_term)::(!right_eq);
+          left_eq := (mk_eq srk phi left_term)::(!left_eq);
+          right_eq := (mk_eq srk phi right_term)::(!right_eq);
           Some phi
       in
       M.merge merge left.transform right.transform
@@ -169,7 +169,7 @@ struct
           let post_sym = post_symbol pre_sym in
           let post_term = mk_const srk post_sym in
           ((pre_sym,post_sym)::symbols,
-           (Term.set_expr srk post_term term)::post_def))
+           (mk_eq srk post_term term)::post_def))
         tr.transform
         ([], [])
     in
@@ -392,7 +392,7 @@ struct
             let var_ss_term = mk_const srk var_ss_sym in
             let term_ss = substitute_const srk subscript term in
             ((var_sym, var_ss_term)::ss,
-             (Term.set_expr srk var_ss_term term_ss)::phis))
+             (mk_eq srk var_ss_term term_ss)::phis))
           tr.transform
           ([], ss_guards)
       in
@@ -496,7 +496,7 @@ struct
     let transform_formula =
       transform tr
       /@ (fun (lhs, rhs) ->
-          Term.set_expr srk (mk_const srk (Var.symbol_of lhs)) rhs
+          mk_eq srk (mk_const srk (Var.symbol_of lhs)) rhs
           )
       |> BatList.of_enum
     in

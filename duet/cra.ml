@@ -168,7 +168,7 @@ module K = struct
           let fresh_sym = mk_symbol srk (expr_typ srk rhs) in
           let fresh_rhs = mk_const srk fresh_sym in
           ((v, fresh_rhs)::x_tr,
-           (Term.set_expr srk fresh_rhs rhs)::guard,
+           (mk_eq srk fresh_rhs rhs)::guard,
            Symbol.Set.add fresh_sym rhs_symbols))
         ([], [guard], Symbol.Set.empty)
         (transform x)
@@ -1056,7 +1056,7 @@ let lift_universals srk phi =
     | `Atom (`Arith (`Eq, x, y)) -> (0, mk_eq srk x y)
     | `Atom (`Arith (`Lt, x, y)) -> (0, mk_lt srk x y)
     | `Atom (`Arith (`Leq, x, y)) -> (0, mk_leq srk x y)
-    | `Atom (`ArrEq (a, b)) -> (0, mk_arr_eq srk a b)
+    | `Atom (`ArrEq (a, b)) -> (0, mk_eq srk a b)
     | `Atom (`IsInt x) -> (0, mk_is_int srk x)
     | `And conjuncts ->
        let max_nb = List.fold_left max 0 (List.map fst conjuncts) in
@@ -1215,7 +1215,7 @@ let resource_bound_analysis file =
                 % Nonlinear.simplify_terms_rewriter srk
               in
               Ctx.mk_and [Syntax.substitute_const srk subst (K.guard summary);
-                          Syntax.Term.set_expr srk (Ctx.mk_const cost_symbol) rhs ]
+                          Syntax.mk_eq srk (Ctx.mk_const cost_symbol) rhs ]
               |> Syntax.rewrite srk ~up:simplify
             in
             match Wedge.symbolic_bounds_formula ~exists srk guard cost_symbol with

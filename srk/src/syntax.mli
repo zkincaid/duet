@@ -412,7 +412,6 @@ module Term : sig
   val typ : 'a context -> 'a t -> typ_term
   val refine : 'a context -> 'a t -> [ `ArithTerm of 'a arith_term
                                      | `ArrTerm of 'a arr_term ]
-  val set_expr : 'a context -> ('a, 'b) expr -> 'a t -> 'a formula
 end
 
 module ArithTerm : sig
@@ -487,16 +486,13 @@ val mk_exists_consts : 'a context -> (symbol -> bool) -> 'a formula -> 'a formul
 val mk_and : 'a context -> 'a formula list -> 'a formula
 val mk_or : 'a context -> 'a formula list -> 'a formula
 val mk_not : 'a context -> 'a formula -> 'a formula
-val mk_eq : 'a context -> 'a arith_term -> 'a arith_term -> 'a formula
+val mk_eq : 'a context -> ('a, 'typ) expr -> ('a, 'typ) expr -> 'a formula
 val mk_lt : 'a context -> 'a arith_term -> 'a arith_term -> 'a formula
 val mk_leq : 'a context -> 'a arith_term -> 'a arith_term -> 'a formula
 val mk_true : 'a context -> 'a formula
 val mk_false : 'a context -> 'a formula
 
 val mk_is_int : 'a context -> 'a arith_term -> 'a formula
-
-(** This is syntactic sugar for intrinsic array equality *)
-val mk_arr_eq : 'a context -> 'a arr_term -> 'a arr_term -> 'a formula
 
 (** Syntactic sugar for creating arithmetic relation atoms *)
 val mk_compare : [ `Eq | `Leq | `Lt ] -> 'a context -> 'a arith_term ->
@@ -525,7 +521,7 @@ val eliminate_ite : 'a context -> 'a formula -> 'a formula
 val lift_ite : 'a context -> 'a formula -> 'a formula
 
 (** Given a formula [phi], compute an equivalent formula without
-   arr_eq terms. *)
+   equalities between arrays. *)
 val eliminate_arr_eq : 'a context -> 'a formula -> 'a formula
 
 (** Given a formula [phi], compute a formula without floor, mod, and div terms
@@ -617,10 +613,9 @@ module type Context = sig
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_not : formula -> formula
-  val mk_eq : arith_term -> arith_term -> formula
+  val mk_eq : (t, 'typ) expr -> (t, 'typ) expr -> formula
   val mk_lt : arith_term -> arith_term -> formula
   val mk_leq : arith_term -> arith_term -> formula
-  val mk_arr_eq : arr_term -> arr_term -> formula
   val mk_true : formula
   val mk_false : formula
   val mk_is_int : arith_term -> formula
@@ -659,7 +654,7 @@ module Infix (C : sig
   val ( .%[] ) : C.t arr_term -> C.t arith_term -> C.t arith_term
   val ( .%[]<- ) : C.t arr_term -> C.t arith_term -> C.t arith_term ->
     C.t arr_term
-  val ( == ) : C.t arr_term -> C.t arr_term -> C.t formula
+  val ( == ) : (C.t, 'typ) expr -> (C.t, 'typ) expr -> C.t formula
 
   val is_int : C.t arith_term -> C.t formula
 end

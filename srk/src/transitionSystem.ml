@@ -831,7 +831,7 @@ module Make
           T.transform tr
           /@ (fun (v, t) ->
               let s =  substitute_map srk subst t in 
-              Term.set_expr srk (mk_const srk (Var.symbol_of v)) s
+              mk_eq srk (mk_const srk (Var.symbol_of v)) s
               )
           |> BatList.of_enum
         in

@@ -381,17 +381,7 @@ let of_z3 context sym_of_decl expr =
       (mk_exists context ~name:name typ (formula phi) :> 'a gexpr)
     | `Quantify (`Forall, name, typ, phi) ->
       (mk_forall context ~name:name typ (formula phi) :> 'a gexpr)
-    | `Atom (`Eq, s, t) ->
-      begin match Expr.refine context s, Expr.refine context t with
-        | `ArithTerm s, `ArithTerm t -> (mk_eq context s t :> 'a gexpr)
-        | `ArrTerm a, `ArrTerm b -> (mk_arr_eq context a b :> 'a gexpr)
-        | `Formula phi, `Formula psi ->
-          (mk_or context [mk_and context [phi; psi];
-                          mk_and context [mk_not context phi;
-                                          mk_not context psi]]
-           :> 'a gexpr)
-        | _, _ -> invalid_arg "of_z3: equal"
-      end
+    | `Atom (`Eq, s, t) -> (mk_eq context s t :> 'a gexpr)
     | `Atom (`Leq, s, t) -> (mk_leq context (arith_term s) (arith_term t) :> 'a gexpr)
     | `Atom (`Lt, s, t) -> (mk_lt context (arith_term s) (arith_term t) :> 'a gexpr)
     | `Ite (cond, bthen, belse) -> mk_ite context (formula cond) bthen belse
@@ -516,14 +506,7 @@ module Solver = struct
             of_z3 srk sym_of_decl
               (Z3.Model.FuncInterp.get_else finterp)
           in
-          let mk_eq x y = (* type-generic equality *)
-            match Expr.refine srk x, Expr.refine srk y with
-            | `ArithTerm x, `ArithTerm y ->
-              (mk_eq srk x y :> ('a, 'typ_fo) Syntax.expr)
-            | `Formula x, `Formula y ->
-              (mk_iff srk x y :> ('a, 'typ_fo) Syntax.expr)
-            | _, _ -> assert false
-          in
+          let mk_eq x y = (mk_eq srk x y :> ('a, 'typ_fo) Syntax.expr) in
           let func =
             List.fold_right (fun entry rest ->
                 let value =

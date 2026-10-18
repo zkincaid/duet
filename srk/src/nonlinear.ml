@@ -377,11 +377,7 @@ let linearize srk phi =
       let nonlinear_eqs =
         let nonlinear_defs =
           Symbol.Map.enum nonlinear
-          /@ (fun (symbol, expr) ->
-              match Expr.refine srk expr with
-              | `ArithTerm t -> mk_eq srk (mk_const srk symbol) t
-              | `ArrTerm t -> mk_arr_eq srk (mk_const srk symbol) t
-              | `Formula phi -> mk_iff srk (mk_const srk symbol) phi)
+          /@ (fun (symbol, expr) -> mk_eq srk (mk_const srk symbol) expr)
           |> BatList.of_enum
           |> mk_and srk
         in

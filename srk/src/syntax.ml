@@ -376,8 +376,6 @@ let mk_true srk = srk.mk True []
 let mk_false srk = srk.mk False []
 let mk_leq srk s t = srk.mk Leq [s; t]
 let mk_lt srk s t = srk.mk Lt [s; t]
-let mk_eq srk s t = srk.mk Eq [s; t]
-let mk_arr_eq srk s t = srk.mk ArrEq [s; t]
 
 let mk_is_int srk t = srk.mk IsInt [t]
 
@@ -404,6 +402,14 @@ let mk_ite srk cond bthen belse = srk.mk Ite [cond; bthen; belse]
 let mk_iff srk phi psi =
   mk_or srk [mk_and srk [phi; psi]; mk_and srk [mk_not srk phi; mk_not srk psi]]
 let mk_if srk phi psi = mk_or srk [mk_not srk phi; psi]
+
+let mk_eq srk s t =
+  match s.obj, t.obj with
+  | Node (_, _, (`TyInt | `TyReal)), Node (_, _, (`TyInt | `TyReal)) ->
+    srk.mk Eq [s; t]
+  | Node (_, _, `TyArr), Node (_, _, `TyArr) -> srk.mk ArrEq [s; t]
+  | Node (_, _, `TyBool), Node (_, _, `TyBool) -> mk_iff srk s t
+  | _, _ -> invalid_arg "mk_eq: ill-typed equality"
 
 let mk_truncate srk t =
   mk_ite srk
@@ -1078,11 +1084,6 @@ module Term = struct
       | Node (_, _, `TyReal) -> `ArithTerm sexpr
     | Node (_, _, `TyArr) -> `ArrTerm sexpr
     | Node (_, _, `TyBool) -> assert false
-
-  let set_expr srk expr t =
-    match refine srk t with
-    | `ArithTerm t' -> mk_eq srk expr t'
-    | `ArrTerm t' -> mk_arr_eq srk expr t'
 end
 
 module ArithTerm = struct
@@ -1270,7 +1271,7 @@ module Formula = struct
     | `Atom (`Arith (`Eq, s, t)) -> mk_eq _srk s t
     | `Atom (`Arith (`Leq, s, t)) -> mk_leq _srk s t
     | `Atom (`Arith (`Lt, s, t)) -> mk_lt _srk s t
-    | `Atom (`ArrEq (s, t)) -> mk_arr_eq _srk s t
+    | `Atom (`ArrEq (s, t)) -> mk_eq _srk s t
     | `Atom (`IsInt s) -> mk_is_int _srk s
     | `Proposition (`Var v) -> mk_var _srk v `TyBool
     | `Proposition (`App (f, args)) -> mk_app _srk f args
@@ -1705,7 +1706,7 @@ let lift_ite srk phi =
       | `Atom (`ArrEq (s, t)) ->
         let promote_t = promote_ite t in
         map_ite
-          (fun s -> map_ite (fun t -> `Term (mk_arr_eq srk s t)) promote_t)
+          (fun s -> map_ite (fun t -> `Term (mk_eq srk s t)) promote_t)
           (promote_ite s)
         |> ite_formula
       | `Atom (`IsInt s) ->
@@ -1780,13 +1781,7 @@ let eliminate_ite srk phi =
   let gen_equiv sym expr =
     match destruct srk expr with
     | `Ite (cond, bthen, belse) ->
-      let mk_eq a b =
-        match Expr.refine srk a, Expr.refine srk b with
-        | `Formula p, `Formula q -> mk_iff srk p q
-        | `ArithTerm s, `ArithTerm t -> mk_eq srk s t
-        | `ArrTerm s, `ArrTerm t -> mk_arr_eq srk s t
-        | _, _ -> assert false
-      in
+      let mk_eq = mk_eq srk in
       let k = mk_const srk sym in
       [mk_or srk [mk_and srk [cond; mk_eq k bthen]
                  ; mk_and srk [mk_not srk cond; mk_eq k belse]]]
@@ -2141,7 +2136,7 @@ struct
   let var = mk_var C.context
   let ( .%[] ) = mk_select C.context
   let ( .%[]<- ) = mk_store C.context
-  let ( == ) = mk_arr_eq C.context
+  let ( == ) s t = mk_eq C.context s t
 
   let is_int = mk_is_int C.context
 end
@@ -2178,10 +2173,9 @@ module type Context = sig
   val mk_and : formula list -> formula
   val mk_or : formula list -> formula
   val mk_not : formula -> formula
-  val mk_eq : arith_term -> arith_term -> formula
+  val mk_eq : (t, 'typ) expr -> (t, 'typ) expr -> formula
   val mk_lt : arith_term -> arith_term -> formula
   val mk_leq : arith_term -> arith_term -> formula
-  val mk_arr_eq : arr_term -> arr_term -> formula
   val mk_true : formula
   val mk_false : formula
   val mk_is_int : arith_term -> formula
@@ -2221,7 +2215,6 @@ module ImplicitContext(C : sig
   let mk_eq = mk_eq context
   let mk_lt = mk_lt context
   let mk_leq = mk_leq context
-  let mk_arr_eq = mk_arr_eq context
   let mk_true = mk_true context
   let mk_false = mk_false context
   let mk_is_int = mk_is_int context
