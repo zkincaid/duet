@@ -346,9 +346,11 @@ module GuardedTranslation = struct
                (V.enum vec))
           in
           let vec = V.scalar_mul (QQ.of_zz common_denom) vec in
+          (* vec = [c, a0, ..., an] means c + sum_i ai (xi' - xi) = 0, so the
+             simulation term sum_i ai xi is translated by -c each step *)
           let (const, functional) = V.pivot 0 vec in
           (Linear.term_of_vec srk (fun i -> pre_symbols.(i-1)) functional::sim,
-           const::tr))
+           (QQ.negate const)::tr))
         ([], [])
         (Abstract.LinearSpan.abstract abs_solver delta)
     in

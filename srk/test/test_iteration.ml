@@ -530,7 +530,12 @@ let guarded_translation1 () =
       tr_symbols
   in
   let closure = GT.star srk phi in
-  assert_implies closure Infix.(y < x || x' <= y)
+  assert_implies closure Infix.(y < x || x' <= y);
+  assert_implies closure Infix.(x <= x' && y' = y);
+  (* Soundness: 0 -> 1 -> 2 -> 3 with y = 5 is an execution *)
+  assert_bool "execution excluded by closure"
+    (Smt.is_sat srk Infix.(closure && x = (int 0) && x' = (int 3)
+                           && y = (int 5) && y' = (int 5)) = `Sat)
 
 let guarded_translation2 () =
   let phi =
@@ -541,7 +546,11 @@ let guarded_translation2 () =
       tr_symbols
   in
   let closure = GT.star srk phi in
-  assert_implies closure Infix.(x < (int 0) || (int 0) <= x')
+  assert_implies closure Infix.(x < (int 0) || (int 0) <= x');
+  assert_implies closure Infix.(x' <= x);
+  (* Soundness: 10 -> 8 -> 6 is an execution *)
+  assert_bool "execution excluded by closure"
+    (Smt.is_sat srk Infix.(closure && x = (int 10) && x' = (int 6)) = `Sat)
 
 let suite = "Iteration" >::: [
     "prepost" >:: prepost;
