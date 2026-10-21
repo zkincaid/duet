@@ -18,7 +18,7 @@ module Make
     (Var : sig
        type t
        val pp : Format.formatter -> t -> unit
-       val typ : t -> typ_term
+       val typ : t -> typ_fo
        val compare : t -> t -> int
        val symbol_of : t -> symbol
        val of_symbol : symbol -> t option
@@ -31,9 +31,9 @@ module Make
        type var = Var.t
        val pp : Format.formatter -> t -> unit
        val guard : t -> C.t formula
-       val transform : t -> (var * C.t term) BatEnum.t
+       val transform : t -> (var * (C.t, typ_fo) expr) BatEnum.t
        val mem_transform : var -> t -> bool
-       val get_transform : var -> t -> C.t term
+       val get_transform : var -> t -> (C.t, typ_fo) expr
        val assume : C.t formula -> t
        val mul : t -> t -> t
        val add : t -> t -> t
@@ -268,14 +268,19 @@ module Make
         let guard = mk_and srk (!guards) in
         (* variables used/defined by tr *)
         let vars = VarSet.elements (abstract_defs tr) in
-        let objectives =
-          List.map (fun v ->
-              if T.mem_transform v tr then
-                T.get_transform v tr
-              else
-                mk_const srk (Var.symbol_of v))
+        let (vars, objectives) =
+          List.filter_map (fun v ->
+              let t =
+                if T.mem_transform v tr then
+                  T.get_transform v tr
+                else
+                  mk_const srk (Var.symbol_of v)
+              in
+              match Expr.refine srk t with
+              | `ArithTerm at -> Some (v, at)
+              | `ArrTerm _ | `Formula _ -> None)
             vars
-          |> List.filter_map (fun t -> match Term.refine srk t with |`ArithTerm at -> Some at | `ArrTerm _ -> None) 
+          |> List.split
         in
         let result =
           match Nonlinear.optimize_box ~context srk guard objectives with
@@ -345,6 +350,7 @@ module Make
             (symbols predicate)
         in
         VarSet.elements (PS.fold add_vars predicates VarSet.empty)
+        |> List.filter (fun v -> is_arith_typ (Var.typ v))
       in
       let objectives =
         List.map (fun v -> mk_const srk (Var.symbol_of v)) variables
@@ -847,9 +853,9 @@ module Make
             (fun v set ->
                Symbol.Set.add (Var.symbol_of v) set)
             (references tr)
-            (Symbol.Set.filter
-               (fun s -> Var.of_symbol s != None)
-               (symbols pre_formula))
+            (symbols pre_formula)
+          |> Symbol.Set.filter (fun s ->
+              Var.of_symbol s != None && is_arith_typ (typ_symbol srk s))
           |> Symbol.Set.elements
         in
         let solver = Abstract.Solver.make ~theory:`LIRA srk tf in

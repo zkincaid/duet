@@ -82,6 +82,9 @@ type plt_constraints
 type virtual_term
 
 val select_vt : int -> (int -> QQ.t) -> plt_constraints -> virtual_term
+
+(** [virtual_subst srk sigma phi] applies the virtual substitution [sigma]
+    to the linear integer/real arithmetic formula [phi]. *)
 val virtual_subst : 'a Syntax.context ->
                     ?vec_of_sym:(Syntax.symbol -> Linear.QQVector.t) ->
                     ?term_of_dim:('a Syntax.context -> int -> 'a Syntax.arith_term) ->
@@ -91,11 +94,21 @@ val virtual_subst : 'a Syntax.context ->
 
 val virtual_subst_plt : (int * virtual_term) list -> plt_constraints -> plt_constraints
 
-val select_plt : 'a Syntax.context ->
-                 ?vec_of_sym:(Syntax.symbol -> Linear.QQVector.t) ->
-                 'a Syntax.formula ->
-                 'a Interpretation.interpretation ->
-                 plt_constraints option
+(** A cube: a conjunction of PLT constraints and literals of Boolean
+    constants and variables *)
+type 'a cube
+
+val make_cube : plt_constraints -> 'a Syntax.formula list -> 'a cube
+val plt_of_cube : 'a cube -> plt_constraints
+val literals_of_cube : 'a cube -> 'a Syntax.formula list
+
+(** [select_cube srk phi m] selects an implicant of [phi] that holds in [m],
+    as a cube. *)
+val select_cube : 'a Syntax.context ->
+                  ?vec_of_sym:(Syntax.symbol -> Linear.QQVector.t) ->
+                  'a Syntax.formula ->
+                  'a Interpretation.interpretation ->
+                  'a cube option
 
 val local_project_plt : elim:(int -> bool) ->
                         (int -> QQ.t) ->
@@ -113,3 +126,8 @@ val formula_of_plt : 'a Syntax.context ->
                      ?term_of_dim:('a Syntax.context -> int -> 'a Syntax.arith_term) ->
                      plt_constraints ->
                      'a Syntax.formula
+
+val formula_of_cube : 'a Syntax.context ->
+                      ?term_of_dim:('a Syntax.context -> int -> 'a Syntax.arith_term) ->
+                      'a cube ->
+                      'a Syntax.formula

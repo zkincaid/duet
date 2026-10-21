@@ -124,8 +124,10 @@ module Plt: sig
     poly_part:P.t ->
     lattice_part: L.unreduced L.t -> tiling_part: L.unreduced L.t -> t
 
-  val plt_constraints_of_cube : 'a context
-    -> (symbol -> V.t) -> 'a formula list -> plt_constraints
+  (** Split an implicant into its arithmetic constraints and its
+      propositional literals *)
+  val plt_constraints_of_implicant : 'a context
+    -> (symbol -> V.t) -> 'a formula list -> plt_constraints * 'a formula list
 
   val formula_of_plt_constraints: 'a Syntax.context
     -> ?term_of_dim:('a context -> int -> 'a arith_term)
@@ -207,7 +209,22 @@ end = struct
       Syntax.Symbol.Set.empty
       atoms
 
-  let plt_implicant_of_implicant srk vec_of_sym atoms =
+  let is_propositional_literal srk atom =
+    let is_proposition phi =
+      match Syntax.Formula.destruct srk phi with
+      | `Proposition (`App (_, [])) | `Proposition (`Var _) -> true
+      | _ -> false
+    in
+    match Syntax.Formula.destruct srk atom with
+    | `Not psi -> is_proposition psi
+    | _ -> is_proposition atom
+
+  (* Split an implicant into its arithmetic part, as PLT constraints, and its
+     propositional literals *)
+  let plt_implicant_of_implicant srk vec_of_sym implicant =
+    let (literals, atoms) =
+      List.partition (is_propositional_literal srk) implicant
+    in
     let lincond =
       List.fold_left (fun lincond atom ->
           let lincond_atom =
@@ -225,11 +242,11 @@ end = struct
       ; t_cond = []
       }
     in
-    conjoin lincond integers
+    (conjoin lincond integers, literals)
 
-  let plt_constraints_of_cube srk vec_of_symbol atoms =
-    let constraints = plt_implicant_of_implicant srk vec_of_symbol atoms in
-    (constraints.p_cond, constraints.l_cond, constraints.t_cond)
+  let plt_constraints_of_implicant srk vec_of_symbol atoms =
+    let (constraints, literals) = plt_implicant_of_implicant srk vec_of_symbol atoms in
+    ((constraints.p_cond, constraints.l_cond, constraints.t_cond), literals)
 
   let formula_of_plt_constraints srk ?(term_of_dim=default_term_of_dim) (p, l, t) =
     let term_of_dim = term_of_dim srk in
@@ -313,8 +330,9 @@ end = struct
         )
         implicant;
       let vec_of_symbol k = V.of_term QQ.one (dim_of_symbol k) in
-      let lincond =
-        plt_implicant_of_implicant srk vec_of_symbol implicant in
+      let (lincond, _) =
+        plt_implicant_of_implicant srk vec_of_symbol implicant
+      in
       let is_ints = implicit_is_ints srk vec_of_symbol implicant in
       let imp_p =
         Polyhedron.of_constraints
@@ -681,6 +699,12 @@ end = struct
     in
     let subst = function
       | `Atom at -> subst_atom at
+      | `Literal (polarity, p) ->
+         let phi = match p with
+           | `Const k -> mk_const srk k
+           | `Var i -> mk_var srk i `TyBool
+         in
+         if polarity = `Pos then phi else mk_not srk phi
       | `Tru -> mk_true srk
       | `Fls -> mk_false srk
       | `And xs -> mk_and srk xs
@@ -1028,10 +1052,17 @@ let virtual_subst
 
 let virtual_subst_plt = LwCooper.virtual_sub
 
-let select_plt srk ?(vec_of_sym=default_vec_of_sym) phi interp =
+type 'a cube = plt_constraints * 'a formula list
+
+let make_cube plt literals = (plt, literals)
+let plt_of_cube (plt, _) = plt
+let literals_of_cube (_, literals) = literals
+
+let select_cube srk ?(vec_of_sym=default_vec_of_sym) phi interp =
   match Interpretation.select_implicant interp phi with
   | None -> None
-  | Some cube -> Some (Plt.plt_constraints_of_cube srk vec_of_sym cube)
+  | Some implicant ->
+    Some (Plt.plt_constraints_of_implicant srk vec_of_sym implicant)
 
 let local_project_plt = LwCooper.local_project_plt
 
@@ -1043,3 +1074,6 @@ let make_plt_constraints ?(lattice_part=[]) ?(tiling_part=[]) poly_part =
   (poly_part, lattice_part, tiling_part)
 
 let formula_of_plt = Plt.formula_of_plt_constraints
+
+let formula_of_cube srk ?term_of_dim (plt, literals) =
+  mk_and srk (formula_of_plt srk ?term_of_dim plt :: literals)

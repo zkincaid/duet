@@ -552,7 +552,103 @@ let guarded_translation2 () =
   assert_bool "execution excluded by closure"
     (Smt.is_sat srk Infix.(closure && x = (int 10) && x' = (int 6)) = `Sat)
 
+(* Boolean transition symbols stay in the formula but are ignored by
+   operators: closures are computed over the arithmetic variables, and
+   remain sound. *)
+let booleans () =
+  let bsym = Ctx.mk_symbol ~name:"b" `TyBool in
+  let bsym' = Ctx.mk_symbol ~name:"b'" `TyBool in
+  let b = Ctx.mk_const bsym in
+  let b' = Ctx.mk_const bsym' in
+  let tf =
+    let open Infix in
+    (* while (b) { x++; b := x < 10 && y < 5 }: a compound value, whose
+       negation select_implicant must push inward *)
+    TransitionFormula.make
+      (b && x' = x + (int 1) && mk_eq srk b' (x' < (int 10) && y < (int 5)) && y' = y)
+      [(xsym, xsym'); (bsym, bsym'); (ysym, ysym')]
+  in
+  let solver = Iteration.Solver.make srk tf in
+  assert_bool "get_symbols includes Booleans"
+    (List.mem (bsym, bsym') (Iteration.Solver.get_symbols solver));
+  assert_bool "wedge_hull omits Booleans"
+    (not (Symbol.Set.exists (fun s -> typ_symbol srk s = `TyBool)
+            (symbols (Wedge.to_formula (Iteration.Solver.wedge_hull solver)))));
+  let check name star =
+    let closure = star srk tf in
+    let open Infix in
+    if Smt.entails srk closure (x <= x' && y = y') != `Yes then
+      assert_failure (name ^ ": closure does not imply x <= x' /\\ y = y'")
+  in
+  (* Guard domains only summarize pre/post conditions; check that they run *)
+  let check_guard name star = ignore (star srk tf); ignore name in
+  ignore b';
+  check "SP" SP.star;
+  check "SPPR" SPPR.star;
+  check "DLTS" DLTS.star;
+  check "WAT" WAT.star;
+  check "GT" GT.star;
+  check "SPQ" SPQ.star;
+  check "Lossy" (mk_star `LIRA [Iteration.LossyTranslation.exp]);
+  check_guard "Linear" (mk_star `LIRA [Iteration.LinearGuard.exp]);
+  check_guard "Polyhedron" (mk_star `LIRA [Iteration.PolyhedronGuard.exp]);
+  check "Vas" (mk_star `LIRA [Vas.exp]);
+  check "split" (fun srk tf ->
+      Iteration.closure (Iteration.split (Iteration.wedge_lift
+                                            (Iteration.wedge_product
+                                               [SolvablePolynomial.SolvablePolynomial.wedge_exp;
+                                                Iteration.WedgeGuard.wedge_exp])))
+        (Iteration.Solver.make srk tf))
+
+(* Booleans flipped by every iteration of a loop that runs from x = 4 while
+   x < 5 (one phase) and then while 5 <= x (another phase).  [second] is the
+   update of x in the second phase. *)
+let flip_loop second =
+  let bsym = Ctx.mk_symbol ~name:"b" `TyBool in
+  let bsym' = Ctx.mk_symbol ~name:"b'" `TyBool in
+  let b = Ctx.mk_const bsym in
+  let b' = Ctx.mk_const bsym' in
+  let tf =
+    let open Infix in
+    TransitionFormula.make
+      (((x < (int 5) && x' = x + (int 1)) || ((int 5) <= x && second))
+       && mk_eq srk b' (mk_not srk b))
+      [(xsym, xsym'); (bsym, bsym')]
+  in
+  (tf, b, b')
+
+(* Each step of a closure has its own copy of the Booleans.  VASS closures
+   and invariant_direction (which chains phases through copies of all
+   transition symbols) must allow two steps that flip b twice. *)
+let boolean_copies () =
+  let (tf, b, b') = flip_loop Infix.(x' = x + (int 1)) in
+  let closure = mk_star `LIRA [Vass.exp] srk tf in
+  assert_bool "Vass: 4 -> 6 with b' = b"
+    (Smt.is_sat srk Infix.(closure && x = (int 4) && x' = (int 6) && mk_eq srk b' b) = `Sat);
+  let (tf, b, b') = flip_loop Infix.(x' = x) in
+  (* The parity of the number of flips *)
+  let parity _ k =
+    let m = Ctx.mk_const (Ctx.mk_symbol ~name:"m" `TyInt) in
+    let open Infix in
+    (k = (int 2) * m && mk_eq srk b' b) || (k = (int 2) * m + (int 1) && mk_eq srk b' (mk_not srk b))
+  in
+  let sp = Iteration.wedge_lift
+      (Iteration.wedge_product
+         [SolvablePolynomial.SolvablePolynomial.wedge_exp; Iteration.WedgeGuard.wedge_exp])
+  in
+  (* 4 -> 5 -> 5 flips b twice *)
+  let run exp =
+    let closure = Iteration.closure exp (Iteration.Solver.make srk tf) in
+    Smt.is_sat srk Infix.(closure && x = (int 4) && x' = (int 5) && mk_eq srk b' b)
+  in
+  assert_bool "invariant_direction exp"
+    (run (Iteration.invariant_direction (Iteration.product [parity; sp])) = `Sat);
+  assert_bool "invariant_direction Vass"
+    (run (Iteration.invariant_direction Vass.exp) = `Sat)
+
 let suite = "Iteration" >::: [
+    "boolean_copies" >:: boolean_copies;
+    "booleans" >:: booleans;
     "prepost" >:: prepost;
     "simple_induction" >:: simple_induction;
     "count_by_1" >:: count_by_1;

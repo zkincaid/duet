@@ -1454,7 +1454,7 @@ module PresburgerGuard = struct
   let exp solver loop_counter =
     wedge_exp
       (IS.get_context solver)
-      (IS.get_symbols solver)
+      (IS.get_numeric_symbols solver)
       (IS.wedge_hull solver)
       loop_counter
 end
@@ -1575,22 +1575,22 @@ module DLTS = struct
     exp_impl
       SolvablePolynomial.exp
       (IS.get_context solver)
-      (IS.get_symbols solver)
+      (IS.get_numeric_symbols solver)
       iter
       loop_count
 
   let abstract solver =
-    let tr_symbols = IS.get_symbols solver in
+    let tr_symbols = IS.get_numeric_symbols solver in
     let srk = IS.get_context solver in
     let abs_solver = IS.get_abstract_solver solver in
     let phi_symbols =
       List.fold_left
         (fun set (s,s') -> Symbol.Set.add s (Symbol.Set.add s' set))
-        (IS.get_constants solver)
+        (IS.get_numeric_constants solver)
         tr_symbols
       |> Symbol.Set.elements
     in
-    let constants = Symbol.Set.elements (IS.get_constants solver) in
+    let constants = Symbol.Set.elements (IS.get_numeric_constants solver) in
     (* pre_map is a mapping from dimensions that correspond to
        post-state dimensions to their pre-state counterparts *)
     let pre_map =
@@ -1782,7 +1782,7 @@ module DLTSPeriodicRational = struct
     exp_impl
       SolvablePolynomialPeriodicRational.exp
       (IS.get_context solver)
-      (IS.get_symbols solver)
+      (IS.get_numeric_symbols solver)
       iter
       loop_count
 end
@@ -1868,7 +1868,7 @@ module SolvablePolynomialLIRR = struct
 
   let exp_t solver it loop_count =
     let srk = IS.get_context solver in
-    let tr_symbols = IS.get_symbols solver in
+    let tr_symbols = IS.get_numeric_symbols solver in
     let pp_sim f = Array.iteri (fun i s -> Format.fprintf f "simulation.(%d) : %a@." i (pp_expr_unnumbered srk) s) in
     logf "%a" pp_sim it.simulation;
     let post_map = (* map pre-state vars to post-state vars *)
@@ -1930,7 +1930,7 @@ module SolvablePolynomialLIRR = struct
       let tr_symbols =
         List.fold_left2
           (fun tr_symbols k k' -> (k,k')::tr_symbols)
-          (IS.get_symbols solver)
+          (IS.get_numeric_symbols solver)
           ideal_constants
           ks
       in
@@ -2009,7 +2009,7 @@ module SolvablePolynomialLIRRQuadratic = struct
       let tr_symbols =
         List.fold_left2
           (fun tr_symbols k k' -> (k,k')::tr_symbols)
-          (IS.get_symbols solver)
+          (IS.get_numeric_symbols solver)
           ideal_constants
           ks
       in

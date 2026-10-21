@@ -53,14 +53,11 @@ type 'a sccvas =
  *
  * sink is the end state; all paths in closure must terminate here.
  * Must at least overapproximate possible "post-states".
- *
- * skolem_constants...
 *)
 type 'a t = {
   vasses : 'a sccvas array;
   formula : 'a formula;
-  sink : 'a formula;
-  skolem_constants : Symbol.Set.t
+  sink : 'a formula
 }
 
 
@@ -249,7 +246,7 @@ let project_dnf srk exists phi =
     | `Unsat -> cubes
     | `Unknown -> assert false
     | `Sat m ->
-       match PLT.select_plt srk phi m with
+       match PLT.select_cube srk phi m with
        | None -> assert false
        | Some cube ->
           let valuation i =
@@ -258,7 +255,7 @@ let project_dnf srk exists phi =
             | None -> QQ.one
           in
           let cube =
-            PLT.make_plt_constraints (PLT.poly_part cube)
+            PLT.make_plt_constraints (PLT.poly_part (PLT.plt_of_cube cube))
             |> PLT.local_project_plt ~elim valuation
             |> PLT.formula_of_plt srk
           in
@@ -313,10 +310,18 @@ let get_control_states srk tf =
 
 
 let abstract solver =
-  let tr_symbols = IS.get_symbols solver in
-  let skolem_constants = IS.get_constants solver in
+  let tr_symbols = IS.get_numeric_symbols solver in
   let srk = IS.get_context solver in
-  let tf = IS.get_transition_formula solver in
+  let tf =
+    let numeric_symbols =
+      Symbol.Set.union (IS.get_numeric_constants solver)
+        (Symbol.Set.union (TF.pre_symbols tr_symbols) (TF.post_symbols tr_symbols))
+    in
+    TF.make
+      ~exists:(fun x -> Symbol.Set.mem x numeric_symbols)
+      (IS.get_formula solver)
+      tr_symbols
+  in
   let phi = IS.get_formula solver in
   let control_states, sink = get_control_states srk tf in
   let graph = compute_edges srk tr_symbols control_states phi in
@@ -327,11 +332,11 @@ let abstract solver =
     control_states;
   if num_sccs = 0 then
     {vasses= BatArray.init 0 (fun _ -> assert false); 
-     formula=phi; skolem_constants; sink=sink}
+     formula=phi; sink=sink}
   else(
     let vassarrays = BatArray.map 
         (fun scc -> compute_single_scc_vass ~exists srk tr_symbols scc phi) sccs in
-    let result = {vasses=vassarrays;formula=phi; skolem_constants; sink=sink} in
+    let result = {vasses=vassarrays;formula=phi; sink=sink} in
     logf "%a" (pp solver) result;
     result
   )
@@ -775,7 +780,7 @@ let first_scc_constrs srk ordering_vars sources sccs_closures symmappings tr_sym
 
 let exp_t solver sccsform loop_counter =
   let srk = IS.get_context solver in
-  let tr_symbols = IS.get_symbols solver in
+  let tr_symbols = IS.get_numeric_symbols solver in
   (*No sccs <-> no possible transitions*)
   if BatArray.length sccsform.vasses = 0 then (no_trans_taken srk loop_counter tr_symbols) 
   else(
@@ -801,7 +806,21 @@ let exp_t solver sccsform loop_counter =
     let subloop_counters = BatArray.mapi (fun ind1 _ ->
         mk_const srk ((mk_symbol srk ~name:("counter_"^(string_of_int ind1)) `TyInt))) 
         symmappings in
-    (* Skolem vars in phi will need own copy of var when linking between sccs *)
+    (* Skolem vars in phi will need own copy of var when linking between
+       sccs.  So do non-numeric transition symbols (e.g., Booleans), which
+       the VASS abstraction does not track: each link step is a separate
+       transition, which constrains its own copies of them. *)
+    let link_symbols =
+      let numeric =
+        Symbol.Set.union (TF.pre_symbols tr_symbols) (TF.post_symbols tr_symbols)
+      in
+      Symbol.Set.filter (fun x ->
+          not (Symbol.Set.mem x numeric)
+          && (match typ_symbol srk x with
+              | `TyFun _ -> false
+              | _ -> true))
+        (symbols sccsform.formula)
+    in
     let skolem_mappings_transitions = BatArray.mapi (fun ind1 _ ->
         BatList.fold_left 
           (fun acc x -> 
@@ -810,7 +829,7 @@ let exp_t solver sccsform loop_counter =
                  (typ_symbol srk x))) 
              :: acc) 
           []
-          (Symbol.Set.elements sccsform.skolem_constants))
+          (Symbol.Set.elements link_symbols))
         symmappings
     in
 

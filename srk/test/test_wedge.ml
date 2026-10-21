@@ -364,7 +364,23 @@ let powlog () =
   in
   assert_implies phi [(int 1) <= (int 0)]
 
+let abstract_non_numeric () =
+  let bsym = Ctx.mk_symbol ~name:"b" `TyBool in
+  let open Infix in
+  let arithmetic = x = f z && y = x + (int 1) && (int 0) <= x in
+  let phi = Ctx.mk_const bsym && arithmetic in
+  let hull = Wedge.abstract srk phi |> Wedge.to_formula in
+  assert_equiv_formula arithmetic hull;
+  assert_bool "Boolean symbols are projected"
+    (not (Symbol.Set.mem bsym (symbols hull)));
+  let projected =
+    Wedge.abstract ~exists:(fun s -> Stdlib.(s <> fsym && s <> ysym)) srk phi
+    |> Wedge.to_formula
+  in
+  assert_equiv_formula ((int 0) <= x) projected
+
 let suite = "Wedge" >::: [
+    "abstract_non_numeric" >:: abstract_non_numeric;
     "cs_roundtrip1" >:: cs_roundtrip1;
     "cs_roundtrip2" >:: cs_roundtrip2;
     "roundtrip1" >:: roundtrip1;

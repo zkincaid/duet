@@ -340,7 +340,7 @@ let exp_base_helper srk (_ : (symbol * symbol) list) loop_counter s_lst transfor
 (*Compute closure*)
 let exp_t solver vabs loop_counter =
   let srk = IS.get_context solver in
-  let tr_symbols = IS.get_symbols solver in
+  let tr_symbols = IS.get_numeric_symbols solver in
   let {v; s_lst} = vabs in
   (* if top*)  
   if(M.nb_rows (unify s_lst) = 0) 
@@ -495,12 +495,12 @@ let alpha_hat srk imp tr_symbols =
 (*TODO:Make a better pp function*)
 let pp solver formatter vas =
   let srk = IS.get_context solver in
-  let syms = IS.get_symbols solver in
+  let syms = IS.get_numeric_symbols solver in
   Format.fprintf formatter "%a" (Formula.pp srk) (gamma srk vas syms)
 
 let abstract solver =
   let srk = IS.get_context solver in
-  let tr_symbols = IS.get_symbols solver in
+  let tr_symbols = IS.get_numeric_symbols solver in
   let abs_solver = IS.get_abstract_solver solver in
   let rec go vas =
     Abstract.Solver.block abs_solver (gamma srk vas tr_symbols);
@@ -525,7 +525,7 @@ module Monotone = struct
 
   let abstract solver =
     let srk = Iteration.Solver.get_context solver in
-    let tr_symbols = IS.get_symbols solver in
+    let tr_symbols = IS.get_numeric_symbols solver in
     let phi = IS.get_formula solver in
     let abs_solver = IS.get_abstract_solver solver in
     let rec go vas =

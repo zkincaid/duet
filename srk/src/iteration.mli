@@ -19,6 +19,9 @@ module Solver : sig
 
   val get_transition_formula : 'a t -> 'a TransitionFormula.t
 
+  val get_numeric_symbols : 'a t -> (symbol * symbol) list
+  val get_numeric_constants : 'a t -> Symbol.Set.t
+
   (** Retrieve a model of the formula that not satisfy any blocking clause, if
      possible.  *)
   val get_model : 'a t -> [ `Sat of 'a Abstract.smt_model | `Unsat | `Unknown ]

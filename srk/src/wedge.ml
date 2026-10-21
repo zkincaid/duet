@@ -2236,12 +2236,18 @@ let abstract_subwedge_weak subwedge srk phi =
   result
 
 let abstract ?exists:(p=fun _ -> true) ?(subterm=fun _ -> true) srk phi =
+  let exists x =
+    p x
+    && (match typ_symbol srk x with
+        | `TyFun _ -> true
+        | typ -> is_arith_typ typ)
+  in
   let wedge =
     { of_wedge = (fun ~lemma:_ w -> w);
       join = (fun ~lemma w1 w2 -> join ~lemma w1 w2);
       to_formula = to_formula }
   in
-  Log.time "Wedge abstract" (abstract_subwedge wedge ~exists:p ~subterm srk) phi
+  Log.time "Wedge abstract" (abstract_subwedge wedge ~exists ~subterm srk) phi
 
 let ensure_min_max srk =
   List.iter

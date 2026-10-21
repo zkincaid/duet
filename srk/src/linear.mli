@@ -408,6 +408,7 @@ type 'a open_lira = [
   | `Or of 'a list
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of (lira_predicate * QQVector.t)
+  | `Literal of [`Pos | `Neg] * [`Const of symbol | `Var of int]
   ]
 
 (** Destruct a formula as an atomic formula of linear integer/real arithmetic *)

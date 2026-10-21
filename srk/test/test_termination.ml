@@ -90,7 +90,31 @@ let assert_equal_pq x y =
 
 let mp_dta tf = TerminationDTA.mp (Iteration.Solver.make srk tf)
 
+(* Termination procedures ignore Boolean transition symbols *)
+let booleans () =
+  let bsym = Ctx.mk_symbol ~name:"b" `TyBool in
+  let bsym' = Ctx.mk_symbol ~name:"b'" `TyBool in
+  let b = Ctx.mk_const bsym in
+  let b' = Ctx.mk_const bsym' in
+  let mk phi = Iteration.Solver.make srk (TF.make phi [(xsym, xsym'); (bsym, bsym')]) in
+  let mk_nb phi = Iteration.Solver.make srk (TF.make phi [(xsym, xsym')]) in
+  let open Infix in
+  (* while (b && x > 0) { x--; b := * } terminates *)
+  let arith = (int 0) < x && x' = x - (int 1) in
+  let terminating = b && arith in
+  assert_bool "LLRF" (TerminationLLRF.has_llrf (mk terminating));
+  (* Ignoring b gives the same results as the loop without it *)
+  assert_equiv_formula (TerminationLLRF.mp (mk_nb arith)) (TerminationLLRF.mp (mk terminating));
+  assert_equiv_formula (TerminationDTA.mp (mk_nb arith)) (TerminationDTA.mp (mk terminating));
+  assert_equiv_quantified_formula
+    (TerminationExp.mp Iteration.LossyTranslation.exp (mk_nb arith))
+    (TerminationExp.mp Iteration.LossyTranslation.exp (mk terminating));
+  (* while (b) { b := b } need not terminate, and the Booleans are ignored *)
+  let nonterminating = b && mk_eq srk b' b && x' = x in
+  assert_bool "no LLRF" (not (TerminationLLRF.has_llrf (mk nonterminating)))
+
 let suite = "Termination" >::: [
+    "booleans" >:: booleans;
       "even" >:: (fun () ->
         let tr =
           Infix.(!(x = (int 0)) && x' = x - (int 2))

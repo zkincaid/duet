@@ -66,8 +66,8 @@ let has_prf solver =
   let x_xp =
     Symbol.Set.fold
       (fun s xs -> (s, s) :: xs)
-      (IS.get_constants solver)
-      (IS.get_symbols solver)
+      (IS.get_numeric_constants solver)
+      (IS.get_numeric_symbols solver)
   in
   logf "Finding PRF for TF: %a" (Formula.pp srk) (IS.get_formula solver);
   let pre_vars_arr =
@@ -147,8 +147,8 @@ let has_plrf solver =
   let x_xp =
     Symbol.Set.fold
       (fun s xs -> (s, s) :: xs)
-      (IS.get_constants solver)
-      (IS.get_symbols solver)
+      (IS.get_numeric_constants solver)
+      (IS.get_numeric_symbols solver)
   in
   logf "Begin PLRF for TF: %a" (Formula.pp srk) (Abstract.Solver.get_formula abs_solver);
   let pre_vars_arr =

@@ -81,7 +81,7 @@ let find_inv_functionals dx_dims implied_ideal =
 
 let exp solver loop_counter =
   let srk = Iteration.Solver.get_context solver in
-  let tr_symbols = Iteration.Solver.get_symbols solver in
+  let tr_symbols = Iteration.Solver.get_numeric_symbols solver in
   let pre_symbols =
     List.map (fun (s,_) -> mk_const srk s) tr_symbols
     |> Array.of_list

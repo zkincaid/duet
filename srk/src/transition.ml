@@ -7,7 +7,7 @@ module type Var = sig
   type t
   val pp : Format.formatter -> t -> unit
   val show : t -> string
-  val typ : t -> typ_term
+  val typ : t -> typ_fo
   val compare : t -> t -> int
   val symbol_of : t -> symbol
   val of_symbol : symbol -> t option
@@ -25,13 +25,17 @@ struct
 
   type var = Var.t
 
+  (* Value assigned to a variable: a term, or a formula for a Boolean
+     variable *)
+  type value = (C.t, typ_fo) expr
+
   type t =
-    { transform : (C.t term) M.t;
+    { transform : value M.t;
       guard : C.t formula }
 
   let compare x y =
     match Formula.compare x.guard y.guard with
-    | 0 -> M.compare Term.compare x.transform y.transform
+    | 0 -> M.compare Expr.compare x.transform y.transform
     | cmp -> cmp
 
   let srk = C.context
@@ -43,7 +47,7 @@ struct
        (fun formatter (lhs, rhs) ->
           Format.fprintf formatter "%a := @[%a@]"
             Var.pp lhs
-            (Term.pp srk) rhs)
+            (Expr.pp srk) rhs)
        formatter
        (M.enum tr.transform);
     begin match Formula.destruct srk tr.guard with
@@ -57,20 +61,14 @@ struct
 
   let show = SrkUtil.mk_show pp
 
-  let construct guard assignment =
+  let construct guard (assignment : (var * (C.t, [< typ_fo]) expr) list) =
     { transform =
-        List.fold_left (fun m (v, term) -> M.add v term m) M.empty assignment;
+        List.fold_left (fun m (v, rhs) -> M.add v (rhs :> value) m) M.empty assignment;
       guard = guard }
 
-  let assign v term =
-    { transform = M.add v term M.empty;
+  let assign v (rhs : (C.t, [< typ_fo]) expr) =
+    { transform = M.add v (rhs :> value) M.empty;
       guard = mk_true srk }
-
-  let arith_assign v (t : C.t arith_term) =
-    assign v (t :> C.t term)
-
-  let arr_assign v (t : C.t arr_term) =
-    assign v (t :> C.t term)
 
   let parallel_assign assignment = construct (mk_true srk) assignment
 
@@ -125,7 +123,7 @@ struct
     let transform =
       let merge v x y =
         match x, y with
-        | Some s, Some t when Term.equal s t -> Some s
+        | Some s, Some t when Expr.equal s t -> Some s
         | _, _ ->
           let phi =
             mk_symbol srk ~name:("phi_" ^ (Var.show v)) ((Var.typ v) :> typ)
@@ -262,9 +260,9 @@ struct
               else
                 mk_const srk (Var.symbol_of var)
             in
-            match Term.refine srk term' with
+            match Expr.refine srk term' with
             | `ArithTerm at -> (mk_eq srk term at)::eqs
-            | `ArrTerm _ -> eqs (* ignore array equalities for wedge domain*)
+            | `ArrTerm _ | `Formula _ -> eqs
             )
           transform
           []
@@ -285,20 +283,32 @@ struct
 
   (* alpha equivalence - only works for normalized transitions! *)
   exception Not_normal
+  let const_symbol rhs =
+    match destruct srk rhs with
+    | `App (a, []) -> a
+    | _ -> raise Not_normal
+
   let equiv x y =
     let sigma =
-      let map =
-        M.fold (fun v rhs m ->
-            match Term.destruct srk rhs,
-                  Term.destruct srk (M.find v y.transform) with
-            | `App (a, []), `App (b, []) -> Symbol.Map.add a (mk_const srk b) m
-            | _ -> raise Not_normal)
+      (* Rename x's Skolem constants to y's, one-to-one.  A program
+         variable is not renamed: both sides must assign the same one. *)
+      let (map, _) =
+        M.fold (fun v rhs (m, targets) ->
+            let a = const_symbol rhs in
+            let b = const_symbol (M.find v y.transform) in
+            if Var.of_symbol a != None || Var.of_symbol b != None then
+              if a = b then (m, targets) else raise Not_normal
+            else
+              match Symbol.Map.find_opt a m with
+              | Some b' -> if b = b' then (m, targets) else raise Not_normal
+              | None ->
+                if Symbol.Set.mem b targets then raise Not_normal
+                else (Symbol.Map.add a b m, Symbol.Set.add b targets))
           x.transform
-          Symbol.Map.empty
+          (Symbol.Map.empty, Symbol.Set.empty)
       in
       fun sym ->
-        try Symbol.Map.find sym map
-        with Not_found -> mk_const srk sym
+        mk_const srk (Symbol.Map.find_default sym sym map)
     in
     let x_guard = substitute_const srk sigma x.guard in
     let equiv = SrkSimplify.simplify_terms srk (mk_iff srk x_guard y.guard) in
@@ -307,9 +317,13 @@ struct
     | _ -> false
 
   let equiv x y =
-    try equiv x y
-    with | Not_found -> false
-         | Not_normal -> false
+    (* Transitions that assign different sets of variables are not
+       equivalent.  (equiv raises Not_found if y does not assign a variable
+       that x assigns, so it suffices to compare the number of variables.) *)
+    M.cardinal x.transform = M.cardinal y.transform
+    && (try equiv x y
+        with | Not_found -> false
+             | Not_normal -> false)
 
   let equal x y =
     compare x y = 0
@@ -482,7 +496,7 @@ struct
   let abstract_post pre tr =
     let srk = C.context in
     let man = SrkApron.get_manager pre in
-    let exists x = Var.of_symbol x != None in
+    let exists x = Var.of_symbol x != None && is_arith_typ (typ_symbol srk x) in
     let fresh =
       Memo.memo (fun sym -> mk_const srk (mk_symbol srk (typ_symbol srk sym)))
     in
@@ -496,7 +510,7 @@ struct
     let transform_formula =
       transform tr
       /@ (fun (lhs, rhs) ->
-          mk_eq srk (mk_const srk (Var.symbol_of lhs)) rhs
+          mk_eq srk (mk_const srk (Var.symbol_of lhs)) (tr_subst rhs)
           )
       |> BatList.of_enum
     in
@@ -510,26 +524,34 @@ struct
     |> SrkApron.abstract ~exists srk man
 
   let linearize tr =
-    let (transform, defs) =
-      M.fold (fun var t (transform, defs) ->
-          let (pure_t, t_defs) =
-            SrkSimplify.purify srk (Nonlinear.uninterpret srk t)
-          in
-          let new_defs =
-            Symbol.Map.enum t_defs
-            /@ (fun (v,t) ->
-              match Expr.refine srk t with
-              | `ArithTerm t ->
-                 mk_eq srk (mk_const srk v) (Nonlinear.interpret srk t)
-              | _ -> assert false)
-            |> BatList.of_enum
-          in
-          (M.add var pure_t transform, new_defs@defs))
+    (* Share the purifier across assignments and the guard, so identical
+       applications are represented by the same fresh constant. *)
+    let purify =
+      purify_expr srk ~label:(fun _ -> "uninterp") (fun expr ->
+          match destruct srk expr with
+          | `Quantify _ -> invalid_arg "purify: free variable"
+          | `App (_, _::_) -> true
+          | _ -> false)
+    in
+    let transform =
+      M.map (fun t -> fst (purify (Nonlinear.uninterpret srk t)))
         tr.transform
-        (M.empty, [])
+    in
+    let (guard, defs) = purify (Nonlinear.uninterpret srk (tr.guard :> value)) in
+    (* Keep arithmetic definitions (e.g., x*x in b := (x*x > y)), and
+       forget predicate definitions to obtain a formula in LIRA. *)
+    let defs =
+      Symbol.Map.enum defs
+      |> BatEnum.filter_map (fun (v,t) ->
+          match Expr.refine srk t with
+          | `ArithTerm t ->
+             Some (mk_eq srk (mk_const srk v) (Nonlinear.interpret srk t))
+          | `Formula _ -> None
+          | `ArrTerm _ -> assert false)
+      |> BatList.of_enum
     in
     let guard =
-      Nonlinear.linearize srk (mk_and srk (tr.guard::defs))
+      Nonlinear.linearize srk (mk_and srk (Expr.formula_of srk guard::defs))
     in
     { transform; guard }
 end

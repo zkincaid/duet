@@ -516,8 +516,8 @@ let abstract ?exists:(p=fun _ -> true) srk man phi =
           top man env_proj
         end else begin
           let disjunct =
-            match PLT.select_plt srk phi interp with
-            | Some cube -> cube
+            match PLT.select_cube srk phi interp with
+            | Some cube -> PLT.plt_of_cube cube
             | None -> assert false
           in
           let valuation i =

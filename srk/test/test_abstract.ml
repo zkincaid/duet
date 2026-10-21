@@ -392,6 +392,18 @@ let suite = "Abstract" >::: [
     "degree3_abstract" >:: degree3_abstract;
     "lt_abstract" >:: lt_abstract;
     "abstract_pc" >:: abstract_pc
+    ; "conv_hull_empty_terms" >:: (fun () ->
+        let open Syntax in
+        let a = Ctx.mk_const (Ctx.mk_symbol ~name:"a" `TyArr) in
+        let b = Ctx.mk_const (Ctx.mk_symbol ~name:"b" `TyArr) in
+        let solver = Abstract.Solver.make srk (mk_eq srk a b) in
+        let hull () = Abstract.ClosedConvexHull.abstract solver [||] in
+        assert_equal_dd (Polyhedron.dd_of 0 Polyhedron.top) (hull ());
+        Abstract.Solver.push solver;
+        Abstract.Solver.add solver [Ctx.mk_false];
+        assert_equal_dd (Polyhedron.dd_of 0 Polyhedron.bottom) (hull ());
+        Abstract.Solver.pop solver;
+        assert_equal_dd (Polyhedron.dd_of 0 Polyhedron.top) (hull ()))
     ; "conv_hull" >:: (fun () ->
         let open Infix in
         let phi =

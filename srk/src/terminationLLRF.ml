@@ -15,8 +15,8 @@ let llrf_residual solver =
   let x_xp =
     Symbol.Set.fold
       (fun s xs -> (s,s)::xs)
-      (IS.get_constants solver)
-      (IS.get_symbols solver)
+      (IS.get_numeric_constants solver)
+      (IS.get_numeric_symbols solver)
   in
   let pre =
     List.map (fun (x,_) -> mk_const srk x) x_xp

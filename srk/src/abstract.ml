@@ -719,7 +719,9 @@ module ClosedConvexHull = struct
       |> BatList.of_enum
       |> mk_and srk
     in
-    let of_model = match (Solver.get_theory solver, local_abs) with
+    let of_model =
+      if target_dim = 0 then (fun _ -> top)
+      else match (Solver.get_theory solver, local_abs) with
       | (`LIRA, `LIRA abs) ->
           fun m ->
             begin match m with

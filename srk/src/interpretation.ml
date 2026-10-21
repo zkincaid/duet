@@ -217,13 +217,7 @@ let select_implicant interp ?(env=Env.empty) phi =
     match ArithTerm.destruct srk t with
     | `Real _ | `App (_, []) | `Var (_, _) -> (t, [])
     | `App (func, args) ->
-      let (args, implicant) =
-        List.fold_right (fun arg (args, impl) ->
-            let (arg, arg_impl) = expr arg in
-            (arg::args, arg_impl@impl))
-          args
-          ([], [])
-      in
+      let (args, implicant) = arguments args in
       (mk_app srk func args, implicant)
     | `Add xs ->
       let (summands, implicant) =
@@ -345,8 +339,17 @@ let select_implicant interp ?(env=Env.empty) phi =
             | _ ->
               invalid_arg "select_implicant: ill-typed propositional variable"
           end
+        | `Proposition (`App (func, args)) ->
+          if not (evaluate_formula interp ~env psi) then
+            let (args, implicant) = arguments args in
+            Some ((mk_not srk (mk_app srk func args))::implicant)
+          else
+            None
         | `Fls -> Some []
         | `Tru -> None
+        | `And _ | `Or _ | `Not _ | `Ite _ ->
+          (* Push the negation inward *)
+          formula (rewrite srk ~down:(nnf_rewriter srk) phi)
         | _ ->
           invalid_arg (Format.asprintf "select_implicant: negation (%a)"
                          (Formula.pp srk) psi)
@@ -372,13 +375,7 @@ let select_implicant interp ?(env=Env.empty) phi =
       end
     | `Proposition (`App (func, args)) ->
       if evaluate_formula interp ~env (mk_app srk func args) then
-        let (args, implicant) =
-          List.fold_right (fun arg (args, impl) ->
-              let (arg, arg_impl) = expr arg in
-              (arg::args, arg_impl@impl))
-            args
-            ([], [])
-        in
+        let (args, implicant) = arguments args in
         Some ((mk_app srk func args)::implicant)
       else
         None
@@ -399,6 +396,12 @@ let select_implicant interp ?(env=Env.empty) phi =
         match formula not_phi with
         | Some phi_impl -> ((mk_false srk :> ('a,typ_fo) expr), phi_impl)
         | None -> assert false
+  and arguments args =
+    List.fold_right (fun arg (args, impl) ->
+        let (arg, arg_impl) = expr arg in
+        (arg::args, arg_impl@impl))
+      args
+      ([], [])
   in
   formula phi
 

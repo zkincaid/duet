@@ -385,7 +385,9 @@ let linearize srk phi =
           Abstract.affine_hull
             srk
             (mk_and srk [lin_phi; nonlinear_defs])
-            (Symbol.Map.keys nonlinear |> BatList.of_enum)
+            (Symbol.Map.keys nonlinear
+             |> BatEnum.filter (fun sym -> is_arith_typ (typ_symbol srk sym))
+             |> BatList.of_enum)
         in
         List.map (mk_eq srk (mk_real srk QQ.zero)) hull |> mk_and srk
       in

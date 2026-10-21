@@ -24,7 +24,7 @@ let mp exp solver =
     List.fold_left (fun pre_to_post (x,x') ->
         Symbol.Map.add x (mk_const srk x') pre_to_post)
       Symbol.Map.empty
-      (IS.get_symbols solver)
+      (IS.get_numeric_symbols solver)
   in
   let tf = IS.get_formula solver in
   let phi_k = (* approximate k-fold composition of phi *)
@@ -33,8 +33,8 @@ let mp exp solver =
   let pre_symbols =
     List.fold_left
       (fun set (s,_) -> Symbol.Set.add s set)
-      (IS.get_constants solver)
-      (IS.get_symbols solver)
+      (IS.get_numeric_constants solver)
+      (IS.get_numeric_symbols solver)
   in
   let pre = qe (fun sym -> Symbol.Set.mem sym pre_symbols) tf in
   let pre' = (* pre'[x -> x', x' -> x''] *)

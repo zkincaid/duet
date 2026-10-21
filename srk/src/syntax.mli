@@ -42,6 +42,9 @@ type 'a typ_fun = [ `TyFun of (typ_fo list) * 'a ]
 
 val pp_typ : Format.formatter -> [< typ] -> unit
 
+(** Is a type arithmetic ([`TyInt] or [`TyReal])? *)
+val is_arith_typ : [< typ] -> bool
+
 (** {2 Symbols} *)
 
 (** Symbols are represented as non-negative integers, but the type definition
@@ -502,7 +505,8 @@ val mk_compare : [ `Eq | `Leq | `Lt ] -> 'a context -> 'a arith_term ->
    each matching expression with a fresh constant of the same type, and return
    the substitution map sending each such constant to the original
    expression. Sub-expressions that are equal are associated with the same
-   constant.  *)
+   constant. Repeated calls through the same purifier reuse constants and
+   return the accumulated definitions. *)
 val purify_expr : 'a context ->
   (('a, 'b) expr -> bool) ->
   ?label:(('a, 'b) expr -> string) ->

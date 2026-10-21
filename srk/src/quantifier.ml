@@ -1588,17 +1588,27 @@ let qe_mbp srk phi =
     let rec loop () =
       match Solver.get_model solver with
       | `Sat m ->
-         let valuation i =
-           match Linear.sym_of_dim i with
-           | Some k -> Interpretation.real m k
-           | None -> QQ.one
+         let psi =
+           if typ_symbol srk x = `TyBool then
+             let value =
+               if Interpretation.bool m x then mk_true srk else mk_false srk
+             in
+             Syntax.substitute_const srk (fun y ->
+                 if y = x then (value :> ('a, typ_fo) expr) else mk_const srk y)
+               phi
+           else
+             let valuation i =
+               match Linear.sym_of_dim i with
+               | Some k -> Interpretation.real m k
+               | None -> QQ.one
+             in
+             let x_dim = Linear.dim_of_sym x in
+             let vt = match PLT.select_cube srk phi m with
+               | None -> assert false
+               | Some cube -> PLT.select_vt x_dim valuation (PLT.plt_of_cube cube)
+             in
+             PLT.virtual_subst srk [(x_dim, vt)] phi
          in
-         let x_dim = Linear.dim_of_sym x in
-         let vt = match PLT.select_plt srk phi m with
-           | None -> assert false
-           | Some cube -> PLT.select_vt x_dim valuation cube
-         in
-         let psi = PLT.virtual_subst srk [(x_dim, vt)] phi in
          disjuncts := psi::(!disjuncts);
          Solver.add solver [mk_not srk psi];
          loop ()
@@ -1691,7 +1701,7 @@ let _orient project eqs =
   in
   go eqs []
 
-let exists_elim solver ?(dnf=false) exists =
+let exists_elim solver ?(dnf=false) keep =
   let srk = Abstract.Solver.get_context solver in
   let phi =
     lift_ite srk (Abstract.Solver.get_formula solver)
@@ -1699,7 +1709,17 @@ let exists_elim solver ?(dnf=false) exists =
          ~down:(pos_rewriter srk)
          ~up:(SrkSimplify.simplify_terms_rewriter srk)
   in
-  let project = Symbol.Set.diff (symbols phi) exists in
+  let (project, eliminated_bools) =
+    Symbol.Set.fold (fun x (project, bools) ->
+        match typ_symbol srk x with
+        | `TyInt | `TyReal -> (Symbol.Set.add x project, bools)
+        | `TyBool -> (project, Symbol.Set.add x bools)
+        | `TyArr | `TyFun _ ->
+          invalid_arg (Format.asprintf "Quantifier.exists_elim: cannot project %a"
+                         (pp_symbol srk) x))
+      (Symbol.Set.diff (symbols phi) keep)
+      (Symbol.Set.empty, Symbol.Set.empty)
+  in
   let disjuncts = ref [] in
   let rec loop () =
     match Abstract.Solver.get_model solver with
@@ -1710,20 +1730,39 @@ let exists_elim solver ?(dnf=false) exists =
          | Some k -> Interpretation.real interp k
          | None -> QQ.one
        in
-       let (cube, subst) =
-         match PLT.select_plt srk phi interp with
+       let cube = match PLT.select_cube srk phi interp with
          | None -> assert false
-         | Some cube ->
-            Symbol.Set.fold (fun x (cube, subst) ->
-                let x_dim = Linear.dim_of_sym x in
-                let vt = PLT.select_vt x_dim valuation cube in
-                (PLT.virtual_subst_plt [(x_dim,vt)] cube, (x_dim,vt)::subst))
-              project
-           (cube, [])
+         | Some cube -> cube
+       in
+       let (plt, subst) =
+         Symbol.Set.fold (fun x (plt, subst) ->
+             let x_dim = Linear.dim_of_sym x in
+             let vt = PLT.select_vt x_dim valuation plt in
+             (PLT.virtual_subst_plt [(x_dim,vt)] plt, (x_dim,vt)::subst))
+           project
+           (PLT.plt_of_cube cube, [])
        in
        let psi =
-         if dnf then PLT.formula_of_plt srk cube
-         else PLT.virtual_subst srk (List.rev subst) phi
+         if dnf then
+           (* The literals of eliminated Booleans hold in the model; dropping
+              them substitutes their values *)
+           let literals =
+             List.filter (fun literal ->
+                 Symbol.Set.disjoint (symbols literal) eliminated_bools)
+               (PLT.literals_of_cube cube)
+           in
+           PLT.formula_of_cube srk (PLT.make_cube plt literals)
+         else
+           let phi =
+             if Symbol.Set.is_empty eliminated_bools then phi else
+             Syntax.substitute_const srk (fun x ->
+                 if Symbol.Set.mem x eliminated_bools then
+                   (if Interpretation.bool interp x then mk_true srk
+                    else mk_false srk :> ('a, typ_fo) expr)
+                 else mk_const srk x)
+               phi
+           in
+           PLT.virtual_subst srk (List.rev subst) phi
        in
        disjuncts := psi::(!disjuncts);
        Abstract.Solver.block solver psi;
@@ -1734,9 +1773,9 @@ let exists_elim solver ?(dnf=false) exists =
   Abstract.Solver.with_blocking solver loop ()
 
 
-let mbp ?(dnf=false) srk exists phi =
+let mbp ?(dnf=false) srk keep phi =
   let solver = Abstract.Solver.make srk phi in
-  exists_elim solver ~dnf exists
+  exists_elim solver ~dnf keep
 
 let easy_sat srk phi =
   let constants = fold_constants Symbol.Set.add phi Symbol.Set.empty in

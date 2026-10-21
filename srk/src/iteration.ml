@@ -50,6 +50,13 @@ module Solver = struct
       (get_formula s)
       s.symbols
 
+  let is_numeric s x = is_arith_typ (typ_symbol (get_context s) x)
+
+  let get_numeric_symbols s =
+    List.filter (fun (x, _) -> is_numeric s x) s.symbols
+
+  let get_numeric_constants s = Symbol.Set.filter (is_numeric s) s.constants
+
   let push s =
     Abstract.Solver.push s.solver;
     A.add s.stack (A.last s.stack)
@@ -130,7 +137,7 @@ let wedge_product exps srk tr_symbols wedge loop_counter =
 let wedge_lift wedge_exp solver loop_counter =
   wedge_exp
     (Solver.get_context solver)
-    (Solver.get_symbols solver)
+    (Solver.get_numeric_symbols solver)
     (Solver.wedge_hull solver)
     loop_counter
 
@@ -165,16 +172,16 @@ module LIRRGuard = struct
 
   let abstract solver =
     let srk = Solver.get_context solver in
-    let consts = Solver.get_constants solver in
+    let consts = Solver.get_numeric_constants solver in
     let abs_solver = Solver.get_abstract_solver solver in
     let pre_simulation =
-      Symbol.Set.union consts (TF.pre_symbols (Solver.get_symbols solver))
+      Symbol.Set.union consts (TF.pre_symbols (Solver.get_numeric_symbols solver))
       |> Symbol.Set.elements
       |> List.map (mk_const srk)
       |> Array.of_list
     in
     let post_simulation =
-      Symbol.Set.union consts (TF.post_symbols (Solver.get_symbols solver))
+      Symbol.Set.union consts (TF.post_symbols (Solver.get_numeric_symbols solver))
       |> Symbol.Set.elements
       |> List.map (mk_const srk)
       |> Array.of_list
@@ -190,7 +197,7 @@ module LIRRGuard = struct
     Cartesian.{ pre; post }
 
   let exp_t solver =
-    Cartesian.exp (Solver.get_context solver) (Solver.get_symbols solver)
+    Cartesian.exp (Solver.get_context solver) (Solver.get_numeric_symbols solver)
 
   let exp solver loop_counter = exp_t solver (abstract solver) loop_counter
 end
@@ -226,15 +233,15 @@ module PolyhedronGuard = struct
 
   let abstract solver =
     let srk = Solver.get_context solver in
-    let consts = Solver.get_constants solver in
+    let consts = Solver.get_numeric_constants solver in
     let pre_simulation =
-      Symbol.Set.union consts (TF.pre_symbols (Solver.get_symbols solver))
+      Symbol.Set.union consts (TF.pre_symbols (Solver.get_numeric_symbols solver))
       |> Symbol.Set.elements
       |> List.map (mk_const srk)
       |> Array.of_list
     in
     let post_simulation =
-      Symbol.Set.union consts (TF.post_symbols (Solver.get_symbols solver))
+      Symbol.Set.union consts (TF.post_symbols (Solver.get_numeric_symbols solver))
       |> Symbol.Set.elements
       |> List.map (mk_const srk)
       |> Array.of_list
@@ -257,7 +264,7 @@ module PolyhedronGuard = struct
     Cartesian.{ pre; post }
 
   let exp_t solver =
-    Cartesian.exp (Solver.get_context solver) (Solver.get_symbols solver)
+    Cartesian.exp (Solver.get_context solver) (Solver.get_numeric_symbols solver)
 
   let exp solver loop_counter =
     exp_t solver (abstract solver) loop_counter
@@ -269,10 +276,10 @@ module LinearGuard = struct
   let pp = Cartesian.pp
 
   let abstract solver =
-    let tr_symbols = Solver.get_symbols solver in
+    let tr_symbols = Solver.get_numeric_symbols solver in
     let pre_symbols = TF.pre_symbols tr_symbols in
     let post_symbols = TF.post_symbols tr_symbols in
-    let constants = Solver.get_constants solver in
+    let constants = Solver.get_numeric_constants solver in
     let abs_solver = Solver.get_abstract_solver solver in
     let pre =
       Quantifier.exists_elim
@@ -287,7 +294,7 @@ module LinearGuard = struct
     Cartesian.{ pre; post }
 
   let exp_t solver =
-    Cartesian.exp (Solver.get_context solver) (Solver.get_symbols solver)
+    Cartesian.exp (Solver.get_context solver) (Solver.get_numeric_symbols solver)
 
   let exp solver loop_counter =
     exp_t solver (abstract solver) loop_counter
@@ -321,7 +328,7 @@ module GuardedTranslation = struct
       List.filter (fun (s,s') ->
           typ_symbol srk s = `TyInt
           && typ_symbol srk s' = `TyInt)
-        (Solver.get_symbols solver)
+        (Solver.get_numeric_symbols solver)
     in
     (* [1, x0' - x0, ..., xn' - xn] *)
     let delta =
@@ -394,7 +401,7 @@ module GuardedTranslation = struct
 
   let exp_t solver gt loop_counter =
     let srk = Solver.get_context solver in
-    let tr_symbols = Solver.get_symbols solver in
+    let tr_symbols = Solver.get_numeric_symbols solver in
     let post_map = (* map pre-state vars to post-state vars *)
       TF.post_map srk tr_symbols
     in
@@ -460,7 +467,7 @@ module LossyTranslation = struct
     let delta =
       List.map
         (fun (s,s') -> mk_sub srk (mk_const srk s') (mk_const srk s))
-        (Solver.get_symbols solver)
+        (Solver.get_numeric_symbols solver)
       |> Array.of_list
     in
     let abs_solver = Solver.get_abstract_solver solver in
@@ -999,7 +1006,7 @@ let invariant_direction exp solver loop_counter =
         [mk_lt srk x x';
          mk_lt srk x' x;
          mk_eq srk x x'])
-        tr_symbols)
+        (Solver.get_numeric_symbols solver))
     |> invariant_transition_predicates srk (Solver.get_transition_formula solver)
     |> BatArray.of_list
   in

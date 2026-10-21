@@ -842,6 +842,7 @@ type 'a open_lira = [
   | `Or of 'a list
   | `Quantify of [`Exists | `Forall] * string * typ_fo * 'a
   | `Atom of (lira_predicate * QQVector.t)
+  | `Literal of [`Pos | `Neg] * [`Const of symbol | `Var of int]
 ]
 
 let to_lira_atom srk vec_of_sym pred s t =
@@ -870,6 +871,8 @@ let destruct_lira_atom srk ?(vec_of_sym=default_vec_of_sym) phi =
 
 let destruct_lira srk ?(vec_of_sym=default_vec_of_sym) phi =
   match Formula.destruct srk phi with
+  | `Proposition (`App (k, [])) -> `Literal (`Pos, `Const k)
+  | `Proposition (`Var i) -> `Literal (`Pos, `Var i)
   | `Ite _ | `Proposition _ | `Atom (`ArrEq (_, _)) -> invalid_arg "Not a LIRA formula"
   | `Tru -> `Tru
   | `Fls -> `Fls
@@ -880,7 +883,11 @@ let destruct_lira srk ?(vec_of_sym=default_vec_of_sym) phi =
   | `Atom (`IsInt t) -> `Atom (`IsInt, linterm_of srk ~vec_of_sym t)
   | `Not psi ->
      match Formula.destruct srk psi with
+     | `Tru -> `Fls
+     | `Fls -> `Tru
      | `Atom (`IsInt t) -> `Atom (`NotInt, linterm_of srk ~vec_of_sym t)
+     | `Proposition (`App (k, [])) -> `Literal (`Neg, `Const k)
+     | `Proposition (`Var i) -> `Literal (`Neg, `Var i)
      | _ -> invalid_arg "Not a LIRA formula"
 
 let rec eval_lira srk ?(vec_of_sym=default_vec_of_sym) f phi =
@@ -892,3 +899,4 @@ let rec eval_lira srk ?(vec_of_sym=default_vec_of_sym) f phi =
   | `Quantify (qt, name, typ, psi) ->
      f (`Quantify (qt, name, typ, eval_lira srk ~vec_of_sym f psi))
   | `Atom (p, t) -> f (`Atom (p, t))
+  | `Literal (polarity, p) -> f (`Literal (polarity, p))

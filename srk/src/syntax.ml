@@ -22,6 +22,10 @@ type 'a typ_fun = [ `TyFun of (typ_fo list) * 'a ]
 type symbol = int
   [@@deriving ord]
 
+let is_arith_typ = function
+  | `TyInt | `TyReal -> true
+  | `TyBool | `TyArr | `TyFun _ -> false
+
 let pp_typ_fo formatter = function
   | `TyReal -> Format.pp_print_string formatter "real"
   | `TyInt -> Format.pp_print_string formatter "int"
@@ -1734,6 +1738,7 @@ let lift_ite srk phi =
 
 let purify_expr srk filter ?(label=fun _ -> "") =
   let table = Expr.HT.create 991 in
+  let definitions = ref Symbol.Map.empty in
   let rewriter srk table =
     fun expr ->
       if filter expr then
@@ -1743,6 +1748,7 @@ let purify_expr srk filter ?(label=fun _ -> "") =
           with Not_found ->
             let sym = mk_symbol srk ~name:(label expr) (expr_typ srk expr) in
             Expr.HT.add table expr sym;
+            definitions := Symbol.Map.add sym expr !definitions;
             sym
         in
         mk_const srk sym
@@ -1751,13 +1757,7 @@ let purify_expr srk filter ?(label=fun _ -> "") =
   in
   fun expr ->
     let expr' = rewrite srk ~up:(rewriter srk table) expr in
-    let map =
-      BatEnum.fold
-        (fun map (term, sym) -> Symbol.Map.add sym term map)
-        Symbol.Map.empty
-        (Expr.HT.enum table)
-    in
-    (expr', map)
+    (expr', !definitions)
 
 let eliminate_term srk filter ?(label=fun _ -> "") gen_equiv (qf_phi : 'a formula) =
   let (phi', map) =
