@@ -7,6 +7,14 @@ type 'a t =
 
 include Log.Make(struct let name = "srk.transitionFormula" end)
 
+let pp srk formatter tf =
+  let open Format in
+  let pp_symbol_pair formatter (s, s') =
+    fprintf formatter "%s -> %s" (show_symbol srk s) (show_symbol srk s')
+  in
+  fprintf formatter "TransitionFormula(@[<v 2>\n  symbols = [@[<hov>%a@]],@ formula = %a@])"
+    (pp_print_list ~pp_sep:(fun fmt () -> fprintf fmt ",@ ") pp_symbol_pair) tf.symbols
+    (Formula.pp srk) tf.formula
 
 let identity srk symbols =
   let formula = 
