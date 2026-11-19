@@ -33,7 +33,8 @@ let suite = "Main" >::: [
     Test_intLattice.suite;
     Test_polynomialLattice.suite;
     Test_polynomialConeCpClosure.suite;
-    Test_msolve.suite
+    Test_msolve.suite;
+    Test_skolemFragment.suite
 ]
 
 let _ =
